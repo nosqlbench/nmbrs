@@ -36,31 +36,45 @@ enum Source {
 
 /// Load a workload YAML from disk, follow its `extends:` chain
 /// to completion, and return the merged YAML text ready for
-/// `parse::parse_workload`.
+/// `parse::parse_workload`, plus any resolution warnings the
+/// chain produced (a target name matching multiple resources —
+/// see [`resolve_extends_target`]). Callers surface the warnings
+/// on their own channel; dropping them silently is a bug.
 ///
 /// The returned text has every `extends:` directive stripped.
-pub fn load_and_merge(path: &Path) -> Result<String, String> {
+pub fn load_and_merge(path: &Path) -> Result<(String, Vec<String>), String> {
     let mut chain: Vec<String> = Vec::new();
-    let merged_jval = load_recursive(Source::File(path.to_path_buf()), &mut chain)?;
-    serde_yaml::to_string(&merged_jval).map_err(|e| format!("re-serialising merged workload: {e}"))
+    let mut warnings: Vec<String> = Vec::new();
+    let merged_jval = load_recursive(Source::File(path.to_path_buf()), &mut chain, &mut warnings)?;
+    let text = serde_yaml::to_string(&merged_jval)
+        .map_err(|e| format!("re-serialising merged workload: {e}"))?;
+    Ok((text, warnings))
 }
 
 /// SRD-85: load a bundled workload from the catalog, follow its
 /// `extends:` chain (catalog-resolved — a bundled workload has
-/// no directory context), and return the merged YAML text.
+/// no directory context), and return the merged YAML text plus
+/// any resolution warnings.
 pub fn load_and_merge_bundled(
     bundled: &'static crate::catalog::BundledWorkload,
-) -> Result<String, String> {
+) -> Result<(String, Vec<String>), String> {
     let mut chain: Vec<String> = Vec::new();
-    let merged_jval = load_recursive(Source::Bundled(bundled), &mut chain)?;
-    serde_yaml::to_string(&merged_jval).map_err(|e| format!("re-serialising merged workload: {e}"))
+    let mut warnings: Vec<String> = Vec::new();
+    let merged_jval = load_recursive(Source::Bundled(bundled), &mut chain, &mut warnings)?;
+    let text = serde_yaml::to_string(&merged_jval)
+        .map_err(|e| format!("re-serialising merged workload: {e}"))?;
+    Ok((text, warnings))
 }
 
 /// Recursive loader: parses the source, resolves any `extends:`,
 /// applies merge rules. `chain` is the parent-chain of sources
 /// already being loaded (canonical path or `bundled:<name>`
 /// keys), used for cycle detection.
-fn load_recursive(src: Source, chain: &mut Vec<String>) -> Result<JVal, String> {
+fn load_recursive(
+    src: Source,
+    chain: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> Result<JVal, String> {
     // Resolve the source to (cycle key, display name, text,
     // directory context for relative extends targets).
     let (key, display, text, origin_dir): (String, String, String, Option<PathBuf>) = match &src {
@@ -106,12 +120,13 @@ fn load_recursive(src: Source, chain: &mut Vec<String>) -> Result<JVal, String> 
             bundled_origin,
             &extends_str,
             &display,
+            warnings,
         )?;
         let parent_display = match &parent_src {
             Source::File(p) => p.display().to_string(),
             Source::Bundled(w) => format!("bundled workload `{}`", w.name),
         };
-        let parent_jval = load_recursive(parent_src, chain)
+        let parent_jval = load_recursive(parent_src, chain, warnings)
             .map_err(|e| format!("while loading {display}'s parent {parent_display}: {e}"))?;
 
         // Strip `extends:` from the child before merging so the
@@ -129,27 +144,38 @@ fn load_recursive(src: Source, chain: &mut Vec<String>) -> Result<JVal, String> 
     Ok(result)
 }
 
-/// Resolve an `extends:` target per the SRD-85 two-step order:
-/// local first (relative to the including file's directory, when
-/// there is one), then the bundled catalog. A target that
-/// resolves both ways is an error — never silent shadowing; the
-/// `./` prefix pins the local reading (catalog names never start
-/// with `./`).
+/// Resolve an `extends:` target per the SRD-85 nearest-first
+/// order — the logical filesystem location is always favored:
 ///
-/// Catalog candidates, in order:
-/// 1. The target as a catalog name (extension stripped — files
-///    extend siblings by filename, catalog names carry none).
-/// 2. For a bundled origin: the target resolved inside the
-///    origin's namespace (`cql/full_cql_vector_sweep` extending
-///    `full_cql_vector.yaml` finds `cql/full_cql_vector`), so
-///    the sibling-by-filename idiom works identically on disk
-///    and in the catalog.
+/// 1. A file relative to the including file's directory (when
+///    there is one).
+/// 2. For a bundled origin: the target inside the origin's
+///    namespace (`cql/vector_suite/full_cql_vector_sweep`
+///    extending `full_cql_vector.yaml` finds
+///    `cql/vector_suite/full_cql_vector`) — the sibling-by-
+///    filename idiom works identically on disk and in the
+///    catalog.
+/// 3. The target as a bare catalog name (extension stripped —
+///    files extend siblings by filename, catalog names carry
+///    none).
+///
+/// A target matching MORE THAN ONE of these is a warnable
+/// condition, not an error: the nearest candidate wins, and a
+/// warning naming every match is pushed for the caller to log —
+/// shadowing is allowed but never silent. A `./`-prefixed target
+/// that resolves at its pinned location (the local file, or the
+/// origin namespace for a bundled origin) is explicit — no
+/// warning. Prefer globally unique names to avoid the ambiguity
+/// altogether.
 fn resolve_extends_target(
     origin_dir: Option<&Path>,
     bundled_origin: Option<&str>,
     target: &str,
     child_display: &str,
+    warnings: &mut Vec<String>,
 ) -> Result<Source, String> {
+    let pinned = target.starts_with("./") || target.starts_with("../");
+
     let local: Option<PathBuf> = origin_dir.map(|d| d.join(target)).filter(|p| p.exists());
 
     let stem = target
@@ -157,22 +183,50 @@ fn resolve_extends_target(
         .or_else(|| target.strip_suffix(".yml"))
         .unwrap_or(target);
     let stem = stem.strip_prefix("./").unwrap_or(stem);
-    let bundled = crate::catalog::lookup(stem).or_else(|| {
-        let ns = bundled_origin?.rsplit_once('/')?.0;
-        crate::catalog::lookup(&format!("{ns}/{stem}"))
-    });
+    let ns_hit = bundled_origin
+        .and_then(|o| o.rsplit_once('/'))
+        .and_then(|(ns, _)| crate::catalog::lookup(&format!("{ns}/{stem}")));
+    let bare_hit = crate::catalog::lookup(stem).filter(|b| ns_hit.map(|n| n.name) != Some(b.name));
 
-    match (local, bundled) {
-        (Some(local_path), Some(w)) => Err(format!(
-            "{child_display}: `extends: {target}` is ambiguous — it names both \
-             the local file {} and the bundled workload `{}`. Prefix the \
-             local path with `./` to pin the file, or rename it.",
-            local_path.display(),
-            w.name,
-        )),
-        (Some(local_path), None) => Ok(Source::File(local_path)),
-        (None, Some(w)) => Ok(Source::Bundled(w)),
-        (None, None) => {
+    // A pinned target that resolves at its pinned location is
+    // unambiguous by declaration.
+    if pinned && local.is_some() {
+        return Ok(Source::File(local.unwrap()));
+    }
+    if pinned
+        && origin_dir.is_none()
+        && let Some(w) = ns_hit
+    {
+        return Ok(Source::Bundled(w));
+    }
+
+    // Nearest-first candidate list.
+    let mut candidates: Vec<(String, Source)> = Vec::new();
+    if let Some(p) = local {
+        candidates.push((format!("local file {}", p.display()), Source::File(p)));
+    }
+    if let Some(w) = ns_hit {
+        candidates.push((format!("bundled workload `{}`", w.name), Source::Bundled(w)));
+    }
+    if let Some(w) = bare_hit {
+        candidates.push((format!("bundled workload `{}`", w.name), Source::Bundled(w)));
+    }
+
+    if candidates.len() > 1 {
+        let names: Vec<&str> = candidates.iter().map(|(n, _)| n.as_str()).collect();
+        warnings.push(format!(
+            "{child_display}: `extends: {target}` matches multiple resources — {} — \
+             using the nearest ({}). Same-named resources in multiple places \
+             invite confusion: prefer a unique name, or pin the intent with a \
+             `./` path / full catalog name.",
+            names.join(" AND "),
+            names[0],
+        ));
+    }
+
+    match candidates.into_iter().next() {
+        Some((_, src)) => Ok(src),
+        None => {
             let local_hint = origin_dir
                 .map(|d| format!("{}", d.join(target).display()))
                 .unwrap_or_else(|| {

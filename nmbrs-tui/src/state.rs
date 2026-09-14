@@ -81,12 +81,14 @@ pub enum LogSeverity {
 pub struct LogEntry {
     pub severity: LogSeverity,
     pub message: String,
-    /// Provenance tag. Defaults to [`LogCategory::Diagnostic`];
-    /// phase start/end readout renders carry
-    /// [`LogCategory::PhaseLifecycle`] so the terminal sink can
-    /// keep them out of its scrollback (the managed phase-history
-    /// region shows them instead).
-    pub category: LogCategory,
+    /// Provenance tag — two orthogonal axes (see
+    /// [`nmbrs_runtime::observer::EventTag`]): the execution-
+    /// lifecycle boundary the entry attaches to (`None` =
+    /// in-flight) and its semantic category. Sinks derive their
+    /// presentation rules from the axes — e.g. the terminal sink
+    /// keeps `PhaseStart`-attached renders out of its scrollback
+    /// (the managed phase-history region shows them instead).
+    pub tag: EventTag,
     /// Wall-clock at log-entry creation. The dump uses
     /// this directly; the live TUI ignores it (it has its
     /// own scroll-based ordering).
@@ -102,10 +104,10 @@ pub use nmbrs_runtime::scene_tree::PhaseStatus;
 pub use nmbrs_runtime::scene_tree::{SceneNode, SceneNodeId, SceneTree};
 
 // Provenance tag for log entries, owned by the observer layer.
-// Re-exported so `crate::state::LogCategory` reads naturally at
-// the sink call sites (mirrors the `EntryKind` / `PhaseStatus`
-// re-export pattern above).
-pub use nmbrs_runtime::observer::LogCategory;
+// Re-exported so `crate::state::EventTag` / `EventCategory` read
+// naturally at the sink call sites (mirrors the `EntryKind` /
+// `PhaseStatus` re-export pattern above).
+pub use nmbrs_runtime::observer::{EventCategory, EventTag};
 
 /// End-of-phase metrics snapshot attached to a completed phase.
 /// Mirrors the live progress bar so an expanded tree entry shows the
@@ -513,23 +515,18 @@ impl RunState {
     /// `log_seq_total` increments unconditionally so display sinks
     /// can detect new-since-last-drain without inspecting the ring.
     pub fn push_log(&mut self, severity: LogSeverity, message: String) {
-        self.push_log_categorized(severity, LogCategory::Diagnostic, message);
+        self.push_log_tagged(severity, EventTag::default(), message);
     }
 
-    /// [`Self::push_log`] with an explicit [`LogCategory`]. The
-    /// category travels with the entry into the ring so the
-    /// terminal sink can filter phase-lifecycle lines out of its
-    /// scrollback at drain time.
-    pub fn push_log_categorized(
-        &mut self,
-        severity: LogSeverity,
-        category: LogCategory,
-        message: String,
-    ) {
+    /// [`Self::push_log`] with an explicit [`EventTag`]. The tag
+    /// travels with the entry into the ring so the terminal sink
+    /// can derive its filtering (boundary-attached renders out of
+    /// scrollback) from the axes at drain time.
+    pub fn push_log_tagged(&mut self, severity: LogSeverity, tag: EventTag, message: String) {
         self.push_log_entry(LogEntry {
             severity,
             message,
-            category,
+            tag,
             at: std::time::SystemTime::now(),
         });
     }

@@ -224,7 +224,7 @@ fn dispatch(line: &str, handle: &RunStateHandle) -> bool {
             let msg: String = parts.collect::<Vec<_>>().join(" ").replace('|', "\n");
             handle.send(RunStateCmd::Log {
                 severity: LogSeverity::Info,
-                category: nmbrs_tui::state::LogCategory::Diagnostic,
+                tag: nmbrs_tui::state::EventTag::default(),
                 message: msg,
             });
         }

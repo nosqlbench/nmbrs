@@ -2104,14 +2104,18 @@ impl OpDispenser for CqlBatchDispenser {
 }
 
 impl CqlBatchDispenser {
-    /// Sum the estimated CQL-encoded size of the present values in a
-    /// pulled row. Absent wires (`None`) contribute nothing, matching
-    /// the bind loop that skips them.
+    /// Estimated server-accounted size of one pulled row: the present
+    /// values' encoded sizes plus the per-mutation `ROW_OVERHEAD` the
+    /// server's batch accounting adds (same accounting as
+    /// `estimate_row_size`). Absent wires (`None`) contribute nothing,
+    /// matching the bind loop that skips them.
     fn estimate_optional_row(row: &[Option<polydat::ast::Value>]) -> u64 {
-        row.iter()
-            .filter_map(|o| o.as_ref())
-            .map(crate::common::size_estimator::estimate_value_size)
-            .sum()
+        crate::common::size_estimator::ROW_OVERHEAD
+            + row
+                .iter()
+                .filter_map(|o| o.as_ref())
+                .map(crate::common::size_estimator::estimate_value_size)
+                .sum::<u64>()
     }
 
     /// Bind and execute one CQL BATCH over the given pulled rows,

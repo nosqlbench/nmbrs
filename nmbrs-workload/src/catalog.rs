@@ -21,9 +21,12 @@
 //! rest.
 //!
 //! Resolution policy lives with the resolver
-//! (`nmbrs-runtime::runner::resolve_workload_file`): local
-//! files first, catalog second, and a name that resolves both
-//! ways is a hard error — never silent shadowing.
+//! (`nmbrs-runtime::runner::resolve_workload`): nearest-first —
+//! the logical filesystem location is favored over the catalog
+//! by default, and a name that resolves both ways picks the
+//! local file with a LOGGED WARNING naming both candidates.
+//! Shadowing is allowed but never silent; `--strict` promotes
+//! the warning to an error.
 
 use std::sync::OnceLock;
 

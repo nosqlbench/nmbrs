@@ -420,6 +420,40 @@ Per-verb wrappers are both semantically wrong and slow. Rejected.
    WITHOUT EXECUTING (a synthesised `tries_zero` error, routed like
    any terminal failure). `tries: N ≥ 2` → up to N total attempts.
    `errors:` and `tries:` are **orthogonal configuration surfaces**.
+   The wrapper's companion knobs ride the same op-param excision as
+   `tries` itself: retry pacing (`retry_backoff` /
+   `retry_backoff_max` / `retry_backoff_ratio`, or the `tries:` map
+   form's `backoff:`) and **retry-error counter-exemplars**
+   (`retry_exemplar_rate`, a fraction ∈ [0,1] defaulting to 0.0 =
+   off, and `retry_exemplar_max_hz`, an emission-frequency ceiling
+   defaulting to 5/s). An error the wrapper retries never reaches
+   the `errors:` policy — it exists only as an `attempt_failure`
+   count — so at a non-zero rate the wrapper samples caught errors
+   onto the structured event sink (`nmbrs-runtime::exec_events`, the
+   opt-in `ExecEventSubscriber` decorator service): one WARN-level
+   session-log line per sampled specimen carrying op, attempt/budget,
+   cycle, error class, and message. Sampling is deterministic on
+   (cycle, attempt) so replays reproduce it; admissions over the
+   frequency ceiling are squelched AND counted, the tally reported
+   on the next emitted line (leftovers flush at Debug when the
+   sampler retires) — squelched, never silent. Both knobs are also
+   SRD-23 **dynamic controls** (`retry_exemplar_rate` /
+   `retry_exemplar_max_hz`, declared per activity, `DeclaredWhen::
+   Always`), push-on-set: the applier is one atomic store into the
+   activity's shared `ExemplarConfig` cell, which every tries
+   wrapper that did NOT pin its own `retry_exemplar_*` params reads
+   — only on its retry path, one atomic load. No control-registry
+   traffic per op. An op with pinned params holds a private cell
+   the controls deliberately do not move: authored matter wins, the
+   live control moves the rest. Independent of sampling, the retry
+   loop carries a DEFAULT-ON advisory: the first sighting of each
+   error class per phase emits one actionable line (shared
+   per-activity gate, capped at 3 classes; `retry_advisory: off`
+   opts an op out) — a retry storm identifies itself even with
+   every sampler off. User-facing walkthrough of the whole stack:
+   `docs/guide/retry_visibility_and_throttle.md`; runnable
+   demonstrations: `examples/workloads/controls/retry_visibility.
+   yaml` and `throttle_backpressure.yaml`.
 5. **The injection bridge**: the `errors` wrapper resolves *before*
    the tries wrapper's activation is evaluated. A `retry` / `retry(N)`
    verb in the compiled spec injects a `tries` budget (`N` additional

@@ -7,6 +7,13 @@
 //!   nmbrs run adapter=stdout workload=file.yaml cycles=100 threads=4
 //!   nmbrs run workload=file.yaml tags=block:main rate=1000
 //!   nmbrs file.yaml scenario_name [param=value ...]
+//!   ./file.yaml scenario_name [param=value ...]
+//!
+//! The last form is direct shebang execution: a workload whose first
+//! line is `#!/usr/bin/env nmbrs` (and is executable) is a program.
+//! The kernel hands the script path to nmbrs as argv[1] and the
+//! script's arguments after it — the bare-workload-file shortcut
+//! maps them to `run workload=<path> scenario=<word> k=v …`.
 
 mod bench;
 mod blueprint_cmd;
@@ -121,10 +128,23 @@ fn main() {
     // deletes directories, and a read must never delete data. Unrecognised
     // subcommands count as non-creating, which fails safe (cleanup is skipped and
     // the next writing command does it).
-    let creates_session = matches!(
-        args.first().map(String::as_str),
-        Some("run" | "check" | "refine" | "session" | "bench" | "daemon")
-    );
+    // Bare-workload-file shortcut (`nmbrs myworkload.yaml …`), which is
+    // also how direct shebang execution of a `#!/usr/bin/env nmbrs`
+    // workload arrives (argv[1] = the script path, argv[2..] = its
+    // arguments). Resolved ONCE, here, because it must participate in
+    // the session-purge gate below exactly like `run` — a bare-file
+    // invocation creates a session.
+    let bare_workload: Option<String> = args
+        .first()
+        .filter(|cmd| !cmd.starts_with('-'))
+        .filter(|cmd| root.subcommands.iter().all(|s| s.name != cmd.as_str()))
+        .and_then(|cmd| cli::resolve_workload_path(cmd));
+
+    let creates_session = bare_workload.is_some()
+        || matches!(
+            args.first().map(String::as_str),
+            Some("run" | "check" | "refine" | "session" | "bench" | "daemon")
+        );
     nmbrs_runtime::session::purge_stale_sessions_at_startup(&args, creates_session);
 
     // SRD-102: resolve the physical thread-pool config — CLI `--threads.*`
@@ -145,15 +165,11 @@ fn main() {
         return;
     }
 
-    // Bare-workload-file shortcut (`nmbrs myworkload.yaml …`).
-    // Predates the spec model and isn't a Command — handle it
+    // Bare-workload-file dispatch (resolved above, pre-purge).
+    // Predates the spec model and isn't a Command — handled
     // before parsing so the walker doesn't see "myworkload.yaml"
     // as an unknown command.
-    let cmd = args[0].as_str();
-    if !cmd.starts_with('-')
-        && root.subcommands.iter().all(|s| s.name != cmd)
-        && let Some(path) = cli::resolve_workload_path(cmd)
-    {
+    if let Some(path) = bare_workload {
         let rt = build_workers_runtime();
         let run_args = build_bare_workload_args(&path, &args[1..]);
         rt.block_on(run::run_command(&run_args));

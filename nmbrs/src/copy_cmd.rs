@@ -78,8 +78,32 @@ pub fn copy_command(args: &[String]) -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
         bundled.name,
     );
-    std::fs::write(&dest, format!("{provenance}{}", bundled.source))
-        .map_err(|e| format!("write {}: {e}", dest.display()))?;
+    // A shebang is only honored at byte 0: when the bundled source
+    // opens with `#!/usr/bin/env nmbrs`, the interpreter line stays
+    // FIRST and the provenance stamp goes directly under it, so the
+    // materialized copy remains directly executable.
+    let has_shebang = bundled.source.starts_with("#!");
+    let content = if has_shebang {
+        match bundled.source.split_once('\n') {
+            Some((bang, rest)) => format!("{bang}\n{provenance}{rest}"),
+            None => format!("{}\n{provenance}", bundled.source),
+        }
+    } else {
+        format!("{provenance}{}", bundled.source)
+    };
+    std::fs::write(&dest, content).map_err(|e| format!("write {}: {e}", dest.display()))?;
+    // Shebang'd workloads ship executable: add exec bits for every
+    // class that already has read, mirroring the source's intent.
+    #[cfg(unix)]
+    if has_shebang {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(&dest).map_err(|e| format!("stat {}: {e}", dest.display()))?;
+        let mut perms = meta.permissions();
+        let mode = perms.mode();
+        perms.set_mode(mode | ((mode & 0o444) >> 2));
+        std::fs::set_permissions(&dest, perms)
+            .map_err(|e| format!("chmod {}: {e}", dest.display()))?;
+    }
     println!(
         "copied bundled workload `{}` to {}",
         bundled.name,

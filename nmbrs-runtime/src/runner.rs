@@ -1746,10 +1746,12 @@ async fn run_execution(
                 // SRD-72 + SRD-85: a bundled workload's
                 // `extends:` chain resolves through the catalog
                 // (no directory context).
-                let merged = nmbrs_workload::extends::load_and_merge_bundled(bundled)
-                    .map_err(|e| format!("bundled workload `{}`: {e}", bundled.name))?;
-                let workload = nmbrs_workload::parse::parse_workload(&merged, &params)
+                let (merged, res_warnings) =
+                    nmbrs_workload::extends::load_and_merge_bundled(bundled)
+                        .map_err(|e| format!("bundled workload `{}`: {e}", bundled.name))?;
+                let mut workload = nmbrs_workload::parse::parse_workload(&merged, &params)
                     .map_err(|e| format!("parse bundled workload `{}`: {e}", bundled.name))?;
+                workload.resolution_warnings.extend(res_warnings);
                 workload_source_text = Some(bundled.source.to_string());
                 workload
             }
@@ -2401,7 +2403,31 @@ async fn run_execution(
             ));
         }
         for w in &workload.report_warnings {
-            crate::diag!(crate::observer::LogLevel::Warn, "report: {w}");
+            crate::observer::log_tagged(
+                crate::observer::LogLevel::Warn,
+                crate::observer::EventTag::in_flight(crate::observer::EventCategory::Report),
+                &format!("report: {w}"),
+            );
+        }
+    }
+
+    // SRD-85 nearest-first reference resolution: a target that
+    // matched multiple same-named resources resolved to the
+    // nearest (filesystem favored) and is surfaced here — the
+    // shadowing is allowed but never silent. Strict promotes.
+    if !workload.resolution_warnings.is_empty() {
+        if strict {
+            return Err(format!(
+                "reference-resolution warnings (strict mode promotes to errors):\n  - {}",
+                workload.resolution_warnings.join("\n  - "),
+            ));
+        }
+        for w in &workload.resolution_warnings {
+            crate::observer::log_tagged(
+                crate::observer::LogLevel::Warn,
+                crate::observer::EventTag::in_flight(crate::observer::EventCategory::Resolution),
+                &format!("resolve: {w}"),
+            );
         }
     }
 
@@ -6040,10 +6066,12 @@ fn load_secondary_workload(
             Ok((workload, canonical_identity(&path)))
         }
         ResolvedWorkload::Bundled(bundled) => {
-            let merged = nmbrs_workload::extends::load_and_merge_bundled(bundled)
-                .map_err(|e| format!("bundled workload `{}`: {e}", bundled.name))?;
-            let workload = nmbrs_workload::parse::parse_workload(&merged, params)
+            let (merged, res_warnings) =
+                nmbrs_workload::extends::load_and_merge_bundled(bundled)
+                    .map_err(|e| format!("bundled workload `{}`: {e}", bundled.name))?;
+            let mut workload = nmbrs_workload::parse::parse_workload(&merged, params)
                 .map_err(|e| format!("parse bundled workload `{}`: {e}", bundled.name))?;
+            workload.resolution_warnings.extend(res_warnings);
             Ok((workload, bundled.name.to_string()))
         }
     }
@@ -6065,9 +6093,10 @@ fn workload_ref_identity(
 
 /// SRD-109 Part 2 — resolve a driver manifest by name: local
 /// `drivers/<name>/driver.yaml` under the cwd first, then the
-/// bundled catalog entry `drivers/<name>/driver`; both at once is
-/// a hard error (mirroring workload resolution — never silent
-/// shadowing). Returns the manifest plus the resolved LIBRARY
+/// bundled catalog entry `drivers/<name>/driver`. Both at once
+/// FAVORS the local manifest (SRD-85 nearest-first) with a
+/// logged warning naming both — shadowing is allowed but never
+/// silent. Returns the manifest plus the resolved LIBRARY
 /// reference: a file path for a local manifest, a catalog name
 /// for a bundled one. `None` when neither exists — the caller
 /// falls back to the legacy driver-as-adapter-alias meaning.
@@ -6080,11 +6109,29 @@ fn resolve_driver_manifest(
     let catalog_name = format!("drivers/{name}/driver");
     let bundled = nmbrs_workload::catalog::lookup(&catalog_name);
     match (local_path.is_file(), bundled) {
-        (true, Some(_)) => Err(format!(
-            "driver '{name}' is ambiguous — it names both the local manifest \
-             {} and a bundled driver. Remove or rename one.",
-            local_path.display()
-        )),
+        (true, Some(_)) => {
+            crate::observer::log_tagged(
+                crate::observer::LogLevel::Warn,
+                crate::observer::EventTag::in_flight(crate::observer::EventCategory::Resolution),
+                &format!(
+                    "resolve: driver '{name}' matches multiple resources — local \
+                 manifest {} AND bundled driver `{catalog_name}` — using the \
+                 local manifest (filesystem-first). Same-named resources in \
+                 multiple places invite confusion: prefer a unique name.",
+                    local_path.display()
+                ),
+            );
+            let source = std::fs::read_to_string(&local_path)
+                .map_err(|e| format!("read driver manifest {}: {e}", local_path.display()))?;
+            let manifest = nmbrs_workload::drivers::parse_driver_manifest(
+                &source,
+                &local_path.display().to_string(),
+            )?;
+            verify_driver_identity(&manifest, name)?;
+            let dir = local_path.parent().expect("manifest path has a parent");
+            let library_ref = resolve_driver_library_local(dir, &manifest.library)?;
+            Ok(Some((manifest, library_ref)))
+        }
         (true, None) => {
             let source = std::fs::read_to_string(&local_path)
                 .map_err(|e| format!("read driver manifest {}: {e}", local_path.display()))?;
@@ -6197,41 +6244,93 @@ fn resolve_secondary_ref(
     base_dir: Option<&std::path::Path>,
     bundled_origin: Option<&str>,
 ) -> Result<ResolvedWorkload, String> {
-    if let Some(dir) = base_dir {
-        let candidate = dir.join(reference);
-        if candidate.is_file() {
-            return Ok(ResolvedWorkload::Path(candidate.display().to_string()));
-        }
+    // SRD-85 nearest-first: every candidate is enumerated and the
+    // nearest wins — the logical filesystem location is favored
+    // over the embedded catalog BY DEFAULT (a fresh checkout must
+    // never be silently shadowed by a stale binary's catalog).
+    // Multiple matches are a warnable condition, logged with every
+    // candidate named; never a hard error and never silent.
+    let pinned = reference.starts_with("./") || reference.starts_with("../");
+
+    // 1. The referring document's own directory (nearest).
+    let origin_file: Option<String> = base_dir
+        .map(|dir| dir.join(reference))
+        .filter(|c| c.is_file())
+        .map(|c| c.display().to_string());
+
+    // A `./`-pinned reference that resolves beside its referring
+    // FILE is explicit — no enumeration, no warning.
+    if pinned && base_dir.is_some() && origin_file.is_some() {
+        return Ok(ResolvedWorkload::Path(origin_file.unwrap()));
     }
-    match resolve_workload(reference) {
-        Ok(resolved) => Ok(resolved),
-        Err(primary_err) => {
-            // Catalog fallbacks, mirroring `extends:` (SRD-85):
-            // files reference siblings by filename, catalog names
-            // carry no extension — strip it and the `./` prefix,
-            // then try the name bare and inside the referring
-            // bundled document's namespace, so
-            // `implements: ./blueprint.yaml` works identically on
-            // disk and from the embedded catalog.
-            let stem = reference
-                .strip_suffix(".yaml")
-                .or_else(|| reference.strip_suffix(".yml"))
-                .unwrap_or(reference);
-            let stem = stem.strip_prefix("./").unwrap_or(stem);
-            if let Some(b) = nmbrs_workload::catalog::lookup(stem) {
-                return Ok(ResolvedWorkload::Bundled(b));
-            }
-            if let Some(ns) = bundled_origin
-                .and_then(|o| o.rsplit_once('/'))
-                .map(|(ns, _)| ns)
-            {
-                if let Some(b) = nmbrs_workload::catalog::lookup(&format!("{ns}/{stem}")) {
-                    return Ok(ResolvedWorkload::Bundled(b));
-                }
-            }
-            Err(primary_err)
-        }
+
+    // 2. The cwd's logical layout (exact path, extension probing,
+    //    cwd `workloads/`).
+    let cwd_file: Option<String> = resolve_workload_file(reference).filter(|p| {
+        // Dedupe against the origin-dir candidate.
+        origin_file.as_deref().map(canonical_identity) != Some(canonical_identity(p))
+    });
+
+    // 3. The bundled catalog: exact name, then the sibling idiom —
+    //    the referring bundled document's namespace — then the bare
+    //    stem (extension and `./` stripped: files reference siblings
+    //    by filename, catalog names carry none).
+    let stem = reference
+        .strip_suffix(".yaml")
+        .or_else(|| reference.strip_suffix(".yml"))
+        .unwrap_or(reference);
+    let stem = stem.strip_prefix("./").unwrap_or(stem);
+    let ns_stem = bundled_origin
+        .and_then(|o| o.rsplit_once('/'))
+        .map(|(ns, _)| format!("{ns}/{stem}"));
+    let bundled: Option<&'static nmbrs_workload::catalog::BundledWorkload> =
+        nmbrs_workload::catalog::lookup(reference)
+            .or_else(|| ns_stem.as_deref().and_then(nmbrs_workload::catalog::lookup))
+            .or_else(|| nmbrs_workload::catalog::lookup(stem));
+
+    let mut names: Vec<String> = Vec::new();
+    if let Some(p) = &origin_file {
+        names.push(format!("file {p} (beside the referring document)"));
     }
+    if let Some(p) = &cwd_file {
+        names.push(format!("local file {p}"));
+    }
+    if let Some(b) = bundled {
+        names.push(format!("bundled workload `{}`", b.name));
+    }
+
+    if names.len() > 1 {
+        crate::observer::log_tagged(
+            crate::observer::LogLevel::Warn,
+            crate::observer::EventTag::in_flight(crate::observer::EventCategory::Resolution),
+            &format!(
+                "resolve: reference '{reference}' matches multiple resources — {} — \
+             using the nearest ({}). Same-named resources in multiple places \
+             invite confusion: prefer a unique name, or pin the intent with a \
+             `./` path / full catalog name.",
+                names.join(" AND "),
+                names[0]
+            ),
+        );
+    }
+
+    if let Some(p) = origin_file {
+        return Ok(ResolvedWorkload::Path(p));
+    }
+    if let Some(p) = cwd_file {
+        return Ok(ResolvedWorkload::Path(p));
+    }
+    if let Some(b) = bundled {
+        return Ok(ResolvedWorkload::Bundled(b));
+    }
+    Err(format!(
+        "workload not found: '{reference}'. Not a local file, and no bundled \
+         workload by that name — `nmbrs describe workloads` lists what this \
+         binary carries.{}",
+        nmbrs_workload::suggest::did_you_mean(&nmbrs_workload::suggest::suggest_workloads(
+            reference
+        )),
+    ))
 }
 
 /// Canonicalize a workload file path for identity comparison;
@@ -6261,11 +6360,16 @@ fn peek_stick_session(params: &HashMap<String, String>, args: &[String]) -> Opti
             .find(|a| a.ends_with(".yaml") || a.ends_with(".yml"))
             .cloned()
     })?;
+    // Pre-probe only (stick_session peek): resolution warnings
+    // are dropped here — the authoritative load that follows
+    // surfaces the identical warnings itself.
     let merged = match resolve_workload(&workload_raw).ok()? {
         ResolvedWorkload::Path(p) => {
-            nmbrs_workload::extends::load_and_merge(std::path::Path::new(&p)).ok()?
+            nmbrs_workload::extends::load_and_merge(std::path::Path::new(&p))
+                .ok()?
+                .0
         }
-        ResolvedWorkload::Bundled(b) => nmbrs_workload::extends::load_and_merge_bundled(b).ok()?,
+        ResolvedWorkload::Bundled(b) => nmbrs_workload::extends::load_and_merge_bundled(b).ok()?.0,
     };
     let doc: serde_yaml::Value = serde_yaml::from_str(&merged).ok()?;
     doc.get("stick_session")?.as_bool()
@@ -6280,18 +6384,35 @@ pub enum ResolvedWorkload {
     Bundled(&'static nmbrs_workload::catalog::BundledWorkload),
 }
 
-/// Resolve a `workload=` value per SRD-85: local files first
-/// (exact path, extension probing, cwd `workloads/`), then the
-/// bundled catalog by exact name. A name that resolves both
-/// ways is a hard error — never silent shadowing; `./`-prefixed
-/// paths pin the local reading.
+/// Resolve a `workload=` value per SRD-85 nearest-first: local
+/// files first (exact path, extension probing, cwd `workloads/`),
+/// then the bundled catalog by exact name. A name that resolves
+/// both ways FAVORS the logical filesystem location and logs a
+/// warning naming both — shadowing is allowed but never silent.
+/// `./`-prefixed paths pin the local reading without a warning.
 pub fn resolve_workload(name: &str) -> Result<ResolvedWorkload, String> {
     let local = resolve_workload_file(name);
     let bundled = nmbrs_workload::catalog::lookup(name);
     match (local, bundled) {
-        (Some(local_path), Some(_)) => Err(format!(
-            "workload '{name}' is ambiguous — it names both the local file              {local_path} and a bundled workload. Prefix the path with `./`              to pin the local file, or rename it."
-        )),
+        (Some(local_path), Some(b)) => {
+            if !name.starts_with("./") && !name.starts_with("../") {
+                crate::observer::log_tagged(
+                    crate::observer::LogLevel::Warn,
+                    crate::observer::EventTag::in_flight(
+                        crate::observer::EventCategory::Resolution,
+                    ),
+                    &format!(
+                        "resolve: workload '{name}' matches multiple resources — \
+                     local file {local_path} AND bundled workload `{}` — using \
+                     the local file (filesystem-first). Same-named resources in \
+                     multiple places invite confusion: prefer a unique name, or \
+                     pin the intent with a `./` path.",
+                        b.name
+                    ),
+                );
+            }
+            Ok(ResolvedWorkload::Path(local_path))
+        }
         (Some(local_path), None) => Ok(ResolvedWorkload::Path(local_path)),
         (None, Some(b)) => Ok(ResolvedWorkload::Bundled(b)),
         (None, None) => Err(format!(
@@ -7210,6 +7331,7 @@ mod tests {
             error_rate_max: None,
             timeout: None,
             stop_when: Vec::new(),
+            throttle: None,
             continue_if: None,
             tags: None,
             ops: vec![],

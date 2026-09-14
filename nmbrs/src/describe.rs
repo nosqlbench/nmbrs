@@ -366,7 +366,7 @@ fn list_workloads(entries: Vec<&'static nmbrs_workload::catalog::BundledWorkload
 /// Detail view for one workload — catalog name or local path.
 fn describe_one_workload(name: &str) -> Result<(), String> {
     use nmbrs_workload::catalog;
-    let (identity, merged, tier): (String, String, Option<&str>) =
+    let (identity, (merged, res_warnings), tier): (String, (String, Vec<String>), Option<&str>) =
         if let Some(b) = catalog::lookup(name) {
             let merged = nmbrs_workload::extends::load_and_merge_bundled(b)?;
             (b.name.to_string(), merged, Some(b.tier.as_str()))
@@ -380,6 +380,9 @@ fn describe_one_workload(name: &str) -> Result<(), String> {
             ));
         };
 
+    for w in &res_warnings {
+        eprintln!("warning: resolve: {w}");
+    }
     let params = std::collections::HashMap::new();
     let workload = nmbrs_workload::parse::parse_workload(&merged, &params)
         .map_err(|e| format!("parse `{identity}`: {e}"))?;

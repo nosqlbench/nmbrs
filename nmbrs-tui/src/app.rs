@@ -3316,7 +3316,7 @@ impl App {
         let filtered: Vec<&crate::state::LogEntry> = state
             .log_messages
             .iter()
-            .filter(|e| e.category == crate::state::LogCategory::Diagnostic)
+            .filter(|e| e.tag.attached.is_none())
             .filter(|e| e.severity >= self.log_level_filter)
             .collect();
         let visible = inner.height as usize;

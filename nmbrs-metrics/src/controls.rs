@@ -98,6 +98,9 @@ pub enum ControlOrigin {
     Tui,
     /// Scripted feedback loop (GK `control_set(...)` node).
     Polydat { binding: String },
+    /// Runtime governor (e.g. the phase `throttle:` backpressure
+    /// loop) — `source` names the governing phase.
+    Governor { source: String },
     /// External API — `source` identifies the caller (endpoint, auth id, etc.)
     Api { source: String },
     /// Test harness — never seen in production.

@@ -58,7 +58,7 @@ That is the safe direction, but it over-invalidates the exact
 workflow the suite exists for:
 
 ```
-nmbrs refine workload=cql/vector_suite_cql_impl scenario=traverse \
+nmbrs refine workload=cql/vector_suite/vector_suite_cql_impl scenario=traverse \
      phases='sweep_probe' suite_k=100
 ```
 

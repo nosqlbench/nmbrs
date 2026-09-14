@@ -211,6 +211,7 @@ mod tests {
             error_rate_max: None,
             timeout: None,
             stop_when: Vec::new(),
+            throttle: None,
             continue_if: None,
             tags: None,
             ops: vec![],

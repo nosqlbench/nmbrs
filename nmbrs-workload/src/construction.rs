@@ -218,6 +218,7 @@ pub static MEMO: MemoNode = MemoNode;
 pub static OP_POLL: OpPollNode = OpPollNode;
 pub static TRIES: TriesNode = TriesNode;
 pub static BACKOFF: BackoffNode = BackoffNode;
+pub static THROTTLE: ThrottleNode = ThrottleNode;
 pub static DELAY: DelayNode = DelayNode;
 pub static CONTINUE_IF: ContinueIfNode = ContinueIfNode;
 pub static CHECKPOINT: CheckpointNode = CheckpointNode;
@@ -242,6 +243,7 @@ pub static ALL_NODES: &[&dyn EnumerableNode] = &[
     &OP_POLL,
     &TRIES,
     &BACKOFF,
+    &THROTTLE,
     &DELAY,
     &CONTINUE_IF,
     &CHECKPOINT,
@@ -315,6 +317,11 @@ pub static PHASE_ELEMENTS: &[ElementSpec] = &[
         "stop_when",
         &[Form::ListOf(&STOP_WHEN)],
         "SRD-83 stop conditions",
+    ),
+    el(
+        "throttle",
+        &[Form::Bool, Form::Node(&THROTTLE)],
+        "adaptive backpressure governor: windowed attempt-failure fraction walks a dynamic control (true = defaults)",
     ),
     el(
         "tags",
@@ -831,6 +838,31 @@ pub static TRIES_ELEMENTS: &[ElementSpec] = &[
     ),
 ];
 
+pub static THROTTLE_ELEMENTS: &[ElementSpec] = &[
+    el(
+        "high",
+        &[Form::F64],
+        "windowed attempt-failure fraction that triggers back-off (default 0.05)",
+    ),
+    el("low", &[Form::F64], "recovery threshold (default high/5)"),
+    el(
+        "control",
+        &[Form::Vocab(&["concurrency", "rate"])],
+        "the dynamic control the governor walks",
+    ),
+    el(
+        "start",
+        &[Form::F64],
+        "initial offered value (slow-start seed; default = floor — declare higher only for known-robust targets)",
+    ),
+    el("floor", &[Form::F64], "never throttle below this value"),
+    el(
+        "window",
+        &[Form::Duration],
+        "evaluation window (default 2s)",
+    ),
+];
+
 pub static BACKOFF_ELEMENTS: &[ElementSpec] = &[
     el("ratio", &[Form::F64], "growth ratio"),
     el("min", &[Form::Duration], "floor"),
@@ -1082,6 +1114,12 @@ simple_node!(
     "backoff",
     "retry backoff overrides",
     BACKOFF_ELEMENTS
+);
+simple_node!(
+    ThrottleNode,
+    "throttle",
+    "adaptive backpressure governor",
+    THROTTLE_ELEMENTS
 );
 simple_node!(DelayNode, "delay", "pre/post-op delay", DELAY_ELEMENTS);
 simple_node!(

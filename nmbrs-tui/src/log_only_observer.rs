@@ -33,7 +33,7 @@ use nmbrs_metrics::cadence::Cadences;
 use nmbrs_metrics::metrics_query::MetricsQuery;
 use nmbrs_metrics::scheduler::Reporter;
 use nmbrs_metrics::snapshot::MetricSet;
-use nmbrs_runtime::observer::{LogCategory, LogLevel, PhaseProgressUpdate, RunObserver};
+use nmbrs_runtime::observer::{EventTag, LogLevel, PhaseProgressUpdate, RunObserver};
 use parking_lot::Mutex;
 
 use crate::frame_broker::FrameBroker;
@@ -605,19 +605,19 @@ impl RunObserver for LogOnlyObserver {
     }
 
     fn log(&self, level: LogLevel, message: &str) {
-        self.log_categorized(level, LogCategory::Diagnostic, message);
+        self.log_tagged(level, EventTag::default(), message);
     }
 
-    fn log_categorized(&self, level: LogLevel, category: LogCategory, message: &str) {
+    fn log_tagged(&self, level: LogLevel, tag: EventTag, message: &str) {
         // Snapshot side: every log entry is stored in the ring
         // (capped at 200) with `log_seq_total` advanced, carrying
-        // its `category` so the terminal sink can keep phase-
-        // lifecycle lines out of its scrollback. The active sink
-        // drains via the seq delta; the inspector socket reads the
-        // ring directly.
+        // its `tag` (attachment + category axes) so the terminal
+        // sink can derive its scrollback filtering from them. The
+        // active sink drains via the seq delta; the inspector
+        // socket reads the ring directly.
         self.state.send(RunStateCmd::Log {
             severity: level_to_severity(level),
-            category,
+            tag,
             message: message.to_string(),
         });
         // Stderr side: synchronous write — only when no sink

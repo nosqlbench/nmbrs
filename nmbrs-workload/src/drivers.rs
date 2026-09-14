@@ -26,8 +26,10 @@
 //! Discovery is local-first then bundled, mirroring workload
 //! resolution: `./drivers/<name>/driver.yaml` under the invoking
 //! cwd wins; otherwise the bundled catalog entry
-//! `drivers/<name>/driver`. Resolution policy (including the
-//! both-resolve hard error) lives with the runner.
+//! `drivers/<name>/driver`. Resolution policy lives with the
+//! runner: nearest-first — a name resolving both ways favors the
+//! local manifest with a logged warning naming both (shadowing is
+//! allowed but never silent).
 
 use std::collections::BTreeMap;
 

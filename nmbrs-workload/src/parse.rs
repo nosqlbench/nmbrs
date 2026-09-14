@@ -380,6 +380,7 @@ pub fn parse_workload(
         report,
         report_warnings,
         scenario_parse_errors,
+        resolution_warnings: Vec::new(),
         status_metrics: doc_status_metrics,
         readouts,
         wrappers: None,
@@ -398,8 +399,13 @@ pub fn parse_workload_from_path(
     path: &std::path::Path,
     params: &HashMap<String, String>,
 ) -> Result<Workload, String> {
-    let merged_yaml = crate::extends::load_and_merge(path)?;
-    parse_workload(&merged_yaml, params)
+    let (merged_yaml, resolution_warnings) = crate::extends::load_and_merge(path)?;
+    let mut workload = parse_workload(&merged_yaml, params)?;
+    // Reference-resolution warnings ride the same surfacing
+    // channel as report warnings: stashed here, logged (or
+    // strict-promoted) by the runner.
+    workload.resolution_warnings.extend(resolution_warnings);
+    Ok(workload)
 }
 
 /// Parse the workload's `readouts:` block per SRD-63 §5.0.
@@ -1523,6 +1529,15 @@ fn parse_phases(
         // SRD-83 — `stop_when:` is a list of {when, trigger?, effect?}.
         // StopConditionSpec derives Deserialize, so deserialize the
         // sub-tree directly; surface a malformed block as a parse error.
+        // SRD-83 §throttle — adaptive backpressure governor: bool
+        // sugar or the full spec map (serde, deny_unknown_fields).
+        let throttle: Option<crate::model::ThrottleField> = match phase_obj.get("throttle") {
+            Some(v) => Some(
+                serde_json::from_value(v.clone())
+                    .map_err(|e| format!("phase '{phase_name}' invalid `throttle` block: {e}"))?,
+            ),
+            None => None,
+        };
         let stop_when: Vec<StopConditionSpec> = match phase_obj.get("stop_when") {
             Some(v) => serde_json::from_value(v.clone())
                 .map_err(|e| format!("invalid `stop_when` block: {e}"))?,
@@ -1933,6 +1948,7 @@ fn parse_phases(
                 error_rate_max,
                 timeout,
                 stop_when,
+                throttle,
                 tags,
                 ops: inline_ops,
                 for_each,
@@ -2303,6 +2319,17 @@ fn normalize_op_object(
         // op-payload keys.
         "errors",
         "tries",
+        // Tries-wrapper companion knobs (SRD-82 Part 3b): retry
+        // pacing and retry-error exemplar sampling (`exec_events`).
+        // Consumed at wrapper build from op params; excised here so
+        // the documented op-level standalone form actually lands in
+        // params instead of leaking to the adapter as payload keys.
+        "retry_backoff",
+        "retry_backoff_max",
+        "retry_backoff_ratio",
+        "retry_exemplar_rate",
+        "retry_exemplar_max_hz",
+        "retry_advisory",
     ];
 
     let mut op_fields = if let Some(explicit_op) = op_field_names.iter().find_map(|k| map.get(*k)) {

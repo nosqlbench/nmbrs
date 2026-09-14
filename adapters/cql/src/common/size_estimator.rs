@@ -77,9 +77,23 @@ pub fn estimate_value_size(v: &Value) -> u64 {
     }
 }
 
-/// Sum the estimated encoded sizes of every bound value in a row.
+/// Per-mutation overhead the server's batch-size accounting adds on
+/// top of the bound values: partition-key framing, the table
+/// identifier (mutation size is measured per table reference, which
+/// is why a longer table name grows every row's accounted size), row
+/// liveness/timestamp, and per-cell headers. Measured live against
+/// Cassandra 5.0.x this runs ~40–60 bytes per row plus the table
+/// name; 128 covers that with headroom for long names. Without this
+/// term the estimator under-counted by ~8–10% — exactly the ×0.9
+/// back-off — and a 7-character-longer table name once pushed a
+/// packed batch 16 bytes over `batch_size_fail_threshold`.
+pub const ROW_OVERHEAD: u64 = 128;
+
+/// Estimated server-accounted size of one bound row: the encoded
+/// sizes of every bound value plus [`ROW_OVERHEAD`] for the
+/// per-mutation framing the server counts and the values don't show.
 pub fn estimate_row_size(values: &[Value]) -> u64 {
-    values.iter().map(estimate_value_size).sum()
+    ROW_OVERHEAD + values.iter().map(estimate_value_size).sum::<u64>()
 }
 
 /// Cheap structural size estimate for a JSON value, avoiding a full
@@ -254,14 +268,21 @@ mod tests {
         // the 4-byte length prefix.
         let row = [vecf32(1536)];
         let est = estimate_row_size(&row);
-        assert_eq!(est, VAR_PREFIX + 1536 * 4);
-        // "≈ 1536*4": the prefix is a small constant overhead.
-        assert!(est >= 1536 * 4 && est <= 1536 * 4 + 8, "est={est}");
+        assert_eq!(est, ROW_OVERHEAD + VAR_PREFIX + 1536 * 4);
+        // "≈ 1536*4": prefix + per-mutation overhead are small
+        // constants next to the payload.
+        assert!(
+            est >= 1536 * 4 && est <= 1536 * 4 + ROW_OVERHEAD + 8,
+            "est={est}"
+        );
     }
 
     #[test]
     fn i32_vector_row_matches_f32_width() {
-        assert_eq!(estimate_row_size(&[veci32(1536)]), VAR_PREFIX + 1536 * 4);
+        assert_eq!(
+            estimate_row_size(&[veci32(1536)]),
+            ROW_OVERHEAD + VAR_PREFIX + 1536 * 4
+        );
     }
 
     #[test]
@@ -269,15 +290,15 @@ mod tests {
         // f64/i64 = n*8, f16/i16 = n*2, i8 = n*1.
         assert_eq!(
             estimate_row_size(&[Value::VecF64(SliceArc::from_vec(vec![0.0f64; 4]))]),
-            VAR_PREFIX + 4 * 8
+            ROW_OVERHEAD + VAR_PREFIX + 4 * 8
         );
         assert_eq!(
             estimate_row_size(&[Value::VecI16(SliceArc::from_vec(vec![0i16; 8]))]),
-            VAR_PREFIX + 8 * 2
+            ROW_OVERHEAD + VAR_PREFIX + 8 * 2
         );
         assert_eq!(
             estimate_row_size(&[Value::VecI8(SliceArc::from_vec(vec![0i8; 10]))]),
-            VAR_PREFIX + 10
+            ROW_OVERHEAD + VAR_PREFIX + 10
         );
     }
 
@@ -290,7 +311,7 @@ mod tests {
             Value::Str("abc".into()),
             veci32(4),
         ];
-        let expected = 8 + 1 + (VAR_PREFIX + 3) + (VAR_PREFIX + 16);
+        let expected = ROW_OVERHEAD + 8 + 1 + (VAR_PREFIX + 3) + (VAR_PREFIX + 16);
         assert_eq!(estimate_row_size(&row), expected);
     }
 
@@ -379,10 +400,17 @@ mod tests {
         let kernel =
             compile_polydat("input cycle: u64\nval := cycle * 8\n").expect("compile probe program");
         let parent = std::sync::Arc::new(kernel);
-        // One bind name → a single U64 → 8 bytes (bigint wire width).
-        assert_eq!(characterize_row_size(&parent, &["val".to_string()]), 8);
-        // An undeclared wire resolves to None → contributes 0 bytes,
-        // never panics.
-        assert_eq!(characterize_row_size(&parent, &["nope".to_string()]), 0);
+        // One bind name → a single U64 → 8 bytes (bigint wire width)
+        // plus the per-mutation overhead every row carries.
+        assert_eq!(
+            characterize_row_size(&parent, &["val".to_string()]),
+            ROW_OVERHEAD + 8
+        );
+        // An undeclared wire resolves to None → contributes 0 value
+        // bytes (overhead only), never panics.
+        assert_eq!(
+            characterize_row_size(&parent, &["nope".to_string()]),
+            ROW_OVERHEAD
+        );
     }
 }

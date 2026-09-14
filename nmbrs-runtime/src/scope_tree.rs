@@ -1771,6 +1771,7 @@ mod tests {
                 error_rate_max: None,
                 timeout: None,
                 stop_when: Vec::new(),
+                throttle: None,
                 tags: None,
                 ops: vec![
                     ParsedOp::simple("alpha", "noop"),
@@ -1828,6 +1829,7 @@ mod tests {
                 error_rate_max: None,
                 timeout: None,
                 stop_when: Vec::new(),
+                throttle: None,
                 tags: None,
                 ops: vec![ParsedOp::simple("only", "noop")],
                 for_each: None,
@@ -1876,6 +1878,7 @@ mod tests {
                 error_rate_max: None,
                 timeout: None,
                 stop_when: Vec::new(),
+                throttle: None,
                 tags: None,
                 ops: vec![ParsedOp::simple("foo", "noop")],
                 for_each: None,

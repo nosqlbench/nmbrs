@@ -116,25 +116,26 @@ pub fn bind_implementation(
         ));
     }
 
-    // Implementation params may ADD keys (protocol knobs); a key
-    // the blueprint already declares is a collision — the
-    // blueprint scaffold is authoritative. Only the YAML-DECLARED
-    // subset participates: `Workload.params` also carries every
-    // ad-hoc CLI arg (tui=, workload=, …) overlaid at parse, and
-    // those are invocation matter, not document matter.
+    // Implementation params layer over the blueprint's: a NEW key
+    // adds a protocol knob; a key the blueprint already declares
+    // RE-DEFAULTS its value — the same specialization the CLI
+    // performs per invocation, made durable in a document (e.g. a
+    // turnkey variant pinning dataset and tier governance).
+    // Declaration ownership stays with the blueprint: the key is
+    // not re-declared, so consumed-param provenance and the CLI
+    // override order are unchanged. Only the YAML-DECLARED subset
+    // participates: `Workload.params` also carries every ad-hoc
+    // CLI arg (tui=, workload=, …) overlaid at parse, and those
+    // are invocation matter, not document matter.
     let blueprint_declared: BTreeSet<String> = blueprint.declared_params.iter().cloned().collect();
     let impl_declared: Vec<String> = implementation.declared_params;
     for k in impl_declared {
-        if blueprint_declared.contains(&k) {
-            return Err(format!(
-                "implementation param '{k}' collides with a blueprint \
-                 param — blueprint scaffolding is authoritative"
-            ));
-        }
         if let Some(v) = implementation.params.get(&k) {
             blueprint.params.insert(k.clone(), v.clone());
         }
-        blueprint.declared_params.push(k);
+        if !blueprint_declared.contains(&k) {
+            blueprint.declared_params.push(k);
+        }
     }
 
     // Workload-level bindings concatenate blueprint-first.
@@ -185,13 +186,15 @@ fn bind_slot(slot: &mut ParsedOp, impl_op: ParsedOp, slot_key: &str) -> Result<(
         }
         slot.op.insert(k, v);
     }
+    // Op params follow the param layering rule, not the op-field
+    // collision rule: params are the system's override surface
+    // (doc → block → op cascade at parse, CLI last), and both
+    // docs materialize their workload-level params into op params
+    // — so an overlapping key here is normally a workload-level
+    // re-default seen through the cascade. The implementation
+    // (the more concrete layer) wins, mirroring the workload-level
+    // merge above; op FIELDS keep the hard collision error.
     for (k, v) in impl_op.params {
-        if slot.params.contains_key(&k) {
-            return Err(format!(
-                "slot '{slot_key}': op param '{k}' declared by both \
-                 sides — remove one"
-            ));
-        }
         slot.params.insert(k, v);
     }
     for (k, v) in impl_op.tags {
@@ -495,6 +498,45 @@ phases:
         assert!(op.op.contains_key("stmt"));
         assert_eq!(op.captures.len(), 1);
         assert!(unbound_abstract_slots(&blueprint).is_empty());
+    }
+
+    /// Implementation params layer over the blueprint's: a new
+    /// key adds a protocol knob (and is declared), while a key
+    /// the blueprint already declares re-defaults its value with
+    /// declaration ownership unchanged — no duplicate entry in
+    /// `declared_params`. This is what lets a turnkey variant
+    /// (extends-child of an impl) pin dataset/tier params for
+    /// single `workload=` invocation.
+    #[test]
+    fn impl_params_add_knobs_and_redefault_blueprint_params() {
+        let mut blueprint = parse(BLUEPRINT);
+        let implementation = parse(
+            r#"
+implements: blueprint
+params:
+  suite_k: "25"
+  knob: "x"
+phases:
+  probe:
+    ops:
+      search:
+        stmt: "SEARCH {query_vector} LIMIT {suite_k}"
+        captures: "[key]"
+"#,
+        );
+        bind_implementation(&mut blueprint, implementation).unwrap();
+        assert_eq!(blueprint.params["suite_k"], "25");
+        assert_eq!(blueprint.params["knob"], "x");
+        assert_eq!(
+            blueprint
+                .declared_params
+                .iter()
+                .filter(|k| k.as_str() == "suite_k")
+                .count(),
+            1,
+            "re-defaulting must not re-declare"
+        );
+        assert!(blueprint.declared_params.iter().any(|k| k == "knob"));
     }
 
     #[test]

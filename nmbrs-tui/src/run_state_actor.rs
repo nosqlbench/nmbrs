@@ -201,7 +201,7 @@ pub enum RunStateCmd {
     /// Append a log line to the ring buffer.
     Log {
         severity: LogSeverity,
-        category: crate::state::LogCategory,
+        tag: crate::state::EventTag,
         message: String,
     },
     /// Latency frame ingest from the metrics scheduler. Updates
@@ -585,7 +585,7 @@ fn handle_cmd(
         }
         RunStateCmd::Log {
             severity,
-            category,
+            tag,
             message,
         } => {
             // Two sinks for the same line, kept in lock-step:
@@ -599,7 +599,7 @@ fn handle_cmd(
             let entry = LogEntry {
                 severity,
                 message,
-                category,
+                tag,
                 at: std::time::SystemTime::now(),
             };
             // The line is ALWAYS stamped and recorded to the transcript —
@@ -623,43 +623,45 @@ fn handle_cmd(
                 // the head-line `[name]` match is unambiguous among
                 // actives.
                 let mut margin_body: Option<String> = None;
-                let detail_gutter =
-                    if stream_entry.category == crate::state::LogCategory::PhaseOutcome {
-                        let plain = crate::status_fold::strip_ansi(&stream_entry.message);
-                        let subject = plain
-                            .split('[')
-                            .nth(1)
-                            .map(|rest| rest.split(']').next().unwrap_or("").to_string())
-                            .and_then(|name| {
-                                state
-                                    .active_phases
-                                    .values()
-                                    .find(|a| a.name == name.as_str())
-                            });
-                        // SRD-92 R1: the ✓ header wears the completing
-                        // NODE'S OWN triad ([n/N] from its plan seq, its
-                        // session-clock delta) — the workload-level stamp
-                        // can point at a still-running sibling under
-                        // concurrent dispatch.
-                        if let Some((s, n)) =
-                            subject.and_then(|a| a.render.as_ref()).and_then(|h| h.seq)
-                        {
-                            let sess = state.elapsed_secs();
-                            let leaf = subject.map(|a| (sess - a.session_started).max(0.0));
-                            margin_body = Some(crate::widgets::margin_body(
-                                n,
-                                &format!("[{s}/{n}]"),
-                                leaf,
-                                Some(sess),
-                            ));
-                        }
-                        subject
-                            .and_then(|a| a.render.as_ref())
-                            .and_then(|h| h.gutter.load_full())
-                            .map(|arc| (*arc).clone())
-                    } else {
-                        None
-                    };
+                let detail_gutter = if stream_entry.tag.attached
+                    == Some(nmbrs_runtime::lifecycle::EventType::PhaseEnd)
+                    && stream_entry.tag.category == crate::state::EventCategory::Outcome
+                {
+                    let plain = crate::status_fold::strip_ansi(&stream_entry.message);
+                    let subject = plain
+                        .split('[')
+                        .nth(1)
+                        .map(|rest| rest.split(']').next().unwrap_or("").to_string())
+                        .and_then(|name| {
+                            state
+                                .active_phases
+                                .values()
+                                .find(|a| a.name == name.as_str())
+                        });
+                    // SRD-92 R1: the ✓ header wears the completing
+                    // NODE'S OWN triad ([n/N] from its plan seq, its
+                    // session-clock delta) — the workload-level stamp
+                    // can point at a still-running sibling under
+                    // concurrent dispatch.
+                    if let Some((s, n)) =
+                        subject.and_then(|a| a.render.as_ref()).and_then(|h| h.seq)
+                    {
+                        let sess = state.elapsed_secs();
+                        let leaf = subject.map(|a| (sess - a.session_started).max(0.0));
+                        margin_body = Some(crate::widgets::margin_body(
+                            n,
+                            &format!("[{s}/{n}]"),
+                            leaf,
+                            Some(sess),
+                        ));
+                    }
+                    subject
+                        .and_then(|a| a.render.as_ref())
+                        .and_then(|h| h.gutter.load_full())
+                        .map(|arc| (*arc).clone())
+                } else {
+                    None
+                };
                 let seq = state.push_log_entry(entry);
                 // Fire-and-forget: a momentarily-parked receiver
                 // (Ctrl-T swap window) still buffers; the next sink
@@ -708,7 +710,10 @@ fn handle_cmd(
                         // cell for a visible node with no declared
                         // gutter), the per-step time ledger retained
                         // into scrollback.
-                        category: nmbrs_runtime::observer::LogCategory::PhaseDetail,
+                        tag: nmbrs_runtime::observer::EventTag::at(
+                            nmbrs_runtime::lifecycle::EventType::PhaseEnd,
+                            nmbrs_runtime::observer::EventCategory::Evaluation,
+                        ),
                         at: std::time::SystemTime::now(),
                     };
                     let stream_entry = entry.clone();
@@ -1038,7 +1043,6 @@ fn apply(state: &mut RunState, cmd: RunStateCmd) {
 mod scrollback_stream_tests {
     use super::*;
     use crate::state::{LogSeverity, RunState};
-    use nmbrs_runtime::observer::LogCategory;
 
     /// The durable scrollback stream carries EVERY log line, in order,
     /// exactly once — even when far more than the bounded ring's
@@ -1063,7 +1067,7 @@ mod scrollback_stream_tests {
         for i in 0..N {
             handle.send(RunStateCmd::Log {
                 severity: LogSeverity::Info,
-                category: LogCategory::Diagnostic,
+                tag: crate::state::EventTag::default(),
                 message: format!("line-{i}"),
             });
         }
@@ -1110,7 +1114,7 @@ mod scrollback_stream_tests {
         for i in 0..300u64 {
             handle.send(RunStateCmd::Log {
                 severity: LogSeverity::Info,
-                category: LogCategory::Diagnostic,
+                tag: crate::state::EventTag::default(),
                 message: format!("unfed-{i}"),
             });
         }
@@ -1128,7 +1132,7 @@ mod scrollback_stream_tests {
         // Lines sent AFTER the claim ARE delivered.
         handle.send(RunStateCmd::Log {
             severity: LogSeverity::Info,
-            category: LogCategory::Diagnostic,
+            tag: crate::state::EventTag::default(),
             message: "after-claim".into(),
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -1167,7 +1171,7 @@ mod scrollback_stream_tests {
         for i in 0..3u64 {
             handle.send(RunStateCmd::Log {
                 severity: LogSeverity::Info,
-                category: LogCategory::Diagnostic,
+                tag: crate::state::EventTag::default(),
                 message: format!("swap-{i}"),
             });
         }
@@ -1219,7 +1223,7 @@ mod transcript_tests {
                 entry: crate::state::LogEntry {
                     severity: crate::state::LogSeverity::Info,
                     message: msg.into(),
-                    category: crate::state::LogCategory::Diagnostic,
+                    tag: crate::state::EventTag::default(),
                     at: std::time::SystemTime::now(),
                 },
                 margin_body: "m".into(),
@@ -1233,7 +1237,7 @@ mod transcript_tests {
             entry: crate::state::LogEntry {
                 severity: crate::state::LogSeverity::Info,
                 message: "third".into(),
-                category: crate::state::LogCategory::Diagnostic,
+                tag: crate::state::EventTag::default(),
                 at: std::time::SystemTime::now(),
             },
             margin_body: "m".into(),
@@ -1263,7 +1267,7 @@ mod transcript_tests {
             entry: crate::state::LogEntry {
                 severity: crate::state::LogSeverity::Info,
                 message: "phase done".into(),
-                category: crate::state::LogCategory::Diagnostic,
+                tag: crate::state::EventTag::default(),
                 at: std::time::SystemTime::now(),
             },
             margin_body: "◷ 12.1s [1/4]".into(),

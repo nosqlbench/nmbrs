@@ -59,7 +59,13 @@ fn describe_assignment(s: WrapperSubject) -> Option<String> {
 inventory::submit! {
     WrapperRegistration {
         name: NAME,
-        owned_fields: &["tries"],
+        // The wrapper owns its sigil plus the standalone companion
+        // knobs consumed at wrapper build: retry pacing and the
+        // retry-error exemplar sampler (rate fraction, default 0.0
+        // = off; max_hz emission ceiling).
+        owned_fields: &["tries", "retry_backoff", "retry_backoff_max",
+            "retry_backoff_ratio", "retry_exemplar_rate",
+            "retry_exemplar_max_hz", "retry_advisory"],
         triggers,
         requires_inner: &[],
         forbids_outer: &[],
@@ -104,10 +110,28 @@ pub struct TriesDispenser {
     /// fresh attempts through the drain window. Injected at wrap time
     /// so the wrapper never reaches for globals itself.
     stop: crate::session_signals::StopView,
+    /// Op template name — identifies the specimen in exemplar lines.
+    op_name: String,
+    /// Counter-exemplar sampling for errors caught in the retry loop
+    /// (`retry_exemplar_rate` / `retry_exemplar_max_hz` params;
+    /// default rate 0.0 = off). The error policy never sees a
+    /// retried-then-recovered attempt, so without sampling those
+    /// messages are visible only as `attempt_failure` counts.
+    exemplars: crate::exec_events::ExemplarSampler,
+    /// Default-on per-phase retry advisory (`exec_events`): the first
+    /// sighting of each error class in the retry loop emits one
+    /// advisory line through the shared per-activity gate — a retry
+    /// storm identifies itself without flooding the output. `None`
+    /// when the op opted out (`retry_advisory: off`).
+    advisory: Option<Arc<crate::exec_events::AdvisoryGate>>,
 }
 
+impl crate::exec_events::ExecEventSubscriber for TriesDispenser {}
+
 impl TriesDispenser {
-    /// Wrap `inner` with a total-attempts budget and retry pacing.
+    /// Wrap `inner` with a total-attempts budget, retry pacing, and
+    /// optional retry-error exemplar sampling.
+    #[allow(clippy::too_many_arguments)]
     pub fn wrap(
         inner: Arc<dyn OpDispenser>,
         tries: u32,
@@ -116,6 +140,9 @@ impl TriesDispenser {
         backoff_max_ms: u64,
         backoff_ratio: f64,
         stop: crate::session_signals::StopView,
+        op_name: String,
+        exemplars: crate::exec_events::ExemplarSampler,
+        advisory: Option<Arc<crate::exec_events::AdvisoryGate>>,
     ) -> Arc<dyn OpDispenser> {
         Arc::new(Self {
             inner,
@@ -125,6 +152,9 @@ impl TriesDispenser {
             backoff_max_ms,
             backoff_ratio,
             stop,
+            op_name,
+            exemplars,
+            advisory,
         })
     }
 }
@@ -145,13 +175,7 @@ async fn portable_sleep_ms(ms: u64) {
     let _ = rx.await;
 }
 
-/// splitmix64 — cheap deterministic hash for replayable retry jitter.
-fn splitmix64(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
+use crate::exec_events::splitmix64;
 
 /// The jittered wait (ms) before retry `attempt_no` (1-based). Geometric
 /// growth `base * ratio^(attempt-1)`, capped at `max`, then deterministic
@@ -265,6 +289,43 @@ impl OpDispenser for TriesDispenser {
                             if self.stop.stopped() {
                                 self.metrics.tries_histogram.record(attempt_no as u64);
                                 return Err(e);
+                            }
+                            // Default-on advisory: the FIRST sighting of
+                            // each error class in this phase announces
+                            // itself once — the retry loop is otherwise
+                            // silent about what it absorbs.
+                            if let Some(gate) = &self.advisory
+                                && let ExecutionError::Op(ad) = &e
+                                && gate.first_sighting(&ad.error_name)
+                            {
+                                use crate::exec_events::ExecEventSubscriber as _;
+                                self.submit_advisory(
+                                    &self.op_name,
+                                    cycle,
+                                    self.tries,
+                                    &ad.error_name,
+                                    &ad.message,
+                                );
+                            }
+                            // Counter-exemplar sampling: this error will be
+                            // retried, so the error policy never sees it —
+                            // a sampled specimen goes to the structured
+                            // sink instead (see `exec_events`).
+                            if self.exemplars.enabled()
+                                && let ExecutionError::Op(ad) = &e
+                                && let Some(squelched) = self.exemplars.admit(cycle, attempt_no)
+                            {
+                                use crate::exec_events::ExecEventSubscriber as _;
+                                self.submit_exemplar(&crate::exec_events::ExecExemplar {
+                                    op_name: &self.op_name,
+                                    cycle,
+                                    attempt_no,
+                                    tries_budget: self.tries,
+                                    error_class: &ad.error_name,
+                                    message: &ad.message,
+                                    will_retry: true,
+                                    squelched_since_last: squelched,
+                                });
                             }
                             let wait = backoff_wait_ms(
                                 self.backoff_base_ms,
@@ -384,6 +445,10 @@ mod tests {
     /// `tries: 0` fails WITHOUT invoking the inner op.
     #[tokio::test]
     async fn tries_zero_fails_without_executing() {
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 0,
             calls: AtomicU32::new(0),
@@ -397,6 +462,9 @@ mod tests {
             0,
             2.0,
             crate::session_signals::StopView::default(),
+            "test_op".to_string(),
+            crate::exec_events::ExemplarSampler::pinned(0.0, 0.0),
+            None,
         );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);
@@ -433,6 +501,9 @@ mod tests {
             0,
             2.0,
             crate::session_signals::StopView::default(),
+            "test_op".to_string(),
+            crate::exec_events::ExemplarSampler::pinned(0.0, 0.0),
+            None,
         );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);
@@ -451,6 +522,10 @@ mod tests {
     /// succeeds when the third works.
     #[tokio::test]
     async fn tries_is_a_total_attempt_budget() {
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 2,
             calls: AtomicU32::new(0),
@@ -464,6 +539,9 @@ mod tests {
             0,
             2.0,
             crate::session_signals::StopView::default(),
+            "test_op".to_string(),
+            crate::exec_events::ExemplarSampler::pinned(0.0, 0.0),
+            None,
         );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);
@@ -476,6 +554,10 @@ mod tests {
     /// third attempt fails after exactly 2 invocations.
     #[tokio::test]
     async fn budget_exhaustion_is_terminal() {
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 5,
             calls: AtomicU32::new(0),
@@ -489,6 +571,9 @@ mod tests {
             0,
             2.0,
             crate::session_signals::StopView::default(),
+            "test_op".to_string(),
+            crate::exec_events::ExemplarSampler::pinned(0.0, 0.0),
+            None,
         );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);

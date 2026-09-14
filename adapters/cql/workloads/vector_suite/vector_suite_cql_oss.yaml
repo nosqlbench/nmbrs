@@ -1,0 +1,68 @@
+#!/usr/bin/env nmbrs
+# vector_suite_cql_oss.yaml — OSS-dialect variant of the CQL
+# vector suite implementation, for plain Cassandra 5.0.x targets
+# (e.g. a local dockerized node): OSS SAI accepts ONLY
+# `similarity_function` in vector-index OPTIONS — the cndb build
+# knobs are rejected, and the graph knobs are gated behind
+# SAI_VECTOR_ALLOW_CUSTOM_PARAMETERS. `extends:` replaces phases
+# whole, so the schema phase is restated in full; every other
+# phase binds from the base implementation unchanged.
+#
+#   nmbrs run workload=cql/vector_suite/vector_suite_cql_oss \
+#            scenario=search_perf dataset=<dataset>
+#
+# For a turnkey single-invocation form pinned to a complete
+# reference dataset, see vector_suite_cql_oss_sift1m.
+
+description: |
+  OSS-dialect variant of the vector suite CQL implementation:
+  SAI vector index options reduced to similarity_function for
+  plain Cassandra 5.0.x targets.
+
+extends: ./vector_suite_cql_impl.yaml
+
+# The cndb build knobs cannot ride in OSS DDL; pin them as scope
+# constants so the declared params stay referenced and the
+# intended values are recorded in the run's provenance.
+bindings: |
+  const oss_pinned_source_model := "{source_model}"
+  const oss_pinned_max_node_connections := "{maximum_node_connections}"
+  const oss_pinned_beam_width := "{construction_beam_width}"
+  const oss_pinned_enable_hierarchy := "{enable_hierarchy}"
+  const oss_pinned_neighborhood_overflow := "{neighborhood_overflow}"
+  const oss_pinned_alpha := "{alpha}"
+
+phases:
+
+  schema:
+    ops:
+      create_keyspace:
+        raw: |
+          CREATE KEYSPACE IF NOT EXISTS {keyspace}
+          WITH replication = {replication} AND durable_writes = true
+      create_table:
+        raw: |
+          CREATE TABLE IF NOT EXISTS {keyspace}.{table}
+          (key text PRIMARY KEY, value vector<float, {dim}>, metadata int)
+          WITH
+           compaction = {
+           'class': 'SizeTieredCompactionStrategy',
+           'min_threshold': '100000',
+           'max_threshold': '100000' }
+          AND compression = {
+           'enabled': 'false'
+          }
+      create_vector_index:
+        # OSS dialect: similarity_function is the only accepted
+        # option on plain Cassandra 5.0.x.
+        raw: |
+          CREATE CUSTOM INDEX IF NOT EXISTS {table}{vector_idx_suffix}
+          ON {keyspace}.{table} (value)
+          USING 'StorageAttachedIndex'
+          WITH OPTIONS = {
+            'similarity_function': '{similarity_function}'
+          }
+      create_metadata_index:
+        raw: |
+          CREATE CUSTOM INDEX IF NOT EXISTS {table}{meta_idx_suffix}
+          ON {keyspace}.{table} (metadata) USING 'StorageAttachedIndex'

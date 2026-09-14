@@ -10,9 +10,9 @@
 # NOTHING about any wire protocol — every op is an `abstract:`
 # slot. An implementation module binds the bodies:
 #
-#   nmbrs run workload=cql/vector_suite_cql_impl scenario=search_perf
+#   nmbrs run workload=cql/vector_suite/vector_suite_cql_impl scenario=search_perf
 #   nmbrs run workload=vector_suite_blueprint \
-#            impl=cql/vector_suite_cql_impl scenario=search_perf
+#            impl=cql/vector_suite/vector_suite_cql_impl scenario=search_perf
 #
 # This file lives in the NEUTRAL bundled catalog (top-level
 # `vector_suite_blueprint`), not under any adapter: SRD-109 web
@@ -38,11 +38,18 @@
 # `suite_k=` never re-runs the loads; changing `dataset=` always
 # does, and the diagnostic names the changed param.
 #
-# Table namespaces: the shared measured target lives in
-# vsuite_{profile}; the destructive sections get their own —
-# vsuite_cap_{profile} (capacity), vsuite_stream_{profile}
-# (streaming), vsuite_churn_{profile} (churn) — so they can never
-# invalidate the state the measurement sections depend on.
+# Table namespaces: the measured target's identity is the
+# DATASET + PROFILE pair — the shared target lives in
+# vsuite_{dataset}_{profile}, and the destructive sections get
+# their own — vsuite_cap_/vsuite_stream_/vsuite_churn_{dataset}_
+# {profile} — so no section, and no OTHER dataset sharing a
+# profile name, can ever collide with the state a measurement
+# depends on. (Two datasets both have a `default` profile;
+# without dataset identity in the name they'd silently share one
+# table and `IF NOT EXISTS` schema would keep whichever came
+# first, at its dimensionality.) Dataset names must be
+# identifier-safe for the target protocol; one that isn't fails
+# loudly at schema, never silently.
 #
 # Scenarios:
 #   traverse      — the single canonical traversal: every section
@@ -217,7 +224,7 @@ scenarios:
   traverse:
     - connect
     # Shared measured target + its non-destructive sections.
-    - for: "profile in {fknn_profile}, table in vsuite_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset}_{profile}"
       phases:
         - schema
         - load_train
@@ -232,7 +239,7 @@ scenarios:
     # table + prefiltered GT facet.
     - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
       phases:
-        - for: "table in vsuite_{profile}"
+        - for: "table in vsuite_{dataset}_{profile}"
           phases:
             - schema
             - fknn_rampup_data
@@ -240,7 +247,7 @@ scenarios:
             - filtered_probe
     # Streaming (own namespace; teardown resets it so the staged
     # fractions mean what they say on a fresh pass).
-    - for: "profile in {fknn_profile}, table in vsuite_stream_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_stream_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -253,7 +260,7 @@ scenarios:
         - await_index
         - serial_probe
     # Churn (own namespace with its own idempotent load chain).
-    - for: "profile in {fknn_profile}, table in vsuite_churn_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_churn_{dataset}_{profile}"
       phases:
         - schema
         - load_train
@@ -262,7 +269,7 @@ scenarios:
         - churn_delete
         - churn_probe
     # Capacity last: destructive to its namespace and unbounded.
-    - for: "profile in {fknn_profile}, table in vsuite_cap_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_cap_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -271,7 +278,7 @@ scenarios:
   # ── Capacity ───────────────────────────────────────────────────
   capacity:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_cap_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_cap_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -281,7 +288,7 @@ scenarios:
   # is the indexed-readiness delay) ──────────────────────────────
   load_build:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -292,7 +299,7 @@ scenarios:
   # quiesced target FIRST, then the sweep) ───────────────────────
   search_perf:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -310,7 +317,7 @@ scenarios:
     - connect
     - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
       phases:
-        - for: "table in vsuite_{profile}"
+        - for: "table in vsuite_{dataset}_{profile}"
           phases:
             - teardown
             - schema
@@ -324,7 +331,7 @@ scenarios:
   # to full extent, builds, and probes the settled index. ────────
   streaming:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_stream_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_stream_{dataset}_{profile}"
       phases:
         - teardown
         - schema
@@ -342,7 +349,7 @@ scenarios:
   # (restart / idle window) per the protocol's target-side contract.
   cold_warm:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset}_{profile}"
       phases:
         - cold_probe
         - warm_probe
@@ -354,7 +361,7 @@ scenarios:
   # ─────────────────────────────────────────────────
   churn:
     - connect
-    - for: "profile in {fknn_profile}, table in vsuite_churn_{profile}"
+    - for: "profile in {fknn_profile}, table in vsuite_churn_{dataset}_{profile}"
       phases:
         - schema
         - load_train
@@ -434,6 +441,25 @@ phases:
     timeout: "{load_timeout}"
     errors: "count,retry"
     status_metrics: [rows_inserted*, cycles*, latency*, errors*]
+    # Adaptive backpressure (SRD-83 Part 9): a saturated target
+    # converts overload into retry churn (green ok:% with a climbing
+    # att:% failure share and latencies made of backoff sleeps). The
+    # governor assumes the most fragile target: the offered
+    # concurrency SLOW-STARTS at the floor and doubles through clean
+    # windows toward the authored ceiling, backs off in proportion
+    # to the windowed attempt-failure severity, and probes
+    # additively under its congestion memory. Robust targets climb
+    # to full load in a few clean windows; fragile ones are never
+    # assaulted. The achieved rate is the target's honest capacity
+    # at the declared bound — not a retry storm artifact.
+    throttle: true
+    # Gap-free corpus is a recall precondition: retries absorb
+    # transients, so any write failure that still reaches the
+    # result level is a corpus gap — the load FAILS loudly rather
+    # than completing with counted errors.
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: fail
     bindings: |
       const prebuffered := dataset_prebuffer("{dataset}:{profile}")
       cursor row = range(0, vector_count(prebuffered))
@@ -458,6 +484,25 @@ phases:
     concurrency: "{concurrency}"
     errors: "count,retry"
     status_metrics: [rows_inserted*, cycles*, latency*, errors*]
+    # Adaptive backpressure (SRD-83 Part 9): a saturated target
+    # converts overload into retry churn (green ok:% with a climbing
+    # att:% failure share and latencies made of backoff sleeps). The
+    # governor assumes the most fragile target: the offered
+    # concurrency SLOW-STARTS at the floor and doubles through clean
+    # windows toward the authored ceiling, backs off in proportion
+    # to the windowed attempt-failure severity, and probes
+    # additively under its congestion memory. Robust targets climb
+    # to full load in a few clean windows; fragile ones are never
+    # assaulted. The achieved rate is the target's honest capacity
+    # at the declared bound — not a retry storm artifact.
+    throttle: true
+    # Gap-free corpus is a recall precondition: retries absorb
+    # transients, so any write failure that still reaches the
+    # result level is a corpus gap — the load FAILS loudly rather
+    # than completing with counted errors.
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: fail
     bindings: |
       const prebuffered := dataset_prebuffer("{dataset}:{profile}")
       cursor row = range(0, vector_count(prebuffered))

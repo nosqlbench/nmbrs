@@ -33,35 +33,86 @@ pub enum LogLevel {
 /// owns a managed phase-history region (the idempotent catch-up
 /// projection of the scene tree), so the phase start/end readout
 /// lines that would otherwise scroll past in the log stream are
-/// [`LogCategory::PhaseLifecycle`] and suppressed from that
+/// tagged `attached: PhaseStart` and suppressed from that
 /// stream — they live in the region instead. Every other surface
 /// (`session.log`, the failure dump, the full TUI panel) treats
-/// all categories alike; the category is purely additive.
+/// all events alike; the tag is purely additive.
+///
+/// The tag is TWO ORTHOGONAL AXES (they were one conflated enum
+/// once, with `Diagnostic` — "anything else" — riding beside
+/// boundary-attached kinds, and sinks keying presentation rules
+/// off the conflation):
+///
+/// - [`EventTag::attached`] — WHERE on the execution lifecycle the
+///   event belongs, in the canonical lifecycle vocabulary
+///   ([`crate::lifecycle::EventType`]: session/scope/each/phase
+///   boundaries). `None` = in-flight — emitted from the running
+///   body, bound to no boundary.
+/// - [`EventTag::category`] — WHAT the event is about
+///   ([`EventCategory`]): the semantic domain, independent of when
+///   it fired.
+///
+/// Presentation rules derive from the axes instead of naming
+/// bundles: "hide phase-start renders from scrollback" keys on
+/// `attached == Some(PhaseStart)`; "the TUI log panel shows only
+/// in-flight diagnostics" keys on `attached.is_none()`; "detail
+/// rows fold with their block" keys on `attached == Some(PhaseEnd)
+/// && category != Outcome`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LogCategory {
-    /// An ordinary diagnostic line (the overwhelming majority).
-    /// The TUI log panel shows these and only these.
+pub struct EventTag {
+    /// The execution-lifecycle boundary this event is attached to;
+    /// `None` = in-flight.
+    pub attached: Option<crate::lifecycle::EventType>,
+    /// Semantic category.
+    pub category: EventCategory,
+}
+
+impl EventTag {
+    /// An in-flight event of the given category (no boundary).
+    pub const fn in_flight(category: EventCategory) -> Self {
+        Self {
+            attached: None,
+            category,
+        }
+    }
+    /// An event attached to a lifecycle boundary.
+    pub const fn at(moment: crate::lifecycle::EventType, category: EventCategory) -> Self {
+        Self {
+            attached: Some(moment),
+            category,
+        }
+    }
+}
+
+/// The semantic domain of a structured event — orthogonal to the
+/// lifecycle moment it attaches to. Extend as producers appear;
+/// a category earns a variant when some consumer (sink filter,
+/// counter, panel) needs to dispatch on it without string-matching
+/// rendered prefixes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EventCategory {
+    /// Ordinary diagnostics with no more specific domain (the
+    /// overwhelming majority).
     #[default]
-    Diagnostic,
-    /// A phase **start** lifecycle render (the `phase_starting`
-    /// readout). Low-value noise next to the live status and the
-    /// `✓` outcome marker, so the terminal sink keeps it out of
-    /// scrollback and the TUI log panel filters it.
-    PhaseLifecycle,
-    /// A per-phase **outcome** render (the `✓`/`✗` `phase_outcome`
-    /// summary). SRD-81: this is a display *projection*, not a
-    /// diagnostic — the terminal scrollback shows it and the TUI
-    /// renders it natively in the tree / active-phase panel, so the
-    /// TUI log panel (diagnostics-only) filters it out instead of
-    /// garbling the multi-line ANSI render as one `Span`.
-    PhaseOutcome,
-    /// A per-phase **detail** line emitted around a completion block
-    /// (e.g. the relevancy `mean=/p50=` summary). SRD-92: detail rows
-    /// belong to the block above them — the terminal sink renders
-    /// them under the blank divider margin (no timing triad; one
-    /// header per item) and `completed_phases=headers` drops them
-    /// from scrollback along with the block's other detail rows.
-    PhaseDetail,
+    General,
+    /// An outcome projection (the `✓`/`✗` phase_outcome block).
+    /// SRD-81: a display projection, not a diagnostic.
+    Outcome,
+    /// Evaluation detail attached to an outcome (relevancy
+    /// `mean=/p50=` rows, verify summaries). SRD-92: detail rows
+    /// belong to the block above them.
+    Evaluation,
+    /// Retry-plane visibility: first-sighting advisories and
+    /// sampled counter-exemplars (`exec_events`).
+    Retry,
+    /// Adaptive backpressure governance (SRD-83 Part 9
+    /// `throttle:`).
+    Throttle,
+    /// Reference resolution (SRD-85 nearest-first shadowing
+    /// warnings).
+    Resolution,
+    /// Report-block warnings (SRD-46).
+    Report,
 }
 
 /// Kind of pre-mapped scenario entry. Re-export of
@@ -186,12 +237,12 @@ pub trait RunObserver: Send + Sync {
     /// runtime should go through this instead.
     fn log(&self, level: LogLevel, message: &str);
 
-    /// Log a message carrying an explicit [`LogCategory`]. The
-    /// default ignores the category and delegates to [`Self::log`]
-    /// — correct for every observer whose surface treats all
-    /// categories alike. Observers that feed a category-aware sink
-    /// (the run-state actor ring) override this to retain the tag.
-    fn log_categorized(&self, level: LogLevel, _category: LogCategory, message: &str) {
+    /// Log a message carrying an explicit [`EventTag`]. The
+    /// default ignores the tag and delegates to [`Self::log`] —
+    /// correct for every observer whose surface treats all events
+    /// alike. Observers that feed a tag-aware sink (the run-state
+    /// actor ring) override this to retain both axes.
+    fn log_tagged(&self, level: LogLevel, _tag: EventTag, message: &str) {
         self.log(level, message);
     }
 
@@ -722,17 +773,17 @@ pub fn display_level() -> LogLevel {
 }
 
 pub fn log(level: LogLevel, message: &str) {
-    log_categorized(level, LogCategory::Diagnostic, message);
+    log_tagged(level, EventTag::default(), message);
 }
 
-/// [`log`] with an explicit [`LogCategory`]. The session-log
-/// write (unconditional, all categories) and the fallback stderr
-/// path are identical to [`log`]; the category only changes how a
-/// category-aware display sink files the message. Used by the
-/// readout engine to tag phase-lifecycle renders so the terminal
-/// sink can keep them out of its scrollback (they show in its
-/// managed phase-history region instead).
-pub fn log_categorized(level: LogLevel, category: LogCategory, message: &str) {
+/// [`log`] with an explicit [`EventTag`]. The session-log write
+/// (unconditional, all tags) and the fallback stderr path are
+/// identical to [`log`]; the tag only changes how a tag-aware
+/// display sink files the message — e.g. the readout engine
+/// attaches phase-start renders to `PhaseStart` so the terminal
+/// sink keeps them out of its scrollback (they show in its managed
+/// phase-history region instead).
+pub fn log_tagged(level: LogLevel, tag: EventTag, message: &str) {
     if level >= retain_level()
         && let Some(sink) = crate::log_sink::global()
     {
@@ -764,7 +815,7 @@ pub fn log_categorized(level: LogLevel, category: LogCategory, message: &str) {
     // SRD-88: route through the current execution's observer (task-local) or
     // the process-global default; `global_observer()` resolves both.
     if let Some(obs) = global_observer() {
-        obs.log_categorized(level, category, message);
+        obs.log_tagged(level, tag, message);
     } else {
         // No observer yet (bootstrap): project straight to the log bucket —
         // the channel owns the fd (SRD-87 §5), falling back to stderr when no
@@ -792,7 +843,7 @@ pub fn op_output(line: &str) {
 /// Write an op-output line RAW to the stdout the producer owns (so
 /// `nmbrs run | grep`, `> file`, AND a console-owning adapter's interactive
 /// screen all show it) and capture it to `session.log` at INFO (the same
-/// durable projection [`log_categorized`] writes). The SRD-87
+/// durable projection [`log_tagged`] writes). The SRD-87
 /// [`crate::output_channel::RawStdoutChannel`] op-output bucket and the
 /// no-channel bootstrap fallback both route through here.
 pub(crate) fn op_output_raw(line: &str) {

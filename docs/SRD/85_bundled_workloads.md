@@ -81,19 +81,33 @@ source location:
 workload by name. Bare curated names (`workload=keyvalue_smoke`)
 resolve at the top level of the catalog.
 
-### Resolution order — local first, never silent shadowing
+### Resolution order — nearest-first, never silent shadowing
 
-`resolve_workload_file` gains a final catalog step. Order:
+Every reference-linking mechanism (`workload=`, `extends:`,
+`implements:`, `impl=`, `driver=`) resolves in the same
+nearest-first order, and the **logical filesystem location is
+favored by default**:
 
-1. Exact filesystem path (as today, including extension probing
-   and the cwd `workloads/` subdirectory).
-2. The bundled catalog, by catalog name.
+1. A file beside the referring document (secondary refs only —
+   the referring file's own directory).
+2. The cwd's logical layout (exact path, extension probing, the
+   cwd `workloads/` subdirectory; `drivers/<n>/driver.yaml` for
+   drivers).
+3. The bundled catalog: exact name, then the referring bundled
+   document's namespace (the sibling-by-filename idiom), then
+   the bare stem.
 
-A name that resolves **both** locally and in the catalog is an
-error naming both candidates, not a silent preference — the
-operator writes `./mine.yaml` or the catalog name explicitly.
-(Plain local filenames without a namespace slash rarely
-collide; the error path exists for the day they do.)
+A name that resolves in **more than one** place is a *warnable
+condition*, not an error: the nearest candidate wins and a
+warning names every match — shadowing is allowed but never
+silent. This keeps a fresh checkout authoritative over a stale
+binary's embedded catalog (the failure mode that motivated the
+rule), while the warning prompts the operator toward unique
+names. `--strict` promotes resolution warnings to hard errors
+(restoring the old fail-on-ambiguity behavior). An explicitly
+pinned reference — a `./`/`../` path that resolves at its
+pinned location, or a full catalog name with no local match —
+is unambiguous and warns about nothing.
 
 ### Discovery — `nmbrs describe workloads`
 

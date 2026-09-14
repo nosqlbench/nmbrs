@@ -432,3 +432,93 @@ the rest reuses SRD-82's abort and SRD-18b's per-scope kernel.
   caught fast and a settled phase pays little.
 - **Timing is daemon-managed and async.** Trigger cadence lives in
   per-layer (phase / scenario) daemon tasks, never in the work path.
+
+## Part 9 — `throttle:` — the adaptive backpressure governor
+
+> **Implemented 2026-08-13** (`nmbrs-runtime::throttle`, phase field
+> `throttle:`, e2e `nmbrs/tests/throttle_governor.rs`).
+
+Stop conditions decide when a shell must END; the throttle governor
+decides how hard a shell may PUSH. A saturated target converts client
+overload into retry churn — the tries wrapper (SRD-82 Part 3b)
+absorbs server rejections, `ok:%` stays green, and the only truthful
+signal is the ATTEMPT plane: the windowed attempt-failure fraction
+(`attempt_failure / resolved attempts`, the same see-through-retries
+wires Part 2 exposes to predicates) climbing while wasted attempts
+burn both sides.
+
+A phase declares the governor:
+
+```yaml
+load_train:
+  concurrency: "{concurrency}"
+  throttle: true          # all defaults, or the map form:
+  # throttle:
+  #   high: 0.05          # back off above 5% windowed attempt failure
+  #   low: 0.01           # recover below this (default high/5)
+  #   control: concurrency  # or rate (needs a rate: on the phase)
+  #   start: 1            # slow-start seed (default = floor); declare
+  #                       # higher ONLY for known-robust targets
+  #   floor: 1            # never throttle below
+  #   window: "2s"        # evaluation window
+```
+
+Semantics — fragile-first, scaling to robust (TCP-style):
+
+- The governor ticks on the same drain-loop cadence as the phase's
+  stop conditions, computing the failure fraction from counter
+  DELTAS per window — a true trailing window, never a lifetime
+  average.
+- **Slow-start.** The phase OPENS at `start` (default `floor`):
+  the fiber pool spawns at the opening offer and the control is
+  published to it, so the authored value is a ceiling the governor
+  grows into, never an opening assault. While no congestion has
+  been observed, each clean window DOUBLES the offer — a robust
+  target reaches the authored ceiling in log2(ceiling/start)
+  windows with zero failures; the most fragile target (a local
+  single-node container) is never overdriven at all. (Reactive-only
+  governance was measured against exactly that target: ten seconds
+  of 100% attempt failure and ~20k server-side dropped mutations
+  before the walk-down from the authored ceiling completed.
+  Slow-start removes that entire regime.)
+- **Severity-proportional back-off.** Above `high`, the offer
+  multiplies by `clamp(1 − frac, 0.25, 0.9)`: a marginal breach
+  trims ×0.9, total failure collapses ×0.25 — floored.
+- **Congestion memory.** Each back-off records the offer at which
+  failure was observed. Recovery climbs ×1.5 through the
+  proven-safe zone (75% of that point), then probes ADDITIVELY
+  (+max(1, 2% of it) per clean window) — never a multiplicative
+  march back into the same wall, so a sensitive target sees gentle
+  pressure waves, not sawtooth assaults. Three CONSECUTIVE clean
+  windows at-or-above the remembered point clear the memory (the
+  target got healthier — warm caches, finished compactions) and the
+  doubling climb resumes; one clean window at a marginal congestion
+  point is noise, and the additive probes keep stepping through the
+  streak, so clearing means the target stayed clean across a rising
+  run of offers.
+- Writes ride the same push-on-set path as every control writer
+  (`ControlOrigin::Governor`, confirmed-apply, spawned off the
+  loop); reads are counter loads. No new machinery in the work
+  path. External control writes (TUI, web, `control_set`) are
+  honored — the governor steps from the committed value, never
+  from private state.
+- Every adjustment logs one line naming the signal, window, and
+  movement (climbing / reclimbing / probing / back-off); the
+  governor announces its slow-start and bounds at phase start —
+  visible, never silent.
+- Measurement honesty: a load figure taken at high attempt-failure
+  is a saturation artifact. The throttled steady state IS the
+  measurement — the target's capacity at the declared failure
+  bound.
+
+Companion default (SRD-82 Part 3b): the retry loop's first sighting
+of each error class per phase emits ONE advisory line by default
+(capped at 3 classes/phase, `retry_advisory: off` to silence), so a
+retry storm identifies itself even with exemplar sampling off.
+
+User-facing walkthrough of the layered system (counters → advisory
+→ exemplars → tracing → governor → stop conditions):
+`docs/guide/retry_visibility_and_throttle.md`. Runnable,
+walker-pinned demonstrations:
+`examples/workloads/controls/retry_visibility.yaml` and
+`examples/workloads/controls/throttle_backpressure.yaml`.

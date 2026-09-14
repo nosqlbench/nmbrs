@@ -1,0 +1,114 @@
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# retry_visibility.yaml — what the retry loop tells you, and how to
+# ask for more (SRD-82 Part 3b × exec_events).
+#
+# The tries wrapper absorbs adapter-retryable errors: a retried-then-
+# recovered attempt never reaches the `errors:` policy, so by design
+# it exists only as counters — the `att:%` / `r:` status chips and
+# the `attempt_total` / `attempt_success` / `attempt_failure` timers
+# plus `tries_histogram` (attempts-per-op distribution). This example
+# demonstrates the three visibility layers stacked on top of those
+# counters, each phase one layer:
+#
+# 1. `advisory_default` — the DEFAULT. The first retryable error of
+#    each class in a phase announces itself ONCE ("retry advisory:
+#    ..."), capped at three classes per phase, so a retry storm
+#    identifies itself without flooding the log. Silence it per op
+#    with `retry_advisory: off`.
+#
+# 2. `sampled` — opt-in counter-exemplars. `retry_exemplar_rate`
+#    (fraction, default 0.0 = off) samples errors caught in the
+#    retry loop onto the session log as full specimens ("retry
+#    exemplar: ... [class] message"), deterministically on
+#    (cycle, attempt) so replays reproduce them. Both knobs are also
+#    SRD-23 DYNAMIC CONTROLS: with no op-level pin, setting
+#    `retry_exemplar_rate` live (TUI `e`, web POST, or a
+#    `volatile ... := control_set(...)` binding) arms every op in
+#    the phase mid-run — one atomic store, no restart.
+#
+# 3. `squelched` — the frequency ceiling. `retry_exemplar_max_hz`
+#    bounds emissions; admissions over it are squelched AND counted,
+#    the tally carried on the next emitted line ("(+N squelched)") —
+#    bounded output, never silent loss.
+#
+# The error source is the testkit synthetic-overload model:
+# `result-load: 9` > `result-overload: 4` rejects EVERY attempt with
+# a retryable [Overload], so with `tries: 3` each cycle burns exactly
+# two retried attempts and one terminal (counted) failure —
+# deterministic storms, no real server needed.
+
+description: |
+  Retry-visibility layers: default first-sighting advisories,
+  opt-in sampled counter-exemplars, and the squelching frequency
+  ceiling — the tools that make a retry storm identify itself.
+
+scenarios:
+  default:
+    - advisory_default
+    - sampled
+    - squelched
+
+phases:
+
+  # Layer 1 — nothing configured: the first [Overload] sighting
+  # emits one advisory naming the class, the message, the tries
+  # budget, and both paths forward (sampling control / opt-out).
+  advisory_default:
+    adapter: testkit
+    cycles: 3
+    concurrency: 1
+    errors: "count"
+    ops:
+      plain:
+        stmt: "x"
+        tries: 3
+        retry_backoff: "10ms"
+        result-load: 9
+        result-overload: 4
+
+  # Layer 2 — full sampling (rate 1.0, effectively uncapped):
+  # every retried attempt lands as a specimen line. Real runs use
+  # small fractions (0.01–0.05); 1.0 here makes the example
+  # deterministic.
+  sampled:
+    adapter: testkit
+    cycles: 3
+    concurrency: 1
+    errors: "count"
+    ops:
+      specimen:
+        stmt: "x"
+        tries: 3
+        retry_backoff: "10ms"
+        retry_exemplar_rate: "1.0"
+        retry_exemplar_max_hz: "1000000"
+        result-load: 9
+        result-overload: 4
+
+  # Layer 3 — the ceiling: one emission per 10s means exactly one
+  # specimen in this fast phase; the rest of the burst is squelched
+  # and COUNTED (the leftover tally flushes at Debug when the
+  # sampler retires).
+  squelched:
+    adapter: testkit
+    cycles: 3
+    concurrency: 1
+    errors: "count"
+    ops:
+      capped:
+        stmt: "x"
+        tries: 3
+        retry_backoff: "10ms"
+        retry_exemplar_rate: "1.0"
+        retry_exemplar_max_hz: "0.1"
+        result-load: 9
+        result-overload: 4
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect retry advisory: op 'plain' hit its first retryable
+#@ expect \[Overload\]
+#@ expect retry exemplar: op 'specimen' attempt 1/3
+#@ expect retry exemplar: op 'capped'
+#@ expect completed, 0 failed

@@ -572,15 +572,15 @@ impl PhaseOutcome {
     }
 
     /// Build a Failed outcome from a non-empty error list.
-    /// Panics in debug builds if `errors` is empty —
-    /// `Failed` without an error is structurally
-    /// invalid per SRD-76 §"Invariants".
+    /// Panics if `errors` is empty — `Failed` without an
+    /// error is structurally invalid per SRD-76
+    /// §"Invariants", in every build profile.
     pub fn failed(
         phase_id: PhaseIdentity,
         duration_secs: f64,
         errors: Vec<PhaseErrorDetail>,
     ) -> Self {
-        debug_assert!(
+        assert!(
             !errors.is_empty(),
             "PhaseOutcome::failed requires at least one error"
         );

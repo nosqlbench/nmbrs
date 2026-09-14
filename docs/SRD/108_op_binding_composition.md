@@ -112,7 +112,20 @@ phases:
   - any key BOTH sides declare is a load error (the blueprint
     scaffolding is authoritative; an implementation may not
     silently override `metrics:`, `evaluations:`, `condition:`,
-    tags, or any other blueprint surface).
+    tags, or any other blueprint surface);
+  - **params are the exception** — they follow the param
+    layering rule, not the collision rule. Params are the
+    system's override surface (doc → block → op cascade at
+    parse, CLI last), so an implementation-side `params:` key
+    the blueprint already declares RE-DEFAULTS its value: the
+    same specialization the CLI performs per invocation, made
+    durable in a document. This is what lets a turnkey variant
+    (an extends-child of an implementation) pin dataset and
+    tier-governance params for single-`workload=` invocation.
+    Declaration ownership stays with the blueprint — the key is
+    not re-declared, consumed-param provenance (SRD-107) and CLI
+    override order are unchanged. New keys add protocol knobs,
+    declared implementation-side, as before.
 - Coverage is total, both directions, at load:
   - a remaining unbound `abstract` op → error naming the slot
     ("abstract op 'probe.search' unbound — pass impl= or run an
@@ -165,9 +178,9 @@ The FULL vector benchmarking suite ships as the reference
 blueprint/implementation pair: `vector_suite_blueprint` (neutral
 catalog; every scenario — traverse, capacity, load_build,
 search_perf, filtered_grid, streaming, cold_warm, churn — with 24
-typed abstract slots) bound by `cql/vector_suite_cql_impl`
+typed abstract slots) bound by `cql/vector_suite/vector_suite_cql_impl`
 (literal CQL) or a web driver library (`drivers/vendorx`). The
-direct-bound monolith `cql/vector_suite_cql_direct` is kept as
+direct-bound monolith `cql/vector_suite/vector_suite_cql_direct` is kept as
 the testing reference, and
 `nmbrs/tests/vector_suite_equivalence.rs` proves the pair
 model-equivalent to it — same scenario trees, phase scaffolding,

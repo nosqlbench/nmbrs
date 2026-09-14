@@ -48,6 +48,11 @@ pub struct ActivityConfig {
     /// `ScopedExpr`s alongside the default error-rate condition and
     /// evaluated per tick.
     pub stop_when: Vec<crate::stop_conditions::StopConditionDecl>,
+    /// SRD-83 §throttle — the phase's adaptive backpressure governor
+    /// spec: keep the windowed attempt-failure fraction under a bound
+    /// by walking a dynamic control (`concurrency`/`rate`). Evaluated
+    /// on the same drain-loop tick as the stop conditions.
+    pub throttle: Option<nmbrs_workload::model::ThrottleSpec>,
     /// Inherited total-attempts budget for this activity's ops (phase
     /// `tries:` or the workload-root `tries` param). An op's own `tries:`
     /// field overrides it. `None` = no budget in scope → ops WITHOUT their
@@ -152,6 +157,7 @@ impl Default for ActivityConfig {
             error_spec: ".*:warn,stop".into(),
             error_rate_max: None,
             stop_when: Vec::new(),
+            throttle: None,
             // Default 0 — retries are opt-in via the workload `retries:` param
             // (runner default is also 0). Matches the effective pre-wrapper
             // behaviour (retries previously required a policy `retry`
@@ -992,6 +998,19 @@ pub struct Activity {
     /// this changes the tiebreaker used when constraints
     /// leave order ambiguous.
     pub wrap_default_order: Option<Vec<String>>,
+    /// Shared retry-exemplar sampling config (`exec_events`): every
+    /// tries wrapper in this activity that does NOT pin its own
+    /// `retry_exemplar_*` op params samples through this cell, so
+    /// the `retry_exemplar_rate` / `retry_exemplar_max_hz` dynamic
+    /// controls (declared in [`Self::attach_component`]) move them
+    /// all with one atomic store — push-on-set, no per-op control
+    /// traffic, and the read only happens on the retry path.
+    pub exemplar_config: Arc<crate::exec_events::ExemplarConfig>,
+    /// Shared per-phase retry advisory gate (`exec_events`): one
+    /// first-sighting advisory per error class per phase, capped —
+    /// the default-on signal that the retry loop started absorbing
+    /// errors. Ops opt out with `retry_advisory: off`.
+    pub advisory_gate: Arc<crate::exec_events::AdvisoryGate>,
     /// Phase memo — a short operator-visible string that the
     /// `memo` wrapper publishes via `before:` / `after:`
     /// templates. Read by the inline-status readout and
@@ -1234,6 +1253,8 @@ impl Activity {
             component: None,
             wrappers_override: None,
             wrap_default_order: None,
+            exemplar_config: Arc::new(crate::exec_events::ExemplarConfig::new(0.0, 5.0)),
+            advisory_gate: Arc::new(crate::exec_events::AdvisoryGate::new()),
             memo: Arc::new(arc_swap::ArcSwap::from_pointee(String::new())),
             gutter: Arc::new(arc_swap::ArcSwapOption::empty()),
             gutter_spec: std::sync::Mutex::new(None),
@@ -1351,6 +1372,41 @@ impl Activity {
                 .unwrap_or_else(|e| e.into_inner())
                 .controls()
                 .declare(rate_control);
+        }
+
+        // Retry-exemplar sampling (SRD-82 Part 3b / `exec_events`):
+        // both knobs are push-on-set — the applier is one atomic
+        // store into the activity's shared `ExemplarConfig`, which
+        // every unpinned tries wrapper reads (only on its retry
+        // path). Ops that pin `retry_exemplar_*` params hold private
+        // cells the controls deliberately do not move — authored
+        // matter wins, the live control moves the rest.
+        {
+            use crate::control_catalog::{RETRY_EXEMPLAR_MAX_HZ, RETRY_EXEMPLAR_RATE};
+            use nmbrs_metrics::controls::SyncApplier;
+            let cfg = self.exemplar_config.clone();
+            let rate_control = RETRY_EXEMPLAR_RATE.build_f64(0.0);
+            rate_control.register_applier(SyncApplier::new(move |v: f64| {
+                cfg.set_rate(v);
+                Ok(())
+            }));
+            component
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .controls()
+                .declare(rate_control);
+
+            let cfg = self.exemplar_config.clone();
+            let hz_control = RETRY_EXEMPLAR_MAX_HZ.build_f64(5.0);
+            hz_control.register_applier(SyncApplier::new(move |v: f64| {
+                cfg.set_max_hz(v);
+                Ok(())
+            }));
+            component
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .controls()
+                .declare(hz_control);
         }
         // Register every static instrument owned by ActivityMetrics
         // on this component so the cadence reporter's tree walk
@@ -1984,6 +2040,57 @@ impl Activity {
                             backoff_ratio = r;
                         }
                     }
+                    // Retry-error counter-exemplars (`exec_events`): the
+                    // fraction of caught-and-retried errors sampled onto
+                    // the structured event sink (default 0.0 = off), and
+                    // the emission-frequency ceiling that squelches spam.
+                    // Standalone params, same channel as `retry_backoff*`.
+                    let json_to_f64 = |v: &serde_json::Value| -> Option<f64> {
+                        match v {
+                            serde_json::Value::Number(n) => n.as_f64(),
+                            serde_json::Value::String(s) => s.trim().parse::<f64>().ok(),
+                            _ => None,
+                        }
+                    };
+                    let pinned = template.params.contains_key("retry_exemplar_rate")
+                        || template.params.contains_key("retry_exemplar_max_hz");
+                    let sampler = if pinned {
+                        // Authored pin: a private cell the dynamic
+                        // controls deliberately do not move.
+                        let exemplar_rate = template
+                            .params
+                            .get("retry_exemplar_rate")
+                            .and_then(&json_to_f64)
+                            .unwrap_or(0.0);
+                        let exemplar_max_hz = template
+                            .params
+                            .get("retry_exemplar_max_hz")
+                            .and_then(&json_to_f64)
+                            .unwrap_or(5.0);
+                        crate::exec_events::ExemplarSampler::pinned(exemplar_rate, exemplar_max_hz)
+                    } else {
+                        // Default: the activity's shared cell — the
+                        // `retry_exemplar_rate`/`_max_hz` dynamic
+                        // controls move every sampler built here with
+                        // one atomic store.
+                        crate::exec_events::ExemplarSampler::shared(
+                            activity.exemplar_config.clone(),
+                        )
+                    };
+                    // Default-on advisory; `retry_advisory: off` (or
+                    // false) opts this op out of the shared gate.
+                    let advisory_on = template
+                        .params
+                        .get("retry_advisory")
+                        .map(|v| match v {
+                            serde_json::Value::Bool(b) => *b,
+                            serde_json::Value::String(s) => {
+                                !s.eq_ignore_ascii_case("off") && !s.eq_ignore_ascii_case("false")
+                            }
+                            _ => true,
+                        })
+                        .unwrap_or(true);
+                    let advisory = advisory_on.then(|| activity.advisory_gate.clone());
                     let raw = match op_tries {
                         Some(n) if n != 1 => crate::wrappers::TriesDispenser::wrap(
                             raw,
@@ -1993,6 +2100,9 @@ impl Activity {
                             backoff_max_ms,
                             backoff_ratio,
                             activity.stop_view(),
+                            template.name.clone(),
+                            sampler,
+                            advisory,
                         ),
                         _ => raw,
                     };
@@ -2884,7 +2994,25 @@ impl Activity {
             }
         }
 
-        fiber_pool.spawn_initial(activity.config.concurrency);
+        // SRD-83 Part 9 — the adaptive backpressure governor, built
+        // BEFORE the pool spawns so the phase OPENS at the slow-start
+        // offer (default: the floor) instead of assaulting a fragile
+        // target at the authored ceiling. Built after
+        // `attach_component` declared the controls it walks.
+        let mut throttle_governor = activity.config.throttle.as_ref().and_then(|spec| {
+            crate::throttle::ThrottleGovernor::from_spec(
+                spec,
+                activity.component.as_ref(),
+                &activity.config.name,
+                activity.config.concurrency,
+                activity.config.rate,
+            )
+        });
+        let initial_fibers = throttle_governor
+            .as_ref()
+            .and_then(|g| g.initial_concurrency())
+            .unwrap_or(activity.config.concurrency);
+        fiber_pool.spawn_initial(initial_fibers);
         // Wait for fibers to exit by natural exhaustion (source
         // drained) or `stop_flag` set by the error router.
         // Runtime resize-down flags some of them earlier; those
@@ -2931,6 +3059,12 @@ impl Activity {
             let n = fiber_pool.tracked_count();
             if n == 0 {
                 break;
+            }
+            if let Some(governor) = throttle_governor.as_mut() {
+                governor.tick(
+                    activity.metrics.attempt_success.count(),
+                    activity.metrics.attempt_failure.count(),
+                );
             }
             // Periodic stall detection. A real stall means
             // *neither* signal of progress has moved:
@@ -3604,9 +3738,12 @@ impl Activity {
                 // garbling the multi-line ANSI as one Span. (push 1b
                 // replaces this pre-rendered string with a structured
                 // marker the sinks render from the snapshot.)
-                crate::observer::log_categorized(
+                crate::observer::log_tagged(
                     crate::observer::LogLevel::Info,
-                    crate::observer::LogCategory::PhaseOutcome,
+                    crate::observer::EventTag::at(
+                        crate::lifecycle::EventType::PhaseEnd,
+                        crate::observer::EventCategory::Outcome,
+                    ),
                     &rendered,
                 );
             }
@@ -3655,9 +3792,12 @@ impl Activity {
                         // terminal sink renders it under the blank
                         // divider margin (no timing triad) and
                         // `completed_phases=headers` drops it.
-                        crate::observer::log_categorized(
+                        crate::observer::log_tagged(
                             crate::observer::LogLevel::Info,
-                            crate::observer::LogCategory::PhaseDetail,
+                            crate::observer::EventTag::at(
+                                crate::lifecycle::EventType::PhaseEnd,
+                                crate::observer::EventCategory::Evaluation,
+                            ),
                             &format!(
                                 "{depth_indent}{bold}{name}{reset}: mean={:.2}% {dim}p50={:.2}% p99={:.2}% min={:.2}% max={:.2}% (n={n}){reset}",
                                 mean * 100.0,

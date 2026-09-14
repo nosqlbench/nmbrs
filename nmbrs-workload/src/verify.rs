@@ -562,9 +562,14 @@ pub fn resolve_ref(reference: &str) -> Option<WorkloadSource> {
 /// keys (e.g. stdout's `filename`) so the preference is decided correctly.
 pub fn declared_params(reference: &str) -> Option<std::collections::HashMap<String, String>> {
     let merged = match resolve_ref(reference)? {
-        WorkloadSource::File(path) => crate::extends::load_and_merge(&path).ok()?,
+        // Display-shaping probe only: resolution warnings are
+        // dropped HERE because the authoritative load that follows
+        // this probe surfaces the identical warnings itself.
+        WorkloadSource::File(path) => crate::extends::load_and_merge(&path).ok()?.0,
         WorkloadSource::Catalog { name, .. } => {
-            crate::extends::load_and_merge_bundled(crate::catalog::lookup(&name)?).ok()?
+            crate::extends::load_and_merge_bundled(crate::catalog::lookup(&name)?)
+                .ok()?
+                .0
         }
     };
     let doc: serde_yaml::Value = serde_yaml::from_str(&merged).ok()?;

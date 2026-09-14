@@ -1,0 +1,92 @@
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# throttle_backpressure.yaml — the adaptive backpressure governor
+# (SRD-83 Part 9, `throttle:`).
+#
+# A saturated target converts client overload into retry churn: the
+# tries wrapper absorbs the rejections, `ok:%` stays green, `e:` stays
+# 0 — and the only truthful signal is the ATTEMPT plane: the windowed
+# attempt-failure fraction (`attempt_failure / resolved attempts`, the
+# see-through-retries view) climbing while both sides burn capacity on
+# work the server is about to reject. Latency chips inflate too, since
+# service time wraps the whole attempt loop INCLUDING backoff sleeps.
+#
+# `throttle:` closes the loop the operator would otherwise drive by
+# hand through the dynamic controls, and it assumes the MOST FRAGILE
+# target by default (a local single-node container is the canonical
+# case). Each `window` the governor computes the failure fraction
+# from counter DELTAS (a true trailing window, never a lifetime
+# average) and walks the phase's declared SRD-23 control, TCP-style:
+#
+#   - SLOW-START: the offer OPENS at `start` (default: `floor`) —
+#     the authored concurrency/rate is the CEILING, not the opening
+#     offer — and DOUBLES through clean windows. A robust target
+#     climbs to full load in log2(ceiling/start) windows with zero
+#     failures; a fragile one is never assaulted at all. Declare
+#     `start:` only for targets known robust at phase entry.
+#   - above `high` → severity-proportional back-off: the offer is
+#     multiplied by clamp(1−frac, 0.25, 0.9) — a marginal breach
+#     trims ×0.9, total failure collapses ×0.25 — never below
+#     `floor`.
+#   - below `low` → congestion-memory recovery: ×1.5 through the
+#     proven-safe zone (75% of the offer where failure was last
+#     seen), then ADDITIVE probes (+max(1, 2% of it)) — never a
+#     multiplicative march back into the same wall. Three
+#     consecutive clean windows at-or-above the old congestion
+#     point clear the memory (target warmed up, and stayed clean
+#     across a rising run of probes) and the doubling climb resumes.
+#
+# Every move logs one line naming the signal, the window, and the
+# movement; the governor announces its slow-start and bounds at
+# phase start — visible, never silent. Measurement honesty: a load
+# figure taken at high attempt-failure is a saturation artifact; the
+# throttled steady state IS the measurement — the target's capacity
+# at the declared failure bound.
+#
+# The "server" here is testkit's MEASURED overload model:
+# `result-overload: 4` (with no synthetic `result-load`) rejects
+# retryably whenever the REAL in-flight count exceeds 4. The phase
+# authors concurrency 16, but the offer opens at floor 2, doubles to
+# 4, overshoots at 8, backs off proportionally, and settles into
+# additive probing around the wall — the target never sees 16.
+#
+# `throttle: true` is the everyday form (high 0.05, low high/5,
+# control concurrency, start = floor 1, window 2s); the map form
+# below tightens the window so the discovery is visible in a short
+# example.
+
+description: |
+  Adaptive backpressure: the throttle governor slow-starts the
+  concurrency offer from the floor, discovers the target's capacity
+  by doubling through clean windows, backs off proportionally to the
+  failure severity, and probes additively under its congestion
+  memory — the fragile-first default that still scales to robust
+  targets.
+
+phases:
+  governed_storm:
+    adapter: testkit
+    cycles: 400
+    concurrency: 16
+    errors: "count"
+    throttle:
+      high: 0.10
+      floor: 2
+      window: "250ms"
+    ops:
+      pressured:
+        stmt: "x"
+        tries: 8
+        retry_backoff: "10ms"
+        # The governor is the story here — mute the (default-on)
+        # first-sighting advisory so the log shows only its lines.
+        retry_advisory: "off"
+        result-overload: 4
+        result-latency: "5ms"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect throttle: governing 'concurrency' — slow-start
+#@ expect climbing concurrency
+#@ expect windowed attempt failure
+#@ expect completed, 0 failed

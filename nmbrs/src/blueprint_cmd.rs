@@ -131,7 +131,7 @@ pub fn spec() -> crate::cli_spec::Command {
 /// invocation params (the same loading `describe workloads` uses).
 fn load_blueprint(name: &str) -> Result<(String, Workload), String> {
     use nmbrs_workload::catalog;
-    let (identity, merged) = if let Some(b) = catalog::lookup(name) {
+    let (identity, (merged, warnings)) = if let Some(b) = catalog::lookup(name) {
         (
             b.name.to_string(),
             nmbrs_workload::extends::load_and_merge_bundled(b)?,
@@ -145,6 +145,9 @@ fn load_blueprint(name: &str) -> Result<(String, Workload), String> {
              `nmbrs blueprint list` names the bundled blueprints"
         ));
     };
+    for w in &warnings {
+        eprintln!("warning: resolve: {w}");
+    }
     let params = std::collections::HashMap::new();
     let workload = nmbrs_workload::parse::parse_workload(&merged, &params)
         .map_err(|e| format!("parse `{identity}`: {e}"))?;

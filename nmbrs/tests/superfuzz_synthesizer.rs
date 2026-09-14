@@ -88,6 +88,10 @@ const NOT_YET_SYNTHESIZED: &[(&str, &str)] = &[
         "phase:interval",
         "declarative-only today (phase-interval cascade not built)",
     ),
+    (
+        "phase:throttle",
+        "needs a saturating adapter to exercise; covered by throttle_governor e2e",
+    ),
     ("phase:repeat", "rides on phase:interval"),
     ("phase:continue_if", "needs bounded pre-entry predicates"),
     ("phase:dimensions", "needs metric-cell label interplay"),

@@ -135,16 +135,103 @@ fn curated_selfcheck_runs_green() {
     );
 }
 
+/// SRD-85 nearest-first: a name matching BOTH a local file and a
+/// catalog entry favors the logical filesystem location and logs
+/// a warning naming both — shadowing is allowed but never silent.
 #[test]
-fn local_file_and_catalog_name_collision_is_fatal() {
+fn local_file_shadows_catalog_name_with_warning() {
     let sb = Sandbox::new("ambiguity");
     // A local file with exactly a catalog name (the resolver
-    // probes the exact path first).
-    std::fs::write(sb.path().join("selfcheck"), "phases: {}\n").unwrap();
-    let (stdout, stderr, ok) = nmbrs_in(&sb, &["run", "workload=selfcheck"]);
-    assert!(!ok, "local/catalog collision must be fatal");
+    // probes the exact path first). The file is a minimal
+    // RUNNABLE workload so the local-wins path is observable.
+    std::fs::write(
+        sb.path().join("selfcheck"),
+        "description: local shadow probe\n\
+         phases:\n  only:\n    adapter: stdout\n    cycles: 1\n\
+         \x20   ops:\n      say:\n        stmt: \"local-shadow-ran\"\n",
+    )
+    .unwrap();
+    let (stdout, stderr, ok) = nmbrs_in(&sb, &["run", "workload=selfcheck", "tui=off"]);
     let combined = format!("{stdout}\n{stderr}");
-    assert!(combined.contains("ambiguous"), "diagnostic: {combined}");
+    assert!(ok, "local file must win and run:\n{combined}");
+    assert!(
+        combined.contains("local-shadow-ran"),
+        "the LOCAL file must be the one executed:\n{combined}"
+    );
+    // On a clean run the warning rides the session log (the
+    // console stays quiet); it must be there — never silent.
+    let log = std::fs::read_to_string(sb.path().join("session").join("session.log")).unwrap();
+    assert!(
+        log.contains("matches multiple resources"),
+        "shadowing must be warned, never silent:\n{log}"
+    );
+
+    // A `./`-pinned path is explicit — no ambiguity, no warning.
+    let sb2 = Sandbox::new("ambiguity-pinned");
+    std::fs::write(
+        sb2.path().join("selfcheck"),
+        "description: local shadow probe\n\
+         phases:\n  only:\n    adapter: stdout\n    cycles: 1\n\
+         \x20   ops:\n      say:\n        stmt: \"local-shadow-ran\"\n",
+    )
+    .unwrap();
+    let (stdout, stderr, ok) = nmbrs_in(&sb2, &["run", "workload=./selfcheck", "tui=off"]);
+    assert!(ok, "pinned local run failed:\n{stdout}\n{stderr}");
+    let log = std::fs::read_to_string(sb2.path().join("session").join("session.log")).unwrap();
+    assert!(
+        !log.contains("matches multiple resources"),
+        "an explicitly pinned path must not warn:\n{log}"
+    );
+}
+
+/// The incident that motivated nearest-first: a checkout's
+/// `workloads/vector_suite_blueprint.yaml` must shadow the
+/// embedded catalog copy when a bundled impl's `implements:`
+/// resolves — a stale binary must never silently pair fresh
+/// on-disk documents with its own older blueprint.
+#[test]
+fn secondary_ref_favors_cwd_layout_over_embedded_catalog() {
+    let sb = Sandbox::new("secondary-shadow");
+    std::fs::create_dir_all(sb.path().join("workloads")).unwrap();
+    // Materialize the blueprint into the sandbox's logical layout —
+    // the same name now lives on disk AND in the embedded catalog.
+    let (_, _, ok) = nmbrs_in(
+        &sb,
+        &[
+            "copy",
+            "vector_suite_blueprint",
+            "to=workloads/vector_suite_blueprint.yaml",
+        ],
+    );
+    assert!(ok, "copy blueprint");
+
+    // Running the bundled impl binds `implements:
+    // vector_suite_blueprint`; the resolution must pick the cwd
+    // layout's copy and say so. The bogus scenario fails the run
+    // AFTER load, so no adapter connection is attempted.
+    let (stdout, stderr, ok) = nmbrs_in(
+        &sb,
+        &[
+            "run",
+            "workload=cql/vector_suite/vector_suite_cql_impl",
+            "scenario=__resolution_probe__",
+            "tui=off",
+        ],
+    );
+    assert!(!ok, "bogus scenario must fail the run:\n{stdout}\n{stderr}");
+    let log = std::fs::read_to_string(sb.path().join("session").join("session.log")).unwrap();
+    assert!(
+        log.contains("matches multiple resources"),
+        "the shadowing must be warned, never silent:\n{log}"
+    );
+    let warn_line = log
+        .lines()
+        .find(|l| l.contains("matches multiple resources"))
+        .unwrap();
+    assert!(
+        warn_line.contains("using the nearest (local file"),
+        "the checkout's blueprint must shadow the embedded copy:\n{warn_line}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -172,7 +259,7 @@ fn local_child_extends_bundled_parent() {
 
 #[test]
 fn bundled_sibling_extends_resolves_in_namespace() {
-    // `cql/full_cql_vector_sweep` extends its sibling by
+    // `cql/vector_suite/full_cql_vector_sweep` extends its sibling by
     // filename; in the catalog that resolves namespace-relative.
     // Introspection performs the full merge without needing a
     // CQL target. Skipped when this binary carries no cql
@@ -180,12 +267,18 @@ fn bundled_sibling_extends_resolves_in_namespace() {
     let sb = Sandbox::new("ns-extends");
     let (stdout, _stderr, ok) = nmbrs_in(&sb, &["describe", "workloads", "--all", "--json"]);
     assert!(ok);
-    if !stdout.contains("cql/full_cql_vector_sweep") {
+    if !stdout.contains("cql/vector_suite/full_cql_vector_sweep") {
         eprintln!("skipping: no cql bundle in this binary");
         return;
     }
-    let (stdout, stderr, ok) =
-        nmbrs_in(&sb, &["describe", "workloads", "cql/full_cql_vector_sweep"]);
+    let (stdout, stderr, ok) = nmbrs_in(
+        &sb,
+        &[
+            "describe",
+            "workloads",
+            "cql/vector_suite/full_cql_vector_sweep",
+        ],
+    );
     assert!(ok, "namespace-relative extends merge failed: {stderr}");
     assert!(
         stdout.contains("Parameter-space sweep sibling"),

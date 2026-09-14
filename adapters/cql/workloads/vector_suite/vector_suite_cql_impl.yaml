@@ -10,9 +10,9 @@
 # bindings, relevancy — is the blueprint's, and any attempt to
 # redeclare it here is a load error.
 #
-#   nmbrs run workload=cql/vector_suite_cql_impl scenario=search_perf
+#   nmbrs run workload=cql/vector_suite/vector_suite_cql_impl scenario=search_perf
 #   nmbrs run workload=vector_suite_blueprint \
-#            impl=cql/vector_suite_cql_impl scenario=search_perf
+#            impl=cql/vector_suite/vector_suite_cql_impl scenario=search_perf
 
 description: |
   CQL implementation of the vector_suite blueprint: binds literal

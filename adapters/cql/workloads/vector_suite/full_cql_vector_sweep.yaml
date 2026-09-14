@@ -20,8 +20,8 @@
 #     against the just-built table.
 #
 # Usage:
-#   nmbrs run workload=full_cql_vector_sweep.yaml scenario=query_sweep
-#   nmbrs run workload=full_cql_vector_sweep.yaml scenario=idx_sweep
+#   nmbrs run workload=cql/vector_suite/full_cql_vector_sweep scenario=query_sweep
+#   nmbrs run workload=cql/vector_suite/full_cql_vector_sweep scenario=idx_sweep
 #
 # Phase A precondition: `test_fknn` (or `fulltest`) from the parent
 # workload must have populated `fknn_default` first; this scenario
@@ -46,7 +46,7 @@ extends: ./full_cql_vector.yaml
 # diagnostic runs:
 #
 #     # Pin one variant to test a fix:
-#     nmbrs run workload=full_cql_vector_sweep scenario=idx_sweep \
+#     nmbrs run workload=cql/vector_suite/full_cql_vector_sweep scenario=idx_sweep \
 #          sm_values=OTHER mnc_values=8 bw_values=50 eh_values=false \
 #          nbo_v_values=1.0 nbo_label_values='"1p0"' \
 #          alf_v_values=1.0 alf_label_values='"1p0"'

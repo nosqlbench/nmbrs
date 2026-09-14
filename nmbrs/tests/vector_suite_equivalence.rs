@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SRD-108 equivalence proof: composing `vector_suite_blueprint`
-//! with `cql/vector_suite_cql_impl` must yield EXACTLY the
+//! with `cql/vector_suite/vector_suite_cql_impl` must yield EXACTLY the
 //! workload model of the direct-bound monolith
-//! (`cql/vector_suite_cql_direct`) for every suite scenario —
+//! (`cql/vector_suite/vector_suite_cql_direct`) for every suite scenario —
 //! same scenario trees, same phase scaffolding, same op bodies,
 //! same effective params. The model level is where synthesized
 //! programs come from, so model equality is result equivalence
@@ -53,22 +53,26 @@ fn repo_root() -> PathBuf {
 }
 
 fn load(path: &Path) -> nmbrs_workload::model::Workload {
-    let merged = nmbrs_workload::extends::load_and_merge(path)
+    let (merged, warnings) = nmbrs_workload::extends::load_and_merge(path)
         .unwrap_or_else(|e| panic!("load {}: {e}", path.display()));
+    assert!(
+        warnings.is_empty(),
+        "suite files must resolve unambiguously: {warnings:?}"
+    );
     nmbrs_workload::parse::parse_workload(&merged, &HashMap::new())
         .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
 }
 
 /// The direct monolith, extends-resolved.
 fn direct() -> nmbrs_workload::model::Workload {
-    load(&repo_root().join("adapters/cql/workloads/vector_suite_cql_direct.yaml"))
+    load(&repo_root().join("adapters/cql/workloads/vector_suite/vector_suite_cql_direct.yaml"))
 }
 
 /// The blueprint with the CQL implementation bound in.
 fn pair() -> nmbrs_workload::model::Workload {
     let mut blueprint = load(&repo_root().join("workloads/vector_suite_blueprint.yaml"));
     let implementation =
-        load(&repo_root().join("adapters/cql/workloads/vector_suite_cql_impl.yaml"));
+        load(&repo_root().join("adapters/cql/workloads/vector_suite/vector_suite_cql_impl.yaml"));
     nmbrs_workload::implements::bind_implementation(&mut blueprint, implementation)
         .expect("bind vector_suite_cql_impl into vector_suite_blueprint");
     assert!(
@@ -438,7 +442,9 @@ fn pair_documents_do_not_mention_the_direct_form() {
     let root = repo_root();
     for rel in [
         "workloads/vector_suite_blueprint.yaml",
-        "adapters/cql/workloads/vector_suite_cql_impl.yaml",
+        "adapters/cql/workloads/vector_suite/vector_suite_cql_impl.yaml",
+        "adapters/cql/workloads/vector_suite/vector_suite_cql_oss.yaml",
+        "adapters/cql/workloads/vector_suite/vector_suite_cql_oss_sift1m.yaml",
     ] {
         let text =
             std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));

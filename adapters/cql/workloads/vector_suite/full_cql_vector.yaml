@@ -7,10 +7,10 @@
 # "{dataset}:{profile}" composite inline format.
 #
 # Usage:
-#   nmbrs full_cql_vector.yaml scenario=fulltest
-#   nmbrs full_cql_vector.yaml scenario=filtered_knn
-#   nmbrs full_cql_vector.yaml scenario=unfiltered
-#   nmbrs full_cql_vector.yaml scenario=filtered_knn limit=100
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=fulltest
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=filtered_knn
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=unfiltered
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=filtered_knn limit=100
 
 description: |
   CQL vector-search suite, multi-profile: schema, rampup from a
@@ -730,6 +730,25 @@ phases:
     concurrency: "{concurrency}"
     errors: "count,retry"
     status_metrics: [rows_inserted*, cycles*, latency*, errors*]
+    # Adaptive backpressure (SRD-83 Part 9): a saturated target
+    # converts overload into retry churn (green ok:% with a climbing
+    # att:% failure share and latencies made of backoff sleeps). The
+    # governor assumes the most fragile target: the offered
+    # concurrency SLOW-STARTS at the floor and doubles through clean
+    # windows toward the authored ceiling, backs off in proportion
+    # to the windowed attempt-failure severity, and probes
+    # additively under its congestion memory. Robust targets climb
+    # to full load in a few clean windows; fragile ones are never
+    # assaulted. The achieved rate is the target's honest capacity
+    # at the declared bound — not a retry storm artifact.
+    throttle: true
+    # Gap-free corpus is a recall precondition: retries absorb
+    # transients, so any write failure that still reaches the
+    # result level is a corpus gap — the load FAILS loudly rather
+    # than completing with counted errors.
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: fail
     bindings: |
       const prebuffered := dataset_prebuffer("{dataset}:{profile}")
       cursor row = range(0, vector_count(prebuffered))

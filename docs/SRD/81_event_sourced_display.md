@@ -251,14 +251,42 @@ metrics-store query.
 
 ## 7. Typing the events ring
 
-`RunState.log_messages: Vec<LogEntry { severity, message, category }>`
-generalizes to an ordered **events ring** of typed entries
-(`Diagnostic | PhaseEnd{summary} | …`). The existing `category`
-field (`Diagnostic | PhaseLifecycle`) is the seed. Entries carry
-**structured payload**, not `message: String`. The actor append path
-(`RunStateCmd::Log` → `push_log_categorized`) generalizes to typed
-append; the `resume_from` re-emit walks typed entries and projects
-them. The de-conflation (§8) and the typed ring are push 1.
+`RunState.log_messages: Vec<LogEntry { severity, message, tag }>`
+generalizes to an ordered **events ring** of typed entries. Entries
+carry **structured payload**, not `message: String`. The actor
+append path (`RunStateCmd::Log` → `push_log_tagged`) generalizes to
+typed append; the `resume_from` re-emit walks typed entries and
+projects them. The de-conflation (§8) and the typed ring are push 1.
+
+> **Implemented 2026-08-13 — the orthogonal `EventTag`.** The old
+> single `LogCategory` enum conflated two axes: `Diagnostic`
+> ("anything else") rode beside boundary-attached kinds
+> (`PhaseLifecycle`/`PhaseOutcome`/`PhaseDetail`), and sinks keyed
+> ad-hoc presentation rules off the conflation. It is replaced by
+> `observer::EventTag`, two orthogonal axes:
+>
+> - `attached: Option<lifecycle::EventType>` — WHICH execution-
+>   lifecycle boundary the event belongs to, in the CANONICAL
+>   lifecycle vocabulary (session/scope/each/phase start/end);
+>   `None` = in-flight. A readout render is tagged with the slot
+>   that fired it — the firing event IS the attachment.
+> - `category: EventCategory` — WHAT the event is about:
+>   `General | Outcome | Evaluation | Retry | Throttle |
+>   Resolution | Report` (extended as producers appear; a category
+>   earns a variant when a consumer needs to dispatch without
+>   string-matching rendered prefixes).
+>
+> The old bundles decompose exactly: `PhaseLifecycle` =
+> boundary-attached ∧ `General`; `PhaseOutcome` = `PhaseEnd` ∧
+> `Outcome`; `PhaseDetail` = `PhaseEnd` ∧ `Evaluation`;
+> `Diagnostic` = in-flight (now carrying real categories: the
+> retry advisories/exemplars are `Retry`, the throttle governor is
+> `Throttle`, nearest-first shadowing warnings are `Resolution`).
+> Sink rules derive from the axes: the terminal sink hides
+> boundary-attached `General` renders from scrollback (the
+> phase-history region mirrors them); the TUI log panel shows
+> `attached == None`; `completed_phases=headers` folds
+> `PhaseEnd ∧ Evaluation` rows with their block.
 
 ## 8. De-conflation
 

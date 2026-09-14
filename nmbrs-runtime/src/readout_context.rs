@@ -496,18 +496,15 @@ pub fn fire_lifecycle(
     if rendered.trim().is_empty() {
         return; // no bound body for this slot — quiet exit
     }
-    // Tag phase start/end renders so the terminal sink can keep
-    // them out of its scrollback — they are mirrored by its
-    // managed phase-history region. Scope / iteration / session
-    // slots stay `Diagnostic` (they have no region counterpart;
-    // scope nodes are stored-`Pending` and never appear there).
-    let category = match event {
-        crate::lifecycle::EventType::PhaseStart | crate::lifecycle::EventType::PhaseEnd => {
-            crate::observer::LogCategory::PhaseLifecycle
-        }
-        _ => crate::observer::LogCategory::Diagnostic,
-    };
-    crate::observer::log_categorized(crate::observer::LogLevel::Info, category, &rendered);
+    // The firing lifecycle slot IS the tag's attachment axis —
+    // this readout render is definitionally attached to the
+    // boundary that fired it. Sinks derive their rules from the
+    // axes (the terminal sink keeps `PhaseStart`-attached renders
+    // out of scrollback — its managed phase-history region mirrors
+    // them; scope / iteration / session boundaries have no region
+    // counterpart and flow through like in-flight lines).
+    let tag = crate::observer::EventTag::at(event, crate::observer::EventCategory::General);
+    crate::observer::log_tagged(crate::observer::LogLevel::Info, tag, &rendered);
 
     // Snapshot capture per Push 6. Subject identity comes
     // straight from the context: `subject_kind` from the

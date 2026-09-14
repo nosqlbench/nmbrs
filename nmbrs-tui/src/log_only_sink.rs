@@ -807,7 +807,9 @@ fn run_render_loop(
                     // the completion marker — a phase-start line on
                     // top would be redundant noise. All entries are
                     // kept in session.log unconditionally.
-                    if entry.category == crate::state::LogCategory::PhaseLifecycle {
+                    if entry.tag.attached.is_some()
+                        && entry.tag.category == crate::state::EventCategory::General
+                    {
                         continue;
                     }
                     // Match the observer's cosmetic blank line before
@@ -866,7 +868,8 @@ fn run_render_loop(
                         nmbrs_runtime::observer::completed_phase_display(),
                         nmbrs_runtime::observer::CompletedPhaseDisplay::Headers
                     );
-                    let is_detail_entry = entry.category == crate::state::LogCategory::PhaseDetail;
+                    let is_detail_entry = entry.tag.attached.is_some()
+                        && entry.tag.category == crate::state::EventCategory::Evaluation;
                     if headers_only && is_detail_entry {
                         continue;
                     }
@@ -875,7 +878,7 @@ fn run_render_loop(
                     for (i, row) in rows.iter().enumerate() {
                         let role = roles[i];
                         if headers_only
-                            && entry.category == crate::state::LogCategory::PhaseOutcome
+                            && entry.tag.category == crate::state::EventCategory::Outcome
                             && role != crate::status_fold::RowRole::Header
                         {
                             continue;

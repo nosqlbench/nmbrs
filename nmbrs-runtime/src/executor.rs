@@ -5867,6 +5867,10 @@ async fn run_phase_inner(
             .clone()
             .unwrap_or_else(|| ctx.error_spec.clone()),
         error_rate_max: phase.error_rate_max.or(ctx.error_rate_max),
+        // SRD-83 §throttle — normalized spec (`true` → defaults,
+        // `false` → None); the drain loop builds the governor from it
+        // after the component (and its controls) attach.
+        throttle: phase.throttle.as_ref().and_then(|t| t.to_spec()),
         // SRD-83 — the declared stop conditions that distribute to THIS
         // phase, gathered structurally from two sources, never inferred
         // from a predicate's content:

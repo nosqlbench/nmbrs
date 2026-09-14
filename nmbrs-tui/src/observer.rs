@@ -516,17 +516,13 @@ impl nmbrs_runtime::observer::RunObserver for TuiObserver {
     }
 
     fn log(&self, level: nmbrs_runtime::observer::LogLevel, message: &str) {
-        self.log_categorized(
-            level,
-            nmbrs_runtime::observer::LogCategory::Diagnostic,
-            message,
-        );
+        self.log_tagged(level, nmbrs_runtime::observer::EventTag::default(), message);
     }
 
-    fn log_categorized(
+    fn log_tagged(
         &self,
         level: nmbrs_runtime::observer::LogLevel,
-        category: nmbrs_runtime::observer::LogCategory,
+        tag: nmbrs_runtime::observer::EventTag,
         message: &str,
     ) {
         let severity = match level {
@@ -538,7 +534,7 @@ impl nmbrs_runtime::observer::RunObserver for TuiObserver {
         };
         self.state.send(RunStateCmd::Log {
             severity,
-            category,
+            tag,
             message: message.to_string(),
         });
         // Stderr fallback fires both *before* the TUI claims

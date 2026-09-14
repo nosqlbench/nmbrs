@@ -65,6 +65,13 @@ pub struct Workload {
     /// validator decide how to surface them.
     #[serde(default, skip_serializing)]
     pub report_warnings: Vec<String>,
+    /// Non-fatal reference-resolution warnings from the
+    /// `extends:` chain (SRD-85 nearest-first): a target name
+    /// that matched multiple resources resolved to the nearest,
+    /// and the shadowing is surfaced here — never silently.
+    /// Logged by the runner; strict mode promotes to errors.
+    #[serde(default, skip_serializing)]
+    pub resolution_warnings: Vec<String>,
     /// Fatal scenario-parse errors collected during
     /// `parse_scenario_nodes` — typically "unknown scenario-
     /// node key" cases the parser used to silently drop. Per
@@ -938,6 +945,86 @@ pub struct BackoffSpec {
     pub max: Option<String>,
 }
 
+/// `throttle:` — adaptive backpressure governor: boolean sugar
+/// (`throttle: true` = all defaults) or the full spec map.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ThrottleField {
+    /// `throttle: true` (defaults) / `throttle: false` (explicit off).
+    Enabled(bool),
+    /// Full spec map.
+    Spec(ThrottleSpec),
+}
+
+impl ThrottleField {
+    /// Normalize: `true` → the default spec, `false` → `None`.
+    pub fn to_spec(&self) -> Option<ThrottleSpec> {
+        match self {
+            ThrottleField::Enabled(true) => Some(ThrottleSpec::default()),
+            ThrottleField::Enabled(false) => None,
+            ThrottleField::Spec(s) => Some(s.clone()),
+        }
+    }
+}
+
+/// Adaptive backpressure governor parameters (SRD-83 §throttle).
+/// The governor keeps the WINDOWED attempt-failure fraction — the
+/// see-through-retries saturation signal — under `high` by walking
+/// the named dynamic control down multiplicatively, and recovers it
+/// toward the authored ceiling while the window stays under `low`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ThrottleSpec {
+    /// Windowed attempt-failure fraction that triggers a back-off.
+    #[serde(default = "throttle_default_high")]
+    pub high: f64,
+    /// Fraction below which the governor recovers toward the
+    /// authored ceiling. Default: `high / 5`.
+    #[serde(default)]
+    pub low: Option<f64>,
+    /// The dynamic control to walk: `concurrency` (default) or `rate`.
+    #[serde(default = "throttle_default_control")]
+    pub control: String,
+    /// Initial offered value (slow-start seed). Default: `floor` —
+    /// the governor assumes the most fragile target and PROVES
+    /// headroom by doubling through clean windows. Declare a higher
+    /// start only for targets known to be robust at phase entry.
+    #[serde(default)]
+    pub start: Option<f64>,
+    /// Never throttle below this value.
+    #[serde(default = "throttle_default_floor")]
+    pub floor: f64,
+    /// Evaluation window (duration string, e.g. "2s").
+    #[serde(default = "throttle_default_window")]
+    pub window: String,
+}
+
+fn throttle_default_high() -> f64 {
+    0.05
+}
+fn throttle_default_control() -> String {
+    "concurrency".to_string()
+}
+fn throttle_default_floor() -> f64 {
+    1.0
+}
+fn throttle_default_window() -> String {
+    "2s".to_string()
+}
+
+impl Default for ThrottleSpec {
+    fn default() -> Self {
+        Self {
+            high: throttle_default_high(),
+            low: None,
+            control: throttle_default_control(),
+            start: None,
+            floor: throttle_default_floor(),
+            window: throttle_default_window(),
+        }
+    }
+}
+
 /// SRD-109 — the time-dimension aggregate a key-metric designation
 /// carries. MANDATORY on every designation: there are no implied
 /// aggregates, so `rows: result_success` (no qualifier) is a parse
@@ -1091,6 +1178,12 @@ pub struct WorkloadPhase {
     /// with its effect.
     #[serde(default)]
     pub stop_when: Vec<StopConditionSpec>,
+    /// SRD-83 §throttle — adaptive backpressure governor: keep the
+    /// windowed attempt-failure fraction under a bound by walking a
+    /// dynamic control (`concurrency`/`rate`) down under overload and
+    /// back up on recovery. `throttle: true` = defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throttle: Option<ThrottleField>,
     /// Tag filter to select ops from blocks (e.g., `"block:schema"`).
     #[serde(default)]
     pub tags: Option<String>,
