@@ -891,6 +891,13 @@ struct PlotMetricsOpts {
     /// (SRD-46) so the markdown heading reads
     /// `## {N}. {Label} (plot) {{#anchor}}`.
     figure_num: Option<usize>,
+    /// SRD-46 output routing (`--to <dest>[,<dest>…]`, the `to`
+    /// directive forwarded by `report_cmd`). `None` ⇒ the
+    /// historical default, the session directory: the image file
+    /// plus the markdown upsert. A plot has no console form, so
+    /// `stdout` / `stderr` render nothing and say so; `none`
+    /// suppresses the item entirely.
+    to: Option<Vec<nmbrs_workload::report::Destination>>,
     /// Optional display label injected via `--label="..."` from
     /// `report_cmd`. Falls back to a prettified item name.
     label: Option<String>,
@@ -2408,6 +2415,7 @@ impl Default for PlotMetricsOpts {
             report_mode: crate::report::WriteMode::Update,
             report_disabled: false,
             figure_num: None,
+            to: None,
             label: None,
             palette: None,
             line: None,
@@ -2611,6 +2619,43 @@ pub fn plot_metrics_command_result(args: &[String]) -> Result<(), String> {
 /// Extracted so `run_stored` (the `--name <N>` / `all` modes)
 /// can reuse the same pipeline.
 fn render_one(opts: PlotMetricsOpts) -> Result<(), String> {
+    // SRD-46 routing, resolved once. `none` suppresses the item
+    // before any query runs; a plot's only rendered form is the
+    // image in the session directory (plus its markdown section),
+    // so a console-only routing renders nothing — and says so
+    // rather than silently dropping the figure.
+    use nmbrs_workload::report::Destination;
+    let dests = opts
+        .to
+        .clone()
+        .unwrap_or_else(|| vec![Destination::SessionDir]);
+    let what = opts
+        .label
+        .clone()
+        .or_else(|| opts.query.clone())
+        .unwrap_or_else(|| "plot".to_string());
+    if dests.contains(&Destination::None) {
+        eprintln!("plot: '{what}' routed to none — not rendered");
+        return Ok(());
+    }
+    let to_session = dests.contains(&Destination::SessionDir);
+    for console in [Destination::Stdout, Destination::Stderr] {
+        if dests.contains(&console) {
+            eprintln!(
+                "plot: '{what}' — a plot has no console form; `to: {}` renders nothing{}",
+                console.as_str(),
+                if to_session {
+                    " (the session-directory image is still written)"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+    if !to_session {
+        return Ok(());
+    }
+
     // Effective db list: explicit `dbs` if non-empty, else
     // fall back to `db` (single), else `logs/latest/metrics.db`.
     let dbs: Vec<PathBuf> = if !opts.dbs.is_empty() {
@@ -3654,6 +3699,12 @@ fn parse_args(args: &[String]) -> Result<PlotMetricsOpts, String> {
             "--output" => opts.output = Some(PathBuf::from(next(&mut iter, "output")?)),
             "--title" => opts.title = Some(next(&mut iter, "title")?),
             "--label" => opts.label = Some(next(&mut iter, "label")?),
+            "--to" => {
+                opts.to = Some(
+                    nmbrs_workload::report::Destination::parse_list(&next(&mut iter, "to")?)
+                        .map_err(|e| format!("--to: {e}"))?,
+                )
+            }
             "--palette" => opts.palette = Some(next(&mut iter, "palette")?),
             "--line" => opts.line = Some(next(&mut iter, "line")?),
             "--line-width" => {
@@ -7369,6 +7420,32 @@ mod tests {
             "paired plot must have a point for each execution's instance \
              (limit=25 from exec 1, limit=50 from exec 2); got {n_points}: {pts:?}"
         );
+    }
+
+    /// SRD-46 output routing: `report_cmd` forwards the resolved
+    /// `to` set to every figure, plots included, so the plot parser
+    /// must accept the flag with the shared destination vocabulary
+    /// and refuse an unknown destination by name.
+    #[test]
+    fn to_flag_parses_the_shared_destination_vocabulary() {
+        use nmbrs_workload::report::Destination;
+        let opts = parse_args(&[
+            "mean recall_mean over limit".to_string(),
+            "--to".to_string(),
+            "sessiondir, stdout".to_string(),
+        ])
+        .expect("parse_args");
+        assert_eq!(
+            opts.to,
+            Some(vec![Destination::SessionDir, Destination::Stdout])
+        );
+        let err = parse_args(&[
+            "mean recall_mean over limit".to_string(),
+            "--to".to_string(),
+            "printer".to_string(),
+        ])
+        .expect_err("unknown destination must be refused");
+        assert!(err.contains("--to") && err.contains("printer"), "{err}");
     }
 
     #[test]

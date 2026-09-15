@@ -325,8 +325,10 @@ mod tests {
         use super::lint_uninterpolated_template as lint;
         // The exact production label that must NOT trip the lint.
         assert_eq!(
-            lint("sum(increase(attempt_failure{part=\"Partition(10/18 [100000000..200000000) \
-                  [11.11%..22.22%))\",phase=\"load_increment_adaptive\"}[55s]))"),
+            lint(
+                "sum(increase(attempt_failure{part=\"Partition(10/18 [100000000..200000000) \
+                  [11.11%..22.22%))\",phase=\"load_increment_adaptive\"}[55s]))"
+            ),
             None,
         );
         assert_eq!(lint("rate(m[55s])"), None); // range selector braces-free
@@ -342,10 +344,16 @@ mod tests {
             assert!(!note_no_data(label, q), "warned early at read {i}");
         }
         assert!(note_no_data(label, q), "must warn at the threshold read");
-        assert!(!note_no_data(label, q), "must not warn again past threshold");
+        assert!(
+            !note_no_data(label, q),
+            "must not warn again past threshold"
+        );
         note_data(label, q); // data arrival re-arms
         for i in 1..NO_DATA_STREAK_WARN_AT {
-            assert!(!note_no_data(label, q), "warned early after re-arm at read {i}");
+            assert!(
+                !note_no_data(label, q),
+                "warned early after re-arm at read {i}"
+            );
         }
         assert!(note_no_data(label, q), "must warn again after re-arm");
     }
