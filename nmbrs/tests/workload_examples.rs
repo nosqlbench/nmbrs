@@ -259,7 +259,7 @@ fn optimizer_servos_a_control_directly_by_name() {
     // `servo: concurrency` servos the concurrency control itself. (`concurrency:
     // 16` is just the warmup the daemon retargets from.)
     // Same fast idiom as the mixed-resolution test below (and
-    // examples/workloads/optimizer/*.yaml): 50ms cadence, 400ms objective
+    // nmbrs/examples/workloads/optimizer/*.yaml): 50ms cadence, 400ms objective
     // window. On the 1s default this was 22s of wall for two evals.
     let yaml = r#"
 params:
@@ -314,7 +314,7 @@ fn optimizer_servos_mixed_direct_and_indirect_controls() {
     // phase. This is the resolution variant the all-direct
     // `optimizer_multiservo.yaml` doesn't cover.
     // Timing follows the optimizer examples' fast idiom (see
-    // examples/workloads/optimizer/multiservo.yaml): a 50ms metrics cadence
+    // nmbrs/examples/workloads/optimizer/multiservo.yaml): a 50ms metrics cadence
     // and a 400ms objective window, so each of the 4 grid evals settles in
     // well under a second instead of ~10s on the default 1s cadence. This
     // was the workspace's single longest test (42s) for no property-related
@@ -584,7 +584,7 @@ fn bare_file_invocation() {
     let session = SessionDir::new();
     let output = Command::new(env!("CARGO_BIN_EXE_nmbrs"))
         .current_dir(workspace_root)
-        .arg("examples/workloads/visual/maze.yaml")
+        .arg("nmbrs/examples/workloads/visual/maze.yaml")
         .arg("cycles=3")
         .arg("--session-path")
         .arg(&session.path)
@@ -640,7 +640,7 @@ fn deterministic_output() {
 // The canonical surfaces of `set:` — bare-token shadow, multi-key
 // shadow, expression-with-interpolation value, set-wrapping-for_each
 // composition, and nested-set composition — each live as a single-
-// scenario demo under `examples/workloads/scenario_param_overrides/`
+// scenario demo under `nmbrs/examples/workloads/scenario_param_overrides/`
 // (and the iter-var variants under `scenario_set_iter_var/`), verified
 // by the example-walker test against their `#@ expect` directives. All
 // resolve through the Polydat scope-chain (no HashMap merges, no
@@ -736,7 +736,7 @@ phases:
 fn synthetic_metrics_workload_populates_metric_family() {
     let session = SessionDir::new();
     let mut cmd = nmbrs(&session);
-    cmd.arg("workload=examples/workloads/metrics/synthetic_metrics.yaml");
+    cmd.arg("workload=nmbrs/examples/workloads/metrics/synthetic_metrics.yaml");
     cmd.arg("cycle_count=12");
     let output = cmd.output().expect("failed to run nmbrs");
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -805,7 +805,7 @@ fn synthetic_metrics_workload_populates_metric_family() {
 /// `cycle_count * stanza_len` total cycles (one per op per
 /// stanza). With cycle_count=6 and 4 ops, total cycles = 24.
 /// Per-cycle formulas (from
-/// `examples/workloads/metrics/synthetic_metrics.yaml`):
+/// `nmbrs/examples/workloads/metrics/synthetic_metrics.yaml`):
 ///   load           = cycle + 1
 ///   latency_curve  = load * 2             (per phase)
 ///   forecast_low   = latency_curve * 0.9  (synth_op_list)
@@ -822,7 +822,7 @@ fn synthetic_metrics_workload_populates_metric_family() {
 fn synthetic_metrics_workload_records_correct_values() {
     let session = SessionDir::new();
     let mut cmd = nmbrs(&session);
-    cmd.arg("workload=examples/workloads/metrics/synthetic_metrics.yaml");
+    cmd.arg("workload=nmbrs/examples/workloads/metrics/synthetic_metrics.yaml");
     cmd.arg("cycle_count=6");
     let output = cmd.output().expect("failed to run nmbrs");
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();

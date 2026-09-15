@@ -1,0 +1,817 @@
+# vector_suite_cql_direct.yaml — vector benchmarking suite,
+# DIRECT-BOUND form.
+#
+# ROLE (SRD-108): this is the monolithic reference — every op
+# body inline, no composition machinery — kept for testing. The
+# canonical composed form of the same suite is the
+# blueprint/implementation pair: vector_suite_blueprint.yaml
+# (protocol-agnostic scaffolding + typed abstract op slots) bound
+# by vector_suite_cql_impl.yaml (`implements:`). The pair is
+# REQUIRED to stay result-equivalent to this document; the
+# equivalence test (nmbrs/tests/vector_suite_equivalence.rs)
+# proves it model-for-model at load time.
+#
+# Extends full_cql_vector.yaml (SRD-72): schema / teardown / rampup /
+# fknn_rampup_data and the dataset+cluster params come from the
+# parent; this file adds the benchmark scenarios. Measurement
+# discipline throughout: serial probes run on a quiesced target
+# BEFORE any sweep, failed ops are counted (never silently dropped),
+# time budgets are graceful stops that keep their partial results,
+# and governance timeouts are declared bounds whose expiry means
+# "disqualified at this tier", not a generic error.
+#
+# Sessions & provenance (SRD-106): `stick_session: true` makes bare
+# re-runs re-attach to `sessions/latest` and layer a new execution —
+# announced as the run's first notable event; pass `--session new`
+# for a fresh session. Schema/load phases are `checkpoint:
+# idempotent` (the prereq class): on re-attach they skip when — and
+# only when — their prior outcome is Completed+Succeeded, the
+# provenance base hash is unchanged, AND every param the phase
+# CONSUMES still holds its value (SRD-107). Params a phase does not
+# consume may change freely — sweeping `suite_k=` never re-runs the
+# loads; changing `dataset=` always does, and the diagnostic names
+# the changed param.
+#
+# Table namespaces: the measured target's identity is the
+# DATASET + PROFILE pair — the shared target lives in
+# vsuite_{dataset_tag}_{profile}, and the destructive sections get
+# their own — vsuite_cap_/vsuite_stream_/vsuite_churn_{dataset_tag}_
+# {profile} — so no section, and no OTHER dataset sharing a
+# profile name, can ever collide with the state a measurement
+# depends on. (Two datasets both have a `default` profile;
+# without dataset identity in the name they'd silently share one
+# table and `IF NOT EXISTS` schema would keep whichever came
+# first, at its dimensionality.) `dataset_tag` is the identifier-
+# safe form of the dataset name the table names carry; it defaults
+# to the dataset name itself and is pinned explicitly when the
+# catalog name is not a valid identifier (hyphens, dots). A tag
+# that isn't identifier-safe fails loudly at schema, never silently.
+#
+# Scenarios:
+#   traverse      — the single canonical traversal: every section
+#                   behind the shared prereq chain, destructive
+#                   sections last in their own namespaces. Select
+#                   subsections with phases=<pattern>; prereqs stay
+#                   in the walk and provenance decides skip-or-run.
+#   capacity      — insert until the target refuses; the first
+#                   refusal is the SUCCESSFUL terminator (the count
+#                   stands), and the governance timeout disqualifies
+#                   a target that never refuses.
+#   load_build    — measured bulk load under a tier bound, then a
+#                   pure-CQL index-wait (no JMX needed) whose poll
+#                   metric IS the indexed-readiness delay; CQL rows
+#                   are searchable at write, so the searchable delay
+#                   is structurally zero.
+#   search_perf   — serial recall+ndcg on the quiesced index, then a
+#                   concurrency sweep with relevancy computed PER OP
+#                   at every level: recall measured at each operating
+#                   point rather than inferred from a serial pass.
+#   filtered_grid — predicate-filtered search per selectivity point,
+#                   each scored against its own prefiltered ground
+#                   truth (dataset profiles prepared by the veks
+#                   ingest workflow).
+#   streaming     — rated daemon ingest with stage gates that hold on
+#                   guarded metric thresholds, staged probes, then a
+#                   settled build + probe.
+#   cold_warm     — two identical serial passes on an existing
+#                   target; the operator controls cold state.
+#   churn         — upsert+delete daemons under a live recall probe:
+#                   recall under sustained mutation pressure.
+#
+# Data contract: a vectordata dataset with base/query/GT facets
+# (filtered_grid additionally needs per-selectivity GT profiles and a
+# metadata facet). Prepare with veks; certify with veks verification.
+#
+# Streaming-recall honesty: staged probes score against FULL-corpus
+# ground truth while only a fraction is inserted, so staged recall is
+# RETRIEVABLE-NEIGHBOR recall (upper-bounded by the inserted
+# fraction). The post-build probe at 100% is the comparable number.
+# Churn recall carries the same caveat for deleted GT members — it is
+# a trend signal under churn, not an absolute.
+
+description: |
+  Vector benchmarking suite: capacity, load/build governance,
+  search performance with recall-under-load, filtered selectivity
+  grid, streaming insert-under-load with guarded stage gates,
+  cold/warm, and churn.
+
+extends: ./full_cql_vector.yaml
+
+# SRD-106: iterative re-attachment is this suite's intended usage
+# profile — see "Sessions & provenance" above.
+stick_session: true
+
+params:
+  # ── Tier governance. One named set = one tier; override
+  # per run (`load_timeout=25h build_timeout=2.5h` for the 10M tier).
+  # Expiry ends the phase Interrupted+Failed with reason_class
+  # `timeout` — the out-of-range disposition: disqualified at this tier.
+  load_timeout: "2.5h"
+  build_timeout: "15m"
+  capacity_timeout: "24h"
+
+  # ── Probe shape. `suite_k` is the evaluation depth, `suite_limit`
+  # the retrieved window (k-recall@r semantics: intersect over r,
+  # divide by k; ndcg gains over the r window).
+  suite_k: "10"
+  suite_limit: "100"
+
+  # ── Sweep + budgets. Each concurrency level measures for
+  # `level_ms` by natural extent (a time-bounded cursor, NOT a stop
+  # condition — measured phases end by natural extent so their phase
+  # metrics and outcome stay valid).
+  conc_levels: "1, 5, 10, 20, 40, 80"
+  level_ms: "30000"
+
+  # ── Capacity. The cycle cap is a backstop extent only; the stop
+  # condition owns termination (first refusal), the timeout owns
+  # disqualification.
+  insert_workers: "32"
+  capacity_cycle_cap: "1000000000"
+
+  # ── Streaming. Rate is rows/second offered by the ingest daemon
+  # (coordinated-omission-aware; under backpressure the wait shows in
+  # cycles_waittime rather than being silently shed). Stage fractions
+  # are gate points over the corpus extent.
+  insert_rate: "5000"
+  stage_fracs: "0.5, 0.9"
+  stage_gate_timeout_ms: "3600000"
+
+  # ── Churn. Writers and deleters run as paced daemons under the
+  # probe; the delete window rotates over the low end of the id
+  # space.
+  churn_write_rate: "500"
+  churn_delete_rate: "100"
+  churn_window: "10000"
+  churn_ms: "60000"
+
+scenarios:
+
+  # ── Traverse — the single canonical traversal (SRD-106 Part 2).
+  # Ordering: shared prereq chain → the measurement sections that
+  # share it → filtered grid → destructive sections LAST, each in
+  # its own namespace (streaming, churn, then capacity — unbounded
+  # in time). No teardown on the shared target: the prereq chain is
+  # idempotent and provenance-governed, so re-attached runs skip
+  # valid loads and re-run selected measurements.
+  #
+  # Subsection selection: phases=<pattern> (e.g. phases=sweep_probe)
+  # elides unselected sections whole while keeping each live
+  # section's prereqs in the walk. Destructive sections re-measure
+  # cleanly on a FRESH session (`--session new`); under re-attach
+  # their own prereqs skip like everyone else's, so their state
+  # carries the prior pass's mutations (the churn-recall trend
+  # caveat above).
+  traverse:
+    # Shared measured target + its non-destructive sections.
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset_tag}_{profile}"
+      phases:
+        - schema
+        - load_train
+        - await_index
+        - serial_probe
+        - for: "conc in {conc_levels}"
+          phases:
+            - sweep_probe
+        - cold_probe
+        - warm_probe
+    # Filtered grid: per-selectivity profiles, each with its own
+    # table + prefiltered GT facet.
+    - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - for: "table in vsuite_{dataset_tag}_{profile}"
+          phases:
+            - schema
+            - fknn_rampup_data
+            - await_index
+            - filtered_probe
+    # Streaming (own namespace; teardown resets it so the staged
+    # fractions mean what they say on a fresh pass).
+    - for: "profile in {fknn_profile}, table in vsuite_stream_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - stream_ingest
+        - for: "stage_frac in {stage_fracs}"
+          phases:
+            - stream_gate
+            - stream_probe
+        - stream_gate_full
+        - await_index
+        - serial_probe
+    # Churn (own namespace with its own idempotent load chain).
+    - for: "profile in {fknn_profile}, table in vsuite_churn_{dataset_tag}_{profile}"
+      phases:
+        - schema
+        - load_train
+        - await_index
+        - churn_write
+        - churn_delete
+        - churn_probe
+    # Capacity last: destructive to its namespace and unbounded.
+    - for: "profile in {fknn_profile}, table in vsuite_cap_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - fill_until_refusal
+
+  # ── Capacity ───────────────────────────────────────────────────
+  capacity:
+    - for: "profile in {fknn_profile}, table in vsuite_cap_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - fill_until_refusal
+
+  # ── Load & Build (doubles as readiness: the await_index poll metric
+  # is the indexed-readiness delay) ──────────────────────────────
+  load_build:
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - load_train
+        - await_index
+
+  # ── Search Performance (serial on the
+  # quiesced target FIRST, then the sweep) ───────────────────────
+  search_perf:
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - load_train
+        - await_index
+        - serial_probe
+        - for: "conc in {conc_levels}"
+          phases:
+            - sweep_probe
+
+  # ── Filtered Search grid. Each selectivity point is a dataset
+  # PROFILE carrying its own prefiltered GT facet (veks-prepared);
+  # the parent's oracle machinery enumerates them. ───────────────
+  filtered_grid:
+    - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - for: "table in vsuite_{dataset_tag}_{profile}"
+          phases:
+            - teardown
+            - schema
+            - fknn_rampup_data
+            - await_index
+            - filtered_probe
+
+  # ── Streaming. The ingest daemon spawns first (daemons are
+  # dispatched before foreground siblings); the gate ladder holds on
+  # require-guarded metric thresholds, probes at each stage, then rides
+  # to full extent, builds, and probes the settled index. ────────
+  streaming:
+    - for: "profile in {fknn_profile}, table in vsuite_stream_{dataset_tag}_{profile}"
+      phases:
+        - teardown
+        - schema
+        - stream_ingest
+        - for: "stage_frac in {stage_fracs}"
+          phases:
+            - stream_gate
+            - stream_probe
+        - stream_gate_full
+        - await_index
+        - serial_probe
+
+  # ── Cold/Warm. Search-only against an EXISTING loaded+built
+  # table (run load_build first); the operator controls cold state
+  # (restart / idle window) per the protocol's target-side contract.
+  cold_warm:
+    - for: "profile in {fknn_profile}, table in vsuite_{dataset_tag}_{profile}"
+      phases:
+        - cold_probe
+        - warm_probe
+
+  # ── Churn. Own namespace with its own idempotent load chain
+  # (skip-valid on repeat runs within a session): sustained
+  # upsert + delete daemons under a live recall probe — recall
+  # under sustained mutation pressure.
+  # ─────────────────────────────────────────────────
+  churn:
+    - for: "profile in {fknn_profile}, table in vsuite_churn_{dataset_tag}_{profile}"
+      phases:
+        - schema
+        - load_train
+        - await_index
+        - churn_write
+        - churn_delete
+        - churn_probe
+
+phases:
+
+  # Capacity — insert until the target refuses. `errors: counter` keeps the
+  # router out of termination entirely; the stop condition declares
+  # the protocol's semantic: the first refusal ENDS the measurement,
+  # SUCCESSFULLY (Interrupted+Succeeded, phase metrics emitted, the
+  # count stands). The governance timeout disqualifies a target
+  # that never refuses within the tier bound (out-of-range).
+  # Ids are monotone across passes so re-ingestion never overwrites.
+  fill_until_refusal:
+    concurrency: "{insert_workers}"
+    cycles: "{capacity_cycle_cap}"
+    timeout: "{capacity_timeout}"
+    errors: ".*:counter"
+    status_metrics: [cycles*, result*, rows_inserted*, errors*, latency*]
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: stop
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const corpus_rows := vector_count(prebuffered)
+      row := cycle % corpus_rows
+      id := format_u64(cycle, 12)
+      train_vector := vector_at(prebuffered, row)
+    ops:
+      ins:
+        max_batch_size: cql_server_batch_limit(cql_session(cql_session_key))
+        batchtype: unlogged
+        prepared: |
+          INSERT INTO {keyspace}.{table}
+                 ( key,    value)
+          VALUES ( '{id}', {train_vector})
+
+  # Load — the measured bulk load: the parent `rampup` shape plus
+  # tier governance and an explicit insert-duration metric. Transient
+  # write timeouts retry (gap-free data is a recall precondition);
+  # the tier bound owns disqualification.
+  load_train:
+    # SRD-106 prereq class: deterministic keyed inserts — idempotent
+    # upsert. Skip-valid on re-attach while the provenance hash
+    # holds; the always-run await_index that follows is the runtime
+    # validation that a skipped load actually left a queryable
+    # target.
+    checkpoint: idempotent
+    concurrency: "{concurrency}"
+    timeout: "{load_timeout}"
+    errors: "count,retry"
+    status_metrics: [rows_inserted*, cycles*, latency*, errors*]
+    # Adaptive backpressure (SRD-83 Part 9): a saturated target
+    # converts overload into retry churn (green ok:% with a climbing
+    # att:% failure share and latencies made of backoff sleeps). The
+    # governor assumes the most fragile target: the offered
+    # concurrency SLOW-STARTS at the floor and doubles through clean
+    # windows toward the authored ceiling, backs off in proportion
+    # to the windowed attempt-failure severity, and probes
+    # additively under its congestion memory. Robust targets climb
+    # to full load in a few clean windows; fragile ones are never
+    # assaulted. The achieved rate is the target's honest capacity
+    # at the declared bound — not a retry storm artifact.
+    throttle: true
+    # Gap-free corpus is a recall precondition: retries absorb
+    # transients, so any write failure that still reaches the
+    # result level is a corpus gap — the load FAILS loudly rather
+    # than completing with counted errors.
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: fail
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      cursor row = range(0, vector_count(prebuffered))
+      id := format_u64(row, 12)
+      train_vector := vector_at(prebuffered, row)
+      volatile now_ms := current_epoch_millis()
+    metrics:
+      insert_seconds:
+        kind: gauge
+        value: "(now_ms - phase_start) / 1000"
+    ops:
+      insert:
+        max_batch_size: cql_server_batch_limit(cql_session(cql_session_key))
+        batchtype: unlogged
+        prepared: |
+          INSERT INTO {keyspace}.{table}
+                 ( key,    value)
+          VALUES ( '{id}', {train_vector})
+
+  # Build/readiness — pure-CQL index finalization: poll the cluster's
+  # sstable-task view until index/compaction work drains. The poll's
+  # `metric_name` records the elapsed wall clock — that gauge IS the
+  # indexed-readiness delay (CQL rows are searchable at write, so the
+  # searchable delay is structurally zero). `on_timeout: error` +
+  # the governance bound classify a never-settling build as
+  # OUT-OF-RANGE. (Deliberately no JMX/Jolokia dependency — the
+  # parent's finalize_index drives compaction actively; this phase
+  # only WAITS, so it runs against any CQL vector target.)
+  await_index:
+    concurrency: 1
+    timeout: "{build_timeout}"
+    status_metrics: [build_time*, latency*]
+    poll:
+      until: "active_build_tasks == 0"
+      interval_ms: 2000
+      timeout_ms: 86400000
+      metric_name: build_time_s
+      on_timeout: error
+    ops:
+      pending_build_work:
+        # CQL result bodies are ARRAYS of row objects — the
+        # pointer is row-indexed (`/0/active`, the
+        # compaction-demo convention), never bare `/active`.
+        simple: |
+          SELECT count(*) AS active FROM system_views.sstable_tasks
+        capture:
+          active_build_tasks: /0/active
+
+  # Serial probe on a quiesced target: concurrency 1, full metric
+  # row (ndcg beside recall), time-bounded by natural
+  # extent so at least `min_query_ms` of whole passes complete.
+  serial_probe:
+    concurrency: 1
+    status_metrics: [recall*, ndcg*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+              - ndcg
+
+  # One sweep level. Same query shape at `concurrency:
+  # {conc}` for `level_ms` of whole passes; relevancy runs PER OP at
+  # this operating point, so the report's recall-vs-throughput curve
+  # is measured, not interpolated from a serial pass. The `conc`
+  # iteration variable labels every series for the report layer.
+  sweep_probe:
+    concurrency: "{conc}"
+    status_metrics: [recall*, ndcg*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, level_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+              - ndcg
+
+  # One selectivity point: predicate-filtered ANN scored
+  # against the profile's OWN prefiltered ground truth. The `:*`
+  # fusion wildcard on the predicate bind mirrors the parent (pending
+  # the live-cluster strict-binding confirmation that would drop it).
+  filtered_probe:
+    concurrency: 1
+    status_metrics: [recall*, ndcg*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      predicate := predicate_value_at(prebuffered, q % query_counts)
+      ground_truth := filtered_neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann_filtered:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          WHERE metadata = {predicate:*}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+              - ndcg
+
+  # The rated ingest daemon. Bounded by the corpus extent
+  # (it finishes its own data; the foreground gate ladder outlasts
+  # it, so `daemon_stop` is the backstop, never the terminator). The
+  # rate limiter's intended-start accounting makes offered-vs-
+  # achieved visible in cycles_waittime — nothing is silently shed.
+  stream_ingest:
+    daemon: true
+    rate: "{insert_rate}"
+    concurrency: "{concurrency}"
+    errors: "count,retry"
+    status_metrics: [cycles*, rows_inserted*, latency*, errors*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      cursor row = range(0, vector_count(prebuffered))
+      id := format_u64(row, 12)
+      train_vector := vector_at(prebuffered, row)
+    ops:
+      insert:
+        max_batch_size: cql_server_batch_limit(cql_session(cql_session_key))
+        batchtype: unlogged
+        prepared: |
+          INSERT INTO {keyspace}.{table}
+                 ( key,    value)
+          VALUES ( '{id}', {train_vector})
+
+  # One stage gate. HOLDS until the ingest daemon's cycle
+  # count crosses this stage's fraction of the corpus; the
+  # `require:` makes a typo'd selector (or a daemon that never
+  # spawned) a loud `poll_require` failure instead of a spurious
+  # pass or a silent hang. `{stage_frac}` interpolates into the
+  # bindings, so the threshold is data, not predicate text.
+  stream_gate:
+    concurrency: 1
+    status_metrics: [latency*]
+    poll:
+      until: "metric('cycles_total, phase=stream_ingest', 'count') >= stage_rows"
+      require: [ "cycles_total, phase=stream_ingest" ]
+      interval_ms: 1000
+      timeout_ms: "{stage_gate_timeout_ms}"
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const stage_rows := to_f64(vector_count(prebuffered)) * stage_frac
+    ops:
+      tick:
+        simple: "SELECT count(*) AS one FROM system.local"
+        capture:
+          ingested_probe: /one
+
+  # The staged probe: the sweep-shape query under the live
+  # ingest, labeled by its stage fraction. Retrievable-neighbor
+  # recall (see header note).
+  stream_probe:
+    concurrency: "{query_concurrency}"
+    status_metrics: [recall*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, level_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+
+  # The full-extent gate: waits for the daemon to finish its
+  # corpus so the subsequent build/probe run against complete data.
+  stream_gate_full:
+    concurrency: 1
+    status_metrics: [latency*]
+    poll:
+      until: "metric('cycles_total, phase=stream_ingest', 'count') >= all_rows"
+      require: [ "cycles_total, phase=stream_ingest" ]
+      interval_ms: 1000
+      timeout_ms: "{stage_gate_timeout_ms}"
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const all_rows := to_f64(vector_count(prebuffered))
+    ops:
+      tick:
+        simple: "SELECT count(*) AS one FROM system.local"
+        capture:
+          ingested_probe: /one
+
+  # The cold pass. Identical to serial_probe; the phase NAME
+  # is the label that separates cold from warm in every metric
+  # series. Cold state is the operator's contract (restart the
+  # service / respect the idle window before running).
+  cold_probe:
+    concurrency: 1
+    status_metrics: [recall*, latency*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+
+  # The warm pass, immediately after cold.
+  warm_probe:
+    concurrency: 1
+    status_metrics: [recall*, latency*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+
+  # Churn — paced upsert daemon: rewrites existing rows across the
+  # whole id space (same encoding as the loader, so an upsert is a
+  # true overwrite).
+  churn_write:
+    daemon: true
+    rate: "{churn_write_rate}"
+    concurrency: 4
+    errors: "count,retry"
+    status_metrics: [cycles*, rows_inserted*, latency*, errors*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const corpus_rows := vector_count(prebuffered)
+      row := cycle % corpus_rows
+      id := format_u64(row, 12)
+      train_vector := vector_at(prebuffered, row)
+    ops:
+      upsert:
+        prepared: |
+          INSERT INTO {keyspace}.{table}
+                 ( key,    value)
+          VALUES ( '{id}', {train_vector})
+
+  # Churn — paced delete daemon over a rotating low-id window.
+  # Deleted rows that appear in a query's ground truth cap that
+  # query's attainable recall — the churn number is a TREND signal
+  # under sustained tombstone pressure (header note).
+  churn_delete:
+    daemon: true
+    rate: "{churn_delete_rate}"
+    concurrency: 1
+    errors: "count,retry"
+    status_metrics: [cycles*, latency*, errors*]
+    bindings: |
+      row := cycle % churn_window
+      id := format_u64(row, 12)
+    ops:
+      delete:
+        prepared: |
+          DELETE FROM {keyspace}.{table} WHERE key = '{id}'
+
+  # Churn — the foreground probe: recall-under-churn for
+  # `{churn_ms}` of whole passes while both daemons run.
+  churn_probe:
+    concurrency: "{query_concurrency}"
+    status_metrics: [recall*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      cursor q = until_elapsed(query_counts, churn_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      ground_truth := neighbor_indices_at(prebuffered, q % query_counts)
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+
+report:
+  # Recall at every operating point — the curve the sweep measures
+  # directly (per-op relevancy at each `conc` level), which is this
+  # suite's signature: no serial-only recall inference.
+  suite_section: |
+    table recall_by_level:
+      group_by: conc
+      query: recall: avg(recall_mean{k="10"}) by (conc)
+      query: ndcg: avg(ndcg_mean{k="10"}) by (conc)
+      query: qps: avg(cycles_total_rate{phase="sweep_probe"}) by (conc)
+
+    plot suite_recall_vs_qps:
+      label: "Recall vs QPS across probe phases"
+      legend: br
+      y1: (cycles_total_rate, recall_mean){phase=~".*probe"} by (phase,conc)
+      series: phase,conc
+
+  # Key benchmark metrics: the headline numbers vector-database
+  # benchmarking tools report — load duration, index-readiness wait,
+  # serial latency p99, recall/ndcg, max QPS — plus its
+  # per-concurrency qps/latency/recall lists and the filtered /
+  # streaming analogs where those sections ran. Latencies are
+  # normalized to milliseconds in-query (service time is stored
+  # in nanoseconds per the project standard).
+  key_metrics_section: |
+    file key_metrics.md as 'Vector Search Key Metrics'
+
+    text key_metrics_overview as "Overview":
+     Key vector-search benchmark metrics for this run. Mapping:
+     load_duration_s is the measured bulk-load wall clock;
+     build_wait_s is the index-readiness wait (the await_index
+     poll metric); serial_p99_ms / serial_recall / serial_ndcg
+     come from the quiesced serial probe; max_qps is the best
+     sustained throughput across the concurrency sweep. The
+     concurrency table carries the per-level qps / latency /
+     recall lists — recall is measured PER OP at every operating
+     point, never inferred from the serial pass. The filtered and
+     streaming tables populate when those scenarios run; staged
+     streaming recall is retrievable-neighbor recall
+     (upper-bounded by the inserted fraction).
+
+    table headline_metrics:
+      query: load_duration_s: max(insert_seconds{phase="load_train"})
+      query: build_wait_s: max(build_time_s)
+      query: serial_p99_ms: avg(cycles_servicetime_p99{phase="serial_probe"}) / 1000000
+      query: serial_mean_ms: avg(cycles_servicetime_mean{phase="serial_probe"}) / 1000000
+      query: serial_recall: avg(recall_mean{phase="serial_probe"})
+      query: serial_ndcg: avg(ndcg_mean{phase="serial_probe"})
+      query: max_qps: max(cycles_total_rate{phase="sweep_probe"})
+
+    table concurrency_sweep:
+      group_by: conc
+      query: qps: avg(cycles_total_rate{phase="sweep_probe"}) by (conc)
+      query: p50_ms: avg(cycles_servicetime_p50{phase="sweep_probe"}) by (conc) / 1000000
+      query: p99_ms: avg(cycles_servicetime_p99{phase="sweep_probe"}) by (conc) / 1000000
+      query: mean_ms: avg(cycles_servicetime_mean{phase="sweep_probe"}) by (conc) / 1000000
+      query: recall: avg(recall_mean{phase="sweep_probe"}) by (conc)
+      query: ndcg: avg(ndcg_mean{phase="sweep_probe"}) by (conc)
+
+    table filtered_search:
+      group_by: profile
+      query: recall: avg(recall_mean{phase="filtered_probe"}) by (profile)
+      query: ndcg: avg(ndcg_mean{phase="filtered_probe"}) by (profile)
+      query: qps: avg(cycles_total_rate{phase="filtered_probe"}) by (profile)
+      query: p99_ms: avg(cycles_servicetime_p99{phase="filtered_probe"}) by (profile) / 1000000
+
+    table streaming_stages:
+      group_by: stage_frac
+      query: recall: avg(recall_mean{phase="stream_probe"}) by (stage_frac)
+      query: qps: avg(cycles_total_rate{phase="stream_probe"}) by (stage_frac)
+      query: p99_ms: avg(cycles_servicetime_p99{phase="stream_probe"}) by (stage_frac) / 1000000
+
+    text capacity_note as "Capacity":
+     The capacity analog (max load before the first refusal) is
+     the fill_until_refusal batch count below; rows_inserted_total
+     is session-wide and reads as the loaded vector count only
+     for capacity-scenario sessions.
+
+    table capacity_fill:
+      query: fill_batches: sum(cycles_total{phase="fill_until_refusal"})
+      query: rows_inserted_total: max(rows_inserted_total)

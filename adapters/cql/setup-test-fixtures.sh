@@ -77,7 +77,7 @@ veks datasets list --dataset example 2>&1 \
 cat <<EOF
 
 Setup complete. The following phases of
-adapters/cql/workloads/full_cql_vector.yaml run cleanly under
+nmbrs/workloads/cql/full_cql_vector.yaml run cleanly under
 \`dryrun=phase\` against this fixture:
 
   discover, schema, teardown, drop_indexes, create_index,
@@ -91,7 +91,7 @@ Smoke test:
 
   cargo run -p nmbrs -- run \\
     adapter=cql cqldriver=scylla \\
-    workload=adapters/cql/workloads/full_cql_vector.yaml \\
+    workload=nmbrs/workloads/cql/full_cql_vector.yaml \\
     profile=default table=vec_default optimize_for=RECALL \\
     dryrun=phase
 EOF

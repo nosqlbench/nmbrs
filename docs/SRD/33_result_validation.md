@@ -5,7 +5,7 @@ retrieval metrics. Implemented as a composable dispenser wrapper
 with zero overhead when not declared.
 
 **Status:** Core implementation complete and verified (recall@100
-= 0.94 on glove-25-angular). Relevancy should be refactored into
+= 0.94 on the 1.2M-vector, 25-dim reference dataset). Relevancy should be refactored into
 a pluggable validator (see sysref 32 design note).
 
 ---
@@ -213,6 +213,6 @@ With `strict: true`, assertion failures become
 ## Verified Results
 
 Tested end-to-end against Cassandra 5.0 SAI:
-- Dataset: glove-25-angular (1,183,514 training vectors, 25 dims)
+- Dataset: the 25-dim public reference set (1,183,514 training vectors)
 - recall@100 = 0.94 mean across 100 ANN queries
 - reciprocal_rank@100 = 1.00 (first result always relevant)

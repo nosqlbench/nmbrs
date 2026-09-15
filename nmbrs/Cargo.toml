@@ -8,7 +8,7 @@ keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "nmbrs"
@@ -35,7 +35,7 @@ default = ["engine-scylla"]
 # protocol — works against both Apache Cassandra and ScyllaDB.
 engine-scylla = ["nmbrs-adapter-cql/engine-scylla"]
 
-# DataStax Cassandra C++ driver via FFI. Requires the system
+# Apache Cassandra C++ driver via FFI. Requires the system
 # `libcassandra` plus libuv / openssl. Build locally against a
 # sysroot prepared by `adapters/cql/build.sh driver`.
 engine-cassandra-cpp = ["nmbrs-adapter-cql/engine-cassandra-cpp", "dep:cassandra-cpp"]
@@ -59,12 +59,12 @@ flamegraph = ["nmbrs-runtime/flamegraph"]
 polydat = "0.3"
 # The sqlite metrics-access backend now lives in nmbrs-metrics (SRD-86
 # §"The metric-reader surface"); the CLI locates it via the queryapi.
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1", features = ["sqlite"] }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2", features = ["sqlite"] }
 nmbrs-metricsql = { path = "../nmbrs-metricsql", version = "0.1.0", features = ["runtime", "polydat-nodes"] }
-nmbrs-workload = { path = "../nmbrs-workload", version = "0.1.1" }
-nmbrs-rate = { path = "../nmbrs-rate", version = "0.1.1" }
-nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.1.1" }
-nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.1" }
+nmbrs-workload = { path = "../nmbrs-workload", version = "0.1.2" }
+nmbrs-rate = { path = "../nmbrs-rate", version = "0.1.2" }
+nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.1.2" }
+nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.2" }
 # Used by the `vectordata-audit` bin to scrutinise dataset
 # relationships through the catalog API (transport- and
 # cache-layout-agnostic). The generic typed surface
@@ -81,29 +81,29 @@ glob = "0.3"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
-nmbrs-tui = { path = "../nmbrs-tui", version = "0.1.1" }
-nmbrs-web = { path = "../nmbrs-web", version = "0.1.1" }
+nmbrs-tui = { path = "../nmbrs-tui", version = "0.1.2" }
+nmbrs-web = { path = "../nmbrs-web", version = "0.1.2" }
 # SRD-86 — the optimizer algorithms are an inventory plugin (like an adapter):
 # `features = ["runtime"]` pulls in the bridge that registers them against the
 # core contract, so `nmbrs describe optimizers` and the executor seam discover
 # them at link time.
 nmbrs-optimizers = { path = "../nmbrs-optimizers", version = "0.1.2", features = ["runtime"] }
-nmbrs-adapter-stdout = { path = "../adapters/stdout", version = "0.1.1" }
-nmbrs-adapter-testkit = { path = "../adapters/testkit", version = "0.1.1" }
-nmbrs-adapter-http = { path = "../adapters/http", version = "0.1.1" }
-nmbrs-adapter-plotter = { path = "../adapters/plotter", version = "0.1.1" }
+nmbrs-adapter-stdout = { path = "../adapters/stdout", version = "0.1.2" }
+nmbrs-adapter-testkit = { path = "../adapters/testkit", version = "0.1.2" }
+nmbrs-adapter-http = { path = "../adapters/http", version = "0.1.2" }
+nmbrs-adapter-plotter = { path = "../adapters/plotter", version = "0.1.2" }
 # CQL adapter — `default-features = false` so the engine choice
 # flows through nmbrs's own feature flags (engine-scylla /
 # engine-cassandra-cpp / all-engines).
-nmbrs-adapter-cql = { path = "../adapters/cql", version = "0.1.1", default-features = false }
+nmbrs-adapter-cql = { path = "../adapters/cql", version = "0.1.2", default-features = false }
 # Only needed for the TUI's `set_level(LogLevel::ERROR)` shim
 # that suppresses C++ driver chatter while the TUI owns the
 # screen. Gated behind the same feature that pulls the engine.
-cassandra-cpp = { version = "3", optional = true }
+cassandra-cpp = { package = "nmbrs-cassandra-cpp", version = "3.0.2", path = "../vendor/cassandra-cpp", optional = true }
 # OpenAPI workload generation — opt-in via the `openapi`
 # feature. Adapter crate carries the spec parser + workload
 # synthesis; nmbrs's `openapi` module wires the subcommands.
-nmbrs-adapter-openapi = { path = "../adapters/openapi", version = "0.1.1", optional = true }
+nmbrs-adapter-openapi = { path = "../adapters/openapi", version = "0.1.2", optional = true }
 openapiv3 = { version = "2", optional = true }
 reqwest = { version = "0.12", features = ["blocking"] }
 serde = { version = "1", features = ["derive"] }

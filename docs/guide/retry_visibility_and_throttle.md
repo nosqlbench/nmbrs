@@ -9,8 +9,8 @@ needs.
 Canonical references: SRD-82 Part 3b (the tries wrapper and its
 companion knobs), SRD-83 Part 9 (the throttle governor), SRD-23
 (dynamic controls). Runnable demonstrations:
-`examples/workloads/controls/retry_visibility.yaml` and
-`examples/workloads/controls/throttle_backpressure.yaml`.
+`nmbrs/examples/workloads/controls/retry_visibility.yaml` and
+`nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.
 
 ## The problem shape
 
@@ -246,7 +246,7 @@ control write away.
   `control_set`, advisory-per-phase, advisory opt-out.
 - `nmbrs/tests/throttle_governor.rs` — e2e: measured overload
   walked down until failures stop, visible adjustments.
-- `examples/workloads/controls/retry_visibility.yaml`,
-  `examples/workloads/controls/throttle_backpressure.yaml` —
+- `nmbrs/examples/workloads/controls/retry_visibility.yaml`,
+  `nmbrs/examples/workloads/controls/throttle_backpressure.yaml` —
   walker-pinned runnable demonstrations of every line format shown
   above.

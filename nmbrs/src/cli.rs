@@ -45,7 +45,9 @@ pub fn print_usage() {
         "  nmbrs wiring visualize <expr> Evaluate a wiring expression and plot outputs to terminal"
     );
     eprintln!("  nmbrs wiring visualize <file> Plot a wiring file's outputs to the terminal");
-    eprintln!("  nmbrs web [bind=0.0.0.0] [port=8080]  Start the web dashboard");
+    eprintln!(
+        "  nmbrs web [bind=127.0.0.1] [port=8080]  Start the web dashboard (bind=0.0.0.0 to expose)"
+    );
     eprintln!("  nmbrs web --daemon             Start web dashboard in the background");
     eprintln!("  nmbrs web --stop               Stop a running background web dashboard");
     eprintln!("  nmbrs web --restart            Restart with the same arguments");
@@ -145,7 +147,7 @@ pub fn parse_bind_address(raw: &str, port_override: Option<&str>) -> (String, u1
         .unwrap_or(default_port);
 
     let host = if host.is_empty() {
-        "0.0.0.0".to_string()
+        "127.0.0.1".to_string()
     } else {
         host
     };

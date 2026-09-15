@@ -129,7 +129,7 @@ fn leaf_of(s: &str) -> &str {
 /// repo's own example files don't double up with their embedded copies in a
 /// suggestion list. The double-up is what makes `examples/dy<TAB>` collapse
 /// to the shared `examples/` prefix (catalog `examples/controls/…` vs file
-/// `examples/workloads/controls/….yaml`); dropping the redundant file
+/// `nmbrs/examples/workloads/controls/….yaml`); dropping the redundant file
 /// leaves one clean candidate bash can complete to.
 fn is_catalog_duplicate(rel: &str) -> bool {
     catalog_name_for_local(rel).is_some_and(|n| crate::catalog::lookup(&n).is_some())
@@ -137,19 +137,15 @@ fn is_catalog_duplicate(rel: &str) -> bool {
 
 /// The catalog name a local file under a bundle-source root would carry, or
 /// `None` if it isn't under one. Inverse of `nmbrs/build.rs`:
-/// `workloads/<x>` → `<x>`, `examples/workloads/<x>` → `examples/<x>`,
-/// `adapters/<a>/workloads/<x>` → `<a>/<x>` (extension stripped).
+/// `workloads/<x>` → `<x>` (so `workloads/cql/<x>` → `cql/<x>`) and
+/// `examples/workloads/<x>` → `examples/<x>` (extension stripped) — the
+/// SRD-85 logical layout relative to the cwd.
 fn catalog_name_for_local(rel: &str) -> Option<String> {
     let stem = rel
         .strip_suffix(".yaml")
         .or_else(|| rel.strip_suffix(".yml"))?;
     if let Some(rest) = stem.strip_prefix("examples/workloads/") {
         return Some(format!("examples/{rest}"));
-    }
-    if let Some(rest) = stem.strip_prefix("adapters/")
-        && let Some((adapter, tail)) = rest.split_once("/workloads/")
-    {
-        return Some(format!("{adapter}/{tail}"));
     }
     stem.strip_prefix("workloads/").map(str::to_string)
 }
@@ -297,7 +293,7 @@ mod tests {
             Some("keyvalue")
         );
         assert_eq!(
-            catalog_name_for_local("adapters/cql/workloads/baselinesv3/keyvalue.yml").as_deref(),
+            catalog_name_for_local("workloads/cql/baselinesv3/keyvalue.yml").as_deref(),
             Some("cql/baselinesv3/keyvalue")
         );
         // A file outside any bundle-source root has no catalog twin.

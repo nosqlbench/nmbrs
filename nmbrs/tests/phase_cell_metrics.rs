@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! C9 — phase-level `metrics:` honor `cell:`/`dimensions:` placement,
-//! over `examples/workloads/metrics/phase_cell_metrics.yaml`.
+//! over `nmbrs/examples/workloads/metrics/phase_cell_metrics.yaml`.
 //!
 //! One placement rule across the op and phase tiers: a cell-placed
 //! phase metric registers on the coordinate's cell component, so its
@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/metrics/phase_cell_metrics.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/metrics/phase_cell_metrics.yaml";
 
 struct Sandbox {
     dir: PathBuf,

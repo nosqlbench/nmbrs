@@ -181,7 +181,7 @@ fn copy_keeps_shebang_first_and_exec_bits() {
     let sb = Sandbox::new("copy");
     let out = Command::new(env!("CARGO_BIN_EXE_nmbrs"))
         .current_dir(sb.path())
-        .args(["copy", "cql/vector_suite/vector_suite_cql_oss_sift1m"])
+        .args(["copy", "cql/vector_suite/vector_suite_cql_oss_sift128"])
         .output()
         .expect("spawn copy");
     assert!(
@@ -192,7 +192,7 @@ fn copy_keeps_shebang_first_and_exec_bits() {
     );
     let dest = sb
         .path()
-        .join("cql_vector_suite_vector_suite_cql_oss_sift1m.yaml");
+        .join("cql_vector_suite_vector_suite_cql_oss_sift128.yaml");
     let text = std::fs::read_to_string(&dest).expect("read copy");
     assert!(
         text.starts_with("#!/usr/bin/env nmbrs\n"),

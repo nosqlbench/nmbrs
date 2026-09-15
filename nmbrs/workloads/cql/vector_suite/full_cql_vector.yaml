@@ -1,0 +1,940 @@
+#!/usr/bin/env nmbrs
+# CQL Vector Search — Multi-Profile Discovery
+#
+# Generic phases parameterized by {table}, {dataset}, and {profile}.
+# Scenario trees set {profile} (and sometimes {table}) via for
+# iteration variables. Dataset-facing calls use the canonical
+# "{dataset}:{profile}" composite inline format.
+#
+# Usage:
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=fulltest
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=filtered_knn
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=unfiltered
+#   nmbrs run workload=cql/vector_suite/full_cql_vector scenario=filtered_knn limit=100
+
+description: |
+  CQL vector-search suite, multi-profile: schema, rampup from a
+  vector dataset, index finalization, and ANN query phases with
+  relevancy evaluation. Scenario trees parameterize {table},
+  {dataset}, and {profile}. Requires a vector-capable CQL target
+  and a local vector dataset catalog.
+params:
+  # Curated default: `tries` = TOTAL attempts per op on retryable errors
+  # (e.g. CQL request timeouts) before a failure reaches the result level
+  # (SRD-82: the sigil for the conditional tries wrapper; omit it for
+  # single-attempt ops). No root `timeout` — it would override each op's own
+  # request timeout, clobbering long-running orchestration ops (flush /
+  # compaction); set `timeout:` per-op on the read/write ops that need a
+  # specific request timeout.
+  tries: 21
+  host: localhost
+  adapter: cql
+  dataset: example
+  # Identifier-safe form of the dataset name for table names
+  # (see the table-namespace note above). Pin it when the
+  # catalog name carries characters the protocol's identifiers
+  # cannot, e.g. `dataset=sift-128-euclidean dataset_tag=sift128`.
+  dataset_tag: "{dataset}"
+  # The vector distance function the index is declared with. `auto`
+  # reads it from the dataset's catalog attributes; a catalog entry
+  # that carries no distance attribute (the public ann-benchmarks
+  # sets) needs it pinned: `euclidean`, `cosine`, or `dot_product`.
+  distance_function: auto
+  prefix: ""
+  oracles_prefix: "label_"
+  keyspace: baselines
+  k_values: "1,10,100"
+  k_1_limits: "1,2,4,8,16,32,64"
+  k_10_limits: "10,20,30,40,50"
+  k_100_limits: "100,125,150,175,200"
+  concurrency: "100"
+  query_concurrency: "20"
+  replication: "{'class': 'SimpleStrategy', 'replication_factor': '1'}"
+  fknn_profile: default
+  vector_idx_suffix: _vector_idx
+  meta_idx_suffix: _meta_idx
+  # Minimum wall-clock duration per ann_query / pvs_metadata_query
+  # / pvs_query phase in milliseconds. The query cursor extends in
+  # `base`-sized passes (one full sweep of the prebuffered query
+  # set) until this much time has elapsed since phase start, at
+  # which point the policy stops at the next whole-pass boundary.
+  # 30 s gives each (profile, k, limit) phase enough cadence-window
+  # coverage for stable rate and latency averages.
+  min_query_ms: 10000
+
+  # Filtered-ANN planner mode. Drives the per-query `WITH
+  # ann_options = …` clause that the query phases bake into
+  # their `prepared:` strings at op-template construction time.
+  # Values:
+  #
+  #   `default` — empty clause. the vendor build's planner picks rerankK
+  #               from the source-model's tapered multiplier and
+  #               may flip to brute force per
+  #               `V2VectorIndexSearcher.CostEstimate.shouldUseBruteForce`.
+  #   `pinned`  — every ANN query carries `WITH ann_options =
+  #               {'rerank_k': '<limit>', 'use_pruning': 'false'}`,
+  #               pinning rerank_k to the LIMIT (no auto-
+  #               amplification) and disabling the graph index's pruning
+  #               shortcut so the planner stays on approximate
+  #               HNSW even at large LIMIT. vendor-only — OSS
+  #               Cassandra rejects the `WITH ann_options`
+  #               extension at parse.
+  #
+  # See `local/brute_force.md` for the analysis. The
+  # `fulltest_rerank_pinned` scenario uses a scenario-tree
+  # `set: { rerank_mode: '"pinned"' }` node to shadow this default
+  # over its inner phase tree (see `scenarios:` below). The
+  # workload-param default keeps `fulltest` (and every other
+  # scenario without an override) resolvable — the
+  # `const ann_opts := select_str(str_eq(rerank_mode, "pinned"),
+  # …)` binding in each query phase reads `rerank_mode` as a
+  # plain name, so something has to bind it at the workload
+  # level even when nothing overrides it.
+  rerank_mode: default
+
+  # ────────────────────────────────────────────────────────────
+  # SAI vector index build knobs — emitted into every
+  # `CREATE CUSTOM INDEX … WITH OPTIONS = {…}` (SRD-72 schema
+  # extension).
+  #
+  # Each knob has a documented stable default. Sibling sweep
+  # workloads (`full_cql_vector_sweep.yaml`) shadow individual
+  # values via scenario-tree `set:` to probe the parameter
+  # space; production scenarios run with the defaults below
+  # so the schema is reproducible across vendor releases (i.e.
+  # we don't depend on the cluster's current build-path
+  # defaults for `neighborhood_overflow` / `alpha`).
+  #
+  # source_model — picks compression ratio + overquery factor.
+  #   `OTHER` is the vendor fallback (generic compression, generic
+  #   overquery), chosen so the schema doesn't assume a specific
+  #   embedding family. Sweepable: ADA002, OPENAI_V3_SMALL,
+  #   OPENAI_V3_LARGE, BERT, GECKO, NV_QA_4, COHERE_V3, OTHER.
+  source_model: OTHER
+  # maximum_node_connections — HNSW M parameter (doubled
+  #   internally → effective max-degree = 32 at M=16). vendor build
+  #   default. Range 1..512. Sweepable.
+  maximum_node_connections: 16
+  # construction_beam_width — HNSW efConstruction. vendor build
+  #   default. Up to 3200. Sweepable.
+  construction_beam_width: 100
+  # enable_hierarchy — hierarchical layers atop the graph
+  #   graph. vendor default off. Sweepable.
+  enable_hierarchy: false
+  # neighborhood_overflow — Vamana/DiskANN edge-pruning slack
+  #   during build. vendor default varies by build path
+  #   (in-memory vs compaction); 1.2 is a stable mid-range
+  #   value used widely in graph-index tuning notes. Sweepable.
+  neighborhood_overflow: 1.2
+  # alpha — Vamana relative-density pruning factor. Same
+  #   "default varies by build path" caveat as
+  #   neighborhood_overflow; 1.2 is the canonical cosine-space
+  #   tuning. Sweepable.
+  alpha: 1.2
+
+# Unified report block (SRD-46): plots + tables in declaration
+# order. Each scenario contributes its items to its own
+# scenario-specific markdown file so the post-run reports stay
+# scoped to the data they describe.
+#
+# Scenarios:
+#   - `test_oracles` → ANN/recall sweep, emits recall@N metrics
+#     under the `ann_query` phase.
+#   - `test_fknn`    → filtered-KNN sweep, emits recall metrics
+#     under the `pvs_query` phase.
+#
+# A `Run Details` block is auto-prepended to each markdown
+# file by the runtime — no need to declare it here.
+
+# Surface recall-family aggregates and latency on the inline
+# progress line and per-phase ✓ DONE summary. Doc-root setting
+# is inherited by every phase that doesn't declare its own
+# `status_metrics:`. Glob patterns: `recall*` matches the
+# `recall` family (with `k`/`r` labels carrying the cutoff)
+# from the relevancy block; `latency*` matches the
+# `latency_p50` / `latency_p99` / `latency_max` /
+# `latency_mean` family sourced from the service-time histogram.
+status_metrics: [recall*, latency*]
+
+report:
+  defaults:
+    palette: wong
+
+  oracles_section: |
+    file oracles_report.md as 'ANN Recall Sweep'
+
+    text heading as "Introduction":
+     This report covers the **test_oracles** scenario: per-
+     profile partition tests that sweep `k` and `limit` against
+     a SAI-indexed vector column. Recall is measured against the
+     ground truth provided by the dataset's test set.
+
+     Figures below show the per-profile and aggregate recall@k
+     curves; the table summarises mean recall by profile.
+
+    table recall_oracles:
+      group_by: profile
+      query: recall: avg(recall_mean{k="10"}) by (profile,limit)
+      query: latency: avg(cycles_servicetime_mean) by (profile,limit)
+
+    plot recall_vs_qps:
+      label: "Recall vs QPS, (oracles & PVS)"
+      scale: 2
+      legend: br
+      y1: (cycles_total_rate, recall_mean){phase=~".*query"} by (phase,k,limit)
+      point-label1: limit
+      x-legend: "QPS (log)"
+      x-scale: log
+      y-side: left
+      y-labels: ["recall"]
+      y-legends: ["k=[k] [phase]"]
+      y-ranges: [[,1.0]]
+      series: phase,k
+      style: phase=ann_query:line=dotted
+
+
+#    plot recall_vs_qps__pvs
+#      label "Recall vs QPS (PVS)"
+#      legend: br
+#      y1: (cycles_total_rate, recall_mean){phase=~"pvs_query"} by (phase,k,limit)
+#      point-label1: limit
+#      x-legend: "QPS"
+#      xscale=log
+#      y-side: left
+#      y-labels: ["recall"]
+#      y-legends: ["k=[k] [phase]"]
+#      y-ranges: [[,1.0]]
+#      series: phase,k
+#      style phase=ann_query:line=dotted
+
+
+bindings: |
+  profiles := matching_profiles("{dataset}", "{prefix}")
+
+scenarios:
+
+  default:
+    - scenario: fulltest
+
+  fulltest:
+    - tune_cluster
+    - scenario: test_oracles
+    - scenario: test_fknn
+
+  # Rerank-pinned variant: `set:` shadows the `rerank_mode`
+  # workload-param over the inner phase tree, so every query
+  # phase's `const ann_opts := select_str(str_eq(rerank_mode,
+  # "pinned"), …)` binding sees the override and constructs
+  # the `WITH ann_options = {…}` clause. No CLI plumbing
+  # needed — the scenario name itself flips the behaviour.
+  # vendor-only (OSS Cassandra rejects `WITH ann_options`).
+  fulltest_rerank_pinned:
+    - set: { rerank_mode: '"pinned"' }
+      phases:
+        - scenario: fulltest
+
+  # Per-profile partition test (label_00..label_11)
+  test_oracles:
+    - tune_cluster
+    - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - for: "table in vec_{profile}"
+          phases:
+            - teardown
+            - schema
+            - rampup
+            - finalize_index
+            - for: "k in {k_values}, limit in {k_{k}_limits}"
+              phases:
+                - ann_query
+
+  # Query-only oracle scenario — same parameter sweep as
+  # `test_oracles` but skips teardown/schema/rampup/await_index.
+  # Use against tables already populated by a prior `test_oracles`
+  # run to measure recall as the SAI index ages without
+  # re-paying the rampup cost. If recall here climbs over
+  # repeated invocations, the SAI index hasn't fully settled by
+  # the time `await_index`'s polling returns.
+  test_oracles_query_only:
+    - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - for: "table in vec_{profile}"
+          phases:
+            - for: "k in {k_values}, limit in {k_{k}_limits}"
+              phases:
+                - ann_query
+
+  test_fknn:
+    - tune_cluster
+    - for: "profile in {fknn_profile}, table in fknn_{profile}"
+      phases:
+        - teardown
+        - schema
+        - fknn_rampup_data
+        - finalize_index
+        - for: "k in {k_values}, limit in {k_{k}_limits}"
+          phases:
+            - pvs_query
+
+
+# =====================================================================
+# Generic Phases — parameterized by {table}, {dataset}, and {profile}
+# =====================================================================
+
+phases:
+
+  # ── Hard reset ───────────────────────────────────────────────
+  #
+  # `keyspace_reset` is the nuclear option: drop the entire
+  # `{keyspace}` (taking out every table + every SAI index +
+  # every materialized view in one statement), then re-create
+  # it fresh. Use this at the very top of a sweep scenario when
+  # the cluster carries residue from prior runs whose naming
+  # scheme has drifted from the current sweep's `fknn_oat_*`
+  # convention.
+  #
+  # Why this exists in addition to the per-cell `teardown`:
+  #
+  # `teardown` (below) drops one cell's `{table}` + 2 indexes.
+  # The pre-sweep cleanup loop iterates the current sweep's
+  # cross-product (64 cells) and runs `teardown` for each.
+  # Both surfaces are scoped to the CURRENT naming scheme —
+  # they cannot evict tables / indexes left over from a prior
+  # sweep whose names don't match (e.g. `vec_label_*`,
+  # `fknn_default_*`, an older `fknn_oat_*` axis combination
+  # that's no longer in the cross product).
+  #
+  # Dropping the keyspace is O(1) statements regardless of
+  # how many tables / indexes have accumulated; it sidesteps
+  # the global SAI-index cap (the vendor build's "Cannot have more than
+  # 100 StorageAttachedIndex secondary indexes") because the
+  # cap is per-keyspace-set, not per-DROP. Re-creating the
+  # keyspace with the same replication config restores the
+  # blank slate the subsequent `schema` phase expects.
+  #
+  # Per-statement timeout is the workload-param
+  # `request_timeout_ms` default (5 minutes); DROP KEYSPACE
+  # can take a while on a cluster with many tables but
+  # shouldn't exceed this on a 200-table keyspace.
+  keyspace_reset:
+    concurrency: 1
+    cycles: 1
+    bindings: |
+      const request_timeout_ms := 300000
+    ops:
+      drop_keyspace:
+        raw: "DROP KEYSPACE IF EXISTS {keyspace}"
+        memo:
+          before: "dropping keyspace {keyspace} (hard reset)"
+          after:  "dropped keyspace {keyspace}"
+      create_keyspace:
+        raw: |
+          CREATE KEYSPACE IF NOT EXISTS {keyspace}
+          WITH replication = {replication} AND durable_writes = true
+        memo:
+          before: "re-creating keyspace {keyspace}"
+          after:  "re-created keyspace {keyspace}"
+
+  schema:
+    # SRD-106 prereq class: IF NOT EXISTS DDL is idempotent by
+    # construction, so a re-attached session skips this when the
+    # prior outcome's provenance hash still matches.
+    checkpoint: idempotent
+    concurrency: 1
+    status_metrics: [latency*]
+    bindings: |
+      dim := vector_dim("{dataset}:{profile}")
+      dataset_metric := dataset_distance_function("{dataset}:{profile}")
+      similarity_function := select_str(str_eq("{distance_function}", "auto"), dataset_metric, "{distance_function}")
+    ops:
+      create_keyspace:
+        raw: |
+          CREATE KEYSPACE IF NOT EXISTS {keyspace} 
+          WITH replication = {replication} AND durable_writes = true
+      create_table:
+        raw: |
+          CREATE TABLE IF NOT EXISTS {keyspace}.{table}
+          (key text PRIMARY KEY, value vector<float, {dim}>, metadata int)
+          WITH
+           compaction = {
+           'class': 'SizeTieredCompactionStrategy',
+           'min_threshold': '100000',
+           'max_threshold': '100000' }
+          AND compression = {
+           'enabled': 'false'
+          }
+        # `min_threshold` / `max_threshold` set arbitrarily
+        # high (100000) so Cassandra's size-tier compactor
+        # never triggers spontaneous compaction during the
+        # benchmark — the test owns compaction timing
+        # explicitly via the `finalize_index` phase, which
+        # fires `forceKeyspaceCompaction` and polls
+        # `system_views.sstable_tasks` until idle. Without
+        # this, background compactions could run mid-rampup
+        # and shift the workload's measured throughput /
+        # recall metrics in non-reproducible ways.
+
+      create_vector_index:
+        # Every SAI vector-index build knob is emitted here. Values
+        # come from the workload's `params:` block (documented
+        # defaults) and may be shadowed by scenario-tree `set:`
+        # nodes for sweep workloads. Keeping the schema explicit
+        # (rather than relying on the vendor build's build-path defaults for
+        # alpha / neighborhood_overflow) makes runs reproducible
+        # across cluster versions — see SRD-72 §"Schema phase
+        # extension" and the per-knob comments in `params:`.
+        raw: |
+          CREATE CUSTOM INDEX IF NOT EXISTS {table}{vector_idx_suffix}
+          ON {keyspace}.{table} (value)
+          USING 'StorageAttachedIndex'
+          WITH OPTIONS = {
+            'similarity_function': '{similarity_function}',
+            'source_model': '{source_model}',
+            'maximum_node_connections': '{maximum_node_connections}',
+            'construction_beam_width': '{construction_beam_width}',
+            'enable_hierarchy': '{enable_hierarchy}',
+            'neighborhood_overflow': '{neighborhood_overflow}',
+            'alpha': '{alpha}'
+          }
+      create_metadata_index:
+        raw: |
+          CREATE CUSTOM INDEX IF NOT EXISTS {table}{meta_idx_suffix}
+          ON {keyspace}.{table} (metadata) USING 'StorageAttachedIndex'
+
+  # Anti-DDL: tear down in reverse order (indexes → table).
+  # Keyspace left intact (shared across tests).
+  #
+  # Per-statement timeout floor (SRD-73): teardown ops on heavily-
+  # populated SAI indexes routinely take tens of seconds, and the
+  # extreme corners (large source models with full row counts)
+  # can exceed the session-level default. Bind `request_timeout_ms`
+  # in this phase's scope at 5 minutes so every DROP statement
+  # under this teardown phase gets the long timeout. The CQL
+  # adapter's dispenser-initializer reads this from the Polydat scope
+  # via the universal-field lookup (no reaching around GK) and
+  # builds a per-statement modifier captured into the dispenser
+  # at map_op time. Hot path is unchanged.
+  # ── Cluster tuning ───────────────────────────────────────────
+  #
+  # Boost Cassandra's compaction parallelism + throughput at
+  # session start so the per-cell compactions kicked off by
+  # `finalize_index` aren't artificially
+  # throttled by the per-node defaults (typically
+  # `CompactionThroughputMbPerSec = 64` / `ConcurrentCompactors
+  # = 2`, sized for steady-state production not for the
+  # back-to-back compact-then-measure cycles a benchmark
+  # workload generates).
+  #
+  # MBean: org.apache.cassandra.db:type=StorageService
+  # Attributes written:
+  #   CompactionThroughputMbPerSec — `0` is the canonical
+  #     "no rate limit" sentinel in Cassandra; the
+  #     CompactionExecutor will use the disk as fast as it
+  #     can run.
+  #   ConcurrentCompactors — `10` raises the per-node
+  #     compaction-thread pool well above the steady-state
+  #     default so a freshly-rampup'd table's flush + major
+  #     compaction can proceed in parallel with the SAI
+  #     index rebuild.
+  #
+  # Both attributes are JMX-writable (verified via Jolokia
+  # `list` against StorageService/attr) and take effect for
+  # the lifetime of the node — there's no per-keyspace
+  # variant. The phase asserts `status == 200` on each
+  # response so a JMX failure (auth, MBean unavailable, type
+  # mismatch) surfaces as a phase error rather than being
+  # silently swallowed. Jolokia's write response shape is
+  # `{ value: <prior_value>, status: 200, ... }` — `value`
+  # is the OLD value of the attribute, not the new one. We
+  # don't assert anything about `value` because the prior
+  # number depends on cluster history.
+  tune_cluster:
+    adapter: http
+    concurrency: 1
+    cycles: 1
+    ops:
+      set_compaction_throughput:
+        adapter: http
+        uri: "http://{host}:8778/jolokia/"
+        method: POST
+        body: |
+          {"type":"write",
+           "mbean":"org.apache.cassandra.db:type=StorageService",
+           "attribute":"CompactionThroughputMbPerSec",
+           "value":0}
+        body-json:
+          type: write
+          mbean: "org.apache.cassandra.db:type=StorageService"
+          stuff: [
+            "sldkfjsdf",
+            "{23l4kj3}"
+          ]
+        request_timeout_ms: 10000
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        memo:
+          before: "tuning: CompactionThroughputMbPerSec → 0 (unlimited)"
+          after:  "tuned: CompactionThroughputMbPerSec → 0 (unlimited)"
+      set_concurrent_compactors:
+        adapter: http
+        uri: "http://{host}:8778/jolokia/"
+        method: POST
+        body: |
+          {"type":"write",
+           "mbean":"org.apache.cassandra.db:type=StorageService",
+           "attribute":"ConcurrentCompactors",
+           "value":10}
+        request_timeout_ms: 10000
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        memo:
+          before: "tuning: ConcurrentCompactors → 10"
+          after:  "tuned: ConcurrentCompactors → 10"
+
+  teardown:
+    concurrency: 1
+    status_metrics: [latency*]
+    bindings: |
+      const request_timeout_ms := 300000
+    ops:
+      drop_metadata_index:
+        raw: "DROP INDEX IF EXISTS {keyspace}.{table}{meta_idx_suffix}"
+      drop_vector_index:
+        raw: "DROP INDEX IF EXISTS {keyspace}.{table}{vector_idx_suffix}"
+      drop_table:
+        raw: "DROP TABLE IF EXISTS {keyspace}.{table}"
+
+  # ── Index finalization (one phase) ───────────────────────────
+  #
+  # Collapses the former `ensure_flushed` + `jolokia_compact` +
+  # `jolokia_await_compaction` (and the SRD-75 `ensure_compacted`)
+  # into a SINGLE phase that drives a write-data table to its
+  # steady-state, fully-compacted, on-disk form before the query
+  # phases measure recall. Applied to write-data scenarios only
+  # (`test_oracles`, `test_fknn`, and the sweep) — never to the
+  # query-only oracle scenario.
+  #
+  # A stanza runs every op once, in declaration order (cycles: 1),
+  # so the sequence is exactly:
+  #
+  #   flush          → roll memtables to disk (jolokia, synchronous)
+  #   read_sstables  → read LiveSSTableCount; capture `sstables`
+  #   trigger_compact→ DAEMON, `if: sstables > 1`; long-poll
+  #                    forceKeyspaceCompaction (holds the JMX socket
+  #                    for the whole compaction)
+  #   poll_progress  → CQL `system_views.sstable_tasks`, OP-LEVEL
+  #                    `poll: await_empty`; emits live progress
+  #                    gauges + memo until the table is idle
+  #
+  # Why op-level poll (not a phase-level `poll:`): a phase poll
+  # re-runs ALL ops every tick — it would re-fire `flush` and the
+  # compaction trigger on every iteration. An op-level poll loops
+  # ONLY `poll_progress`, so flush + read + trigger run exactly
+  # once each (the correct logical flow) while only the cheap CQL
+  # read repeats.
+  #
+  # `sstables` is the one cross-op wire (written by `read_sstables`,
+  # read by `trigger_compact`'s `if:`), so it is declared `shared`
+  # on the phase scope here; `read_sstables` references it (via its
+  # `table_live_sstables` metric) so its capture write attaches to
+  # the shared cell, and `trigger_compact`'s `if:` reads it back.
+  #
+  # Phase-level metric `time_to_index` = wall-clock duration of the
+  # whole phase (flush → compaction-complete), via the
+  # executor-injected `phase_start` origin (epoch millis). No
+  # dedicated clock node: `current_epoch_millis()` is a single
+  # volatile read and `phase_start` is plain injected data.
+  finalize_index:
+    # CQL is the phase default — `poll_progress` reads
+    # `system_views.sstable_tasks` over the native protocol. The
+    # jolokia ops (`flush`, `read_sstables`, `trigger_compact`)
+    # override to `adapter: http` per-op.
+    adapter: cql
+    concurrency: 1
+    cycles: 1
+    bindings: |
+      # Cross-op capture cell: `read_sstables` writes it, the
+      # `trigger_compact` daemon's `if:` reads it. Declared `shared`
+      # so the write-through propagates across ops on the phase
+      # scope (SRD-75 §"Captures are phase-scope shared wires").
+      shared sstables := 0
+      # Wall-clock read for the phase-duration metric. Declared
+      # `volatile` so (a) it re-reads the clock on each pull and
+      # (b) it explicitly acknowledges the non-deterministic node,
+      # keeping the phase kernel clean under `--strict`. The
+      # executor injects `phase_start` (epoch millis at phase start)
+      # on the completion-time metric pull.
+      volatile now_ms := current_epoch_millis()
+    metrics:
+      # Whole-phase wall-clock duration in millis.
+      time_to_index: { kind: gauge, value: "now_ms - phase_start" }
+    ops:
+      # 1. Flush memtables to disk (synchronous JMX exec). Until a
+      #    flush happens the SAI index lives only in the memtable,
+      #    so there is nothing on disk to compact.
+      flush:
+        adapter: http
+        uri: "http://{host}:8778/jolokia/"
+        method: POST
+        body: |
+          {"type":"exec",
+           "mbean":"org.apache.cassandra.db:type=StorageService",
+           "operation":"forceKeyspaceFlush(java.lang.String,[Ljava.lang.String;)",
+           "arguments":["{keyspace}",[]]}
+        # `forceKeyspaceFlush` blocks until every CFS has rolled its
+        # memtable; on a 1M-row table that can take 30-60s while SAI
+        # segments build. 10-minute budget covers it without masking
+        # a genuine hang.
+        request_timeout_ms: 600000
+        # Jolokia always returns HTTP 200; the JMX outcome is in the
+        # body's `status` field. Assert it so a JMX-side error fails
+        # the phase instead of being swallowed.
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        memo:
+          before: "flushing keyspace {keyspace}"
+          after:  "flushed keyspace {keyspace}"
+
+      # 2. Read the table's live SSTable count via the per-table
+      #    metric MBean. Captures `sstables` (gates the compaction)
+      #    and emits it as a gauge — the metric reference is also
+      #    what attaches the capture write to the shared cell.
+      read_sstables:
+        adapter: http
+        uri: "http://{host}:8778/jolokia/read/org.apache.cassandra.metrics:type=Table,keyspace={keyspace},scope={table},name=LiveSSTableCount/Value"
+        method: GET
+        request_timeout_ms: 10000
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        capture:
+          # Jolokia wraps the attribute value in `{value: N, status: 200}`.
+          sstables: "/value"
+        metrics:
+          table_live_sstables: { kind: gauge, value: sstables }
+        memo:
+          after: "{keyspace}.{table}: {sstables} live sstable(s) before compaction"
+
+      # 3. Trigger a major compaction — but only when there is more
+      #    than one SSTable to merge. Runs as a DAEMON: it dispatches
+      #    at this op-walk position (after read_sstables completes),
+      #    its `if: sstables > 1` reads the just-captured count, and
+      #    it holds the synchronous JMX call open for the entire
+      #    compaction (minutes to hours). The daemon stays in scope
+      #    of the phase so a genuine dispatch failure (connection
+      #    refused, Jolokia 5xx) bubbles up via daemon_errors_total +
+      #    stop_reason; it does not gate phase exit — `poll_progress`
+      #    does. NO `on_timeout: accept`: the socket is held for the
+      #    duration (the user wants the held call, not fire-and-cancel).
+      trigger_compact:
+        adapter: http
+        daemon: true
+        if: "sstables > 1"
+        uri: "http://{host}:8778/jolokia/"
+        method: POST
+        body: |
+          {"type":"exec",
+           "mbean":"org.apache.cassandra.db:type=StorageService",
+           "operation":"forceKeyspaceCompaction(boolean,java.lang.String,[Ljava.lang.String;)",
+           "arguments":[false,"{keyspace}",["{table}"]]}
+        # Held open for the whole compaction. `splitOutput=false`
+        # merges to a single SSTable.
+        request_timeout_ms: 3600000
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        memo:
+          before: "compacting {keyspace}.{table}"
+          after:  "compacted {keyspace}.{table}"
+
+      # 4. Poll compaction progress over the native protocol until
+      #    `system_views.sstable_tasks` reports no compaction task
+      #    for this table (`await_empty`). One row per active task;
+      #    the op-level poll loops ONLY this read. Emits live
+      #    completion / byte gauges + a per-iteration memo.
+      poll_progress:
+        adapter: cql
+        bindings: |
+          # Capture targets are external-write ports on this op's
+          # kernel: the `capture:` block writes them via ctx.wires,
+          # and the `metrics:` / `memo:` blocks read them in the same
+          # cycle. Declaring them here (rather than relying on a
+          # phase-level poll's shared-cell synthesis) keeps the
+          # progress wires same-op — finalize_index uses an op-level
+          # poll, so there is no phase-poll capture synthesis.
+          # `completion_ratio` is f64 (the DB reports a 0..1 ratio);
+          # the byte counters are u64.
+          extern active_compactions: u64 = 0
+          extern completion_ratio:   f64 = 0.0
+          extern progress:           u64 = 0
+          extern total:              u64 = 0
+        # extern versus const versus shared here?
+        raw: |
+          SELECT completion_ratio, progress, total
+            FROM system_views.sstable_tasks
+           WHERE keyspace_name = '{keyspace}'
+             AND table_name   = '{table}'
+             AND kind         = 'compaction'
+          ALLOW FILTERING
+        capture:
+          # `:count` reduces the result array to its length so the
+          # poll's emptiness check + the predicate compare to 0.
+          active_compactions: ":count"
+          completion_ratio:   "/0/completion_ratio"
+          progress:           "/0/progress"
+          total:              "/0/total"
+        poll:
+          mode: await_empty
+          interval_ms: 5000
+          timeout_ms: 14400000
+          max_error_retries: 5
+          metric_name: compaction_wait_time_s
+          # TODO: Timeout error handling behavior must be obvious and configurable for poll
+        memo:
+          after: "compacting {keyspace}.{table}: ratio {completion_ratio}, {progress}/{total} bytes ({active_compactions} task(s) in flight)"
+        metrics:
+          compaction_completion_ratio: { kind: gauge, value: completion_ratio }
+          compaction_progress_bytes:   { kind: gauge, value: progress }
+          compaction_total_bytes:      { kind: gauge, value: total }
+          compaction_pending_tasks:    { kind: gauge, value: active_compactions }
+        request_timeout_ms: 60000
+
+  rampup:
+    concurrency: "{concurrency}"
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      cursor row = range(0, vector_count(prebuffered))
+      id := format_u64(row, 10)
+      train_vector := vector_at(prebuffered, row)
+    ops:
+      insert:
+        max_batch_size: cql_server_batch_limit(cql_session(cql_session_key))
+        batchtype: unlogged
+        prepared: |
+          INSERT INTO {keyspace}.{table} 
+                 ( key,    value) 
+          VALUES ( '{id}', {train_vector})
+  # Filtered-KNN rampup: includes metadata column for predicate filtering.
+  #
+  # `errors: "count,retry"` — log a counter for each error class
+  # (no stop) and mark the op retryable so the executor reissues
+  # it. Bulk-insert workloads regularly trip transient cluster-
+  # side timeouts (`SERVER_WRITE_TIMEOUT` etc.) under sustained
+  # load; we want the rampup to ride through those instead of
+  # halting the phase the first time the cluster catches its
+  # breath. Same chain shape as `pvs_*_query` phases use further
+  # down, with `retry` added so failed inserts don't leave gaps
+  # in the loaded data that would later corrupt recall numbers.
+  fknn_rampup_data:
+    # SRD-106 prereq class: deterministic keyed inserts (same ids,
+    # same vectors) — idempotent upsert; skip-valid on re-attach
+    # while the provenance hash holds.
+    checkpoint: idempotent
+    concurrency: "{concurrency}"
+    errors: "count,retry"
+    status_metrics: [rows_inserted*, cycles*, latency*, errors*]
+    # Adaptive backpressure (SRD-83 Part 9): a saturated target
+    # converts overload into retry churn (green ok:% with a climbing
+    # att:% failure share and latencies made of backoff sleeps). The
+    # governor assumes the most fragile target: the offered
+    # concurrency SLOW-STARTS at the floor and doubles through clean
+    # windows toward the authored ceiling, backs off in proportion
+    # to the windowed attempt-failure severity, and probes
+    # additively under its congestion memory. Robust targets climb
+    # to full load in a few clean windows; fragile ones are never
+    # assaulted. The achieved rate is the target's honest capacity
+    # at the declared bound — not a retry storm artifact.
+    throttle: true
+    # Gap-free corpus is a recall precondition: retries absorb
+    # transients, so any write failure that still reaches the
+    # result level is a corpus gap — the load FAILS loudly rather
+    # than completing with counted errors.
+    stop_when:
+      - when: "to_f64(result_failure) > 0"
+        effect: fail
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      cursor row = range(0, vector_count(prebuffered))
+      id := format_u64(row, 10)
+      train_vector := vector_at(prebuffered, row)
+      meta := metadata_value_at(prebuffered, row)
+    ops:
+      insert:
+        max_batch_size: cql_server_batch_limit(cql_session(cql_session_key))
+        batchtype: unlogged
+        prepared: |
+          INSERT INTO {keyspace}.{table}
+          (  key,    value,          metadata) VALUES
+          (  '{id}', {train_vector}, {meta:*})
+
+  # ── Search (parameterized by {table}, {dataset}:{profile}, {k}) ────────────
+
+  ann_query:
+    concurrency: "{query_concurrency}"
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const base := query_count(prebuffered)
+      # Extending cursor: dispatch one full `base`-sized pass
+      # through the prebuffered query set, then keep extending
+      # by another `base` each time the cursor reaches its end
+      # — until min_query_ms of wall-clock time has elapsed
+      # since phase start. The policy stops at the next
+      # whole-pass boundary, so each phase always runs an
+      # integer number of complete passes (no partial sweep
+      # of the query set).
+      cursor q = until_elapsed(base, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % base)
+      ground_truth := neighbor_indices_at(prebuffered, q % base)
+      # Construction-time-folded per-query ANN options clause.
+      # `select_str` + `str_eq` evaluate once at scope-init using
+      # the workload-param-or-iter-var `rerank_mode` and the
+      # current `limit` iter-var; the result is baked into a
+      # `final` constant that the prepared-statement structural
+      # resolver inlines at op-template construction. `default` →
+      # empty clause; `pinned` → explicit `WITH ann_options` that
+      # pins `rerank_k` to LIMIT and disables pruning so the
+      # planner stays on approximate HNSW instead of switching to
+      # brute force (see `local/brute_force.md`).
+      const ann_opts := select_str(str_eq(rerank_mode, "pinned"),
+                                   "WITH ann_options = {{'rerank_k': '{limit}', 'use_pruning': 'false'}}",
+                                   "")
+
+    ops:
+      select_ann:
+        prepared: |
+          SELECT [key] FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector}
+          LIMIT {limit}
+          {ann_opts}
+        # `count` is the result-body row count (a magic extern in
+        # the closure-binding economy). Referencing it directly
+        # from `value:` is enough — the metrics use-site walker
+        # forces the `count` input slot to be allocated on the
+        # op-template kernel, and the metrics wrapper reads it via
+        # ctx.wires.get fresh on every cycle.
+        metrics:
+          rows_per_op:
+            kind: gauge
+            value: count
+        evaluations:
+          relevancy:
+            actual: key
+            # Bare wire-name — the evaluator reads `ground_truth`
+            # via ctx.wires.get with no string round-trip; the
+            # typed Value (VecI32 / VecF32 / Str) flows directly
+            # to the recall computation. Legacy `"{ground_truth}"`
+            # text-template form still works (braces are stripped
+            # at wrap-time) but the bare form is canonical.q
+            expected: ground_truth
+            # Bare wire-names — same one-shot wrap-time resolution
+            # as the legacy "{k}" / "{limit}" text-template form.
+            k: k
+            r: limit
+            functions:
+              - recall
+
+  pvs_metadata_query:
+    concurrency: "{query_concurrency}"
+    errors: count
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      # Extending cursor: keep dispatching `query_counts`-sized
+      # passes through the prebuffered query set until
+      # min_query_ms of wall-clock time has elapsed (≥ 30 s by
+      # default). Stops at the next whole-pass boundary so the
+      # phase always runs an integer number of complete sweeps.
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      predicate := predicate_value_at(prebuffered, q % query_counts)
+      # Construction-time-folded per-query ANN options. See the
+      # `ann_query` phase above for the rationale.
+      const ann_opts := select_str(str_eq(rerank_mode, "pinned"),
+                                   "WITH ann_options = {{'rerank_k': '{limit}', 'use_pruning': 'false'}}",
+                                   "")
+    ops:
+      select_ann:
+        # LIMIT {limit} (search depth) rather than LIMIT {k}
+        # (recall cutoff). With a server that *post-filters* SAI
+        # ANN+WHERE, the wider candidate set lets a larger
+        # fraction of true neighbours survive the metadata
+        # predicate; with a server that *pre-filters*, the LIMIT
+        # is irrelevant to recall and this match the standard
+        # "search depth ≥ k" recall-measurement convention. The
+        # relevancy below truncates back to k via `r=limit`.
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          WHERE metadata = {predicate}
+          LIMIT {limit}
+          {ann_opts}
+
+  pvs_query:
+    concurrency: "{query_concurrency}"
+    errors: count
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const query_counts := query_count(prebuffered)
+      # Extending cursor: keep dispatching `query_counts`-sized
+      # passes through the prebuffered query set until
+      # min_query_ms of wall-clock time has elapsed (≥ 30 s by
+      # default). Stops at the next whole-pass boundary so the
+      # phase always runs an integer number of complete sweeps.
+      cursor q = until_elapsed(query_counts, min_query_ms)
+      query_vector := query_vector_at(prebuffered, q % query_counts)
+      predicate := predicate_value_at(prebuffered, q % query_counts)
+      ground_truth := filtered_neighbor_indices_at(prebuffered, q % query_counts)
+      # Construction-time-folded per-query ANN options. See the
+      # `ann_query` phase above for the rationale.
+      const ann_opts := select_str(str_eq(rerank_mode, "pinned"),
+                                   "WITH ann_options = {{'rerank_k': '{limit}', 'use_pruning': 'false'}}",
+                                   "")
+
+    ops:
+      select_ann:
+        # LIMIT {limit} (search depth) rather than LIMIT {k}
+        # (recall cutoff). With a server that *post-filters* SAI
+        # ANN+WHERE, the wider candidate set lets a larger
+        # fraction of true neighbours survive the metadata
+        # predicate; with a server that *pre-filters*, the LIMIT
+        # is irrelevant to recall and this match the standard
+        # "search depth ≥ k" recall-measurement convention. The
+        # relevancy below truncates back to k via `r=limit`.
+        prepared: |
+          SELECT key,value FROM {keyspace}.{table}
+          WHERE metadata = {predicate}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {limit}
+          {ann_opts}
+        # Same direct-reference pattern as ann_query — no
+        # throw-away result-binding needed.
+        metrics:
+          rows_per_op:
+            kind: gauge
+            value: count
+        evaluations:
+          relevancy:
+            actual: key
+            # Bare wire-name — the evaluator reads `ground_truth`
+            # via ctx.wires.get with no string round-trip; the
+            # typed Value (VecI32 / VecF32 / Str) flows directly
+            # to the recall computation. Legacy `"{ground_truth}"`
+            # text-template form still works (braces are stripped
+            # at wrap-time) but the bare form is canonical.
+            expected: ground_truth
+            # Bare wire-names — same one-shot wrap-time resolution
+            # as the legacy "{k}" / "{limit}" text-template form.
+            k: k
+            r: limit
+            functions:
+              - recall
+
+
+

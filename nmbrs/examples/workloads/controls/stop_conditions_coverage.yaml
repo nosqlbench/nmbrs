@@ -1,0 +1,217 @@
+#!/usr/bin/env nmbrs
+# stop_conditions_coverage.yaml — Thematic coverage workload for
+# SRD-83 stop conditions across execution shell levels (SRD-82).
+#
+# A stop condition is a polydat `when:` predicate over the shell's
+# live runtime-state wires. Those wires are INJECTED by the executor
+# each evaluation tick — the activity drain loop re-snapshots
+# `cycles_total` / `error_count` / `error_rate` / `elapsed_ms` every ~5 ms
+# at the PHASE shell, and the walker re-snapshots `children_*` once per
+# finished phase at the WORKLOAD shell. So a threshold predicate trips
+# deterministically the moment the live (time-evolving) value crosses
+# it — there is no separate "inject a wire" step; the runtime state IS
+# the time-based injection.
+#
+# Each scenario isolates ONE time-evolving wire at ONE shell level:
+#
+#   phase_cycles_total    — PHASE shell, `cycles_total`     (climbs 1 per op)
+#   phase_elapsed_ms  — PHASE shell, `elapsed_ms`   (wall clock, ms)
+#   workload_children — WORKLOAD shell, `children_done` (1 per phase)
+#
+# Effect mapping (SRD-83 Part 5): a PHASE-level trip with the default
+# `fail` effect fails the phase (non-zero exit, reason on stderr); an
+# explicit `effect: stop` is a CLEAN early halt — the phase ends
+# Interrupted+Succeeded, keeps its partial result, emits its phase
+# `metrics:`, and the session exits zero (scenario
+# `phase_graceful_stop` below). The WORKLOAD-level trip halts the
+# remaining walk gracefully, so the session exits zero but the later
+# phase is never dispatched.
+#
+# Self-contained: runs on the default adapter with no extra params
+# (phases pace themselves via `rate:`). Run any scenario individually —
+# always under a sandbox --session-path; never from the project root,
+# which would write session state into ./sessions:
+#   nmbrs run workload=nmbrs/examples/workloads/stop_conditions_coverage.yaml \
+#            scenario=<name> --session-path /tmp/sc/session
+
+# ── WORKLOAD shell (SRD-82 outermost) ────────────────────────────
+# After two child phases COMPLETE, `children_done >= 2` trips and the
+# walker halts the remaining walk. This is declared at the workload
+# scope (`each: workload`), so it rides the workload root kernel. It is
+# inert for the single-phase phase-level scenarios below: those phases
+# FAIL (children_failed increments, children_done does not), so the
+# predicate never reaches 2.
+stop_when:
+  - when: "children_done >= 2"
+    each: workload
+
+# Root shared wire for the shared-wire-predicate scenario below: a
+# stop predicate may guard on `shared` cells from the scope cascade
+# (the windowed-backstop pattern — a daemon computes trailing-window
+# state into root cells, the loader's stop condition reads them), and
+# the phase's own matter never mentions the name.
+bindings: |
+  shared shared_trip_floor: f64 := 0.0
+
+scenarios:
+
+  # ── PHASE shell — cycles_total wire ──────────────────────────────
+  # cycles_total climbs one per finished op. `cycles_total > 25` trips at
+  # ~op 26; `cycles: 600` is far beyond that, so a run that reaches
+  # 600 ops is the regression signal (bounded ~2.4 s at 4 ms/op, so a
+  # broken predicate can't hang the suite).
+  phase_cycles_total:
+    - phase_op_trip
+
+  # ── PHASE shell — elapsed_ms wire (time-based) ───────────────
+  phase_elapsed_ms:
+    - phase_time_trip
+
+  # ── PHASE shell — graceful `effect: stop` (SRD-83 Part 5) ─────
+  # Same trip point as phase_cycles_total, but the declared effect is a
+  # clean halt: Interrupted+Succeeded, exit zero, phase metrics kept.
+  phase_graceful_stop:
+    - phase_graceful_trip
+
+  # ── PHASE shell — governance `timeout:` (SRD-83 C3 / GAP-12) ──
+  # The declarative timeout desugars to a synthesized, logged
+  # `elapsed_ms >` stop condition; expiry ends the phase
+  # Interrupted+Failed with reason class `timeout` (the protocol
+  # OUT-OF-RANGE disposition) and the session exits non-zero.
+  phase_timeout:
+    - phase_timeout_trip
+
+  # ── WORKLOAD shell — children_done wire ──────────────────────
+  # step_a + step_b complete (children_done → 2) → the workload
+  # condition trips → step_c is never dispatched.
+  workload_children:
+    - step_a
+    - step_b
+    - step_c
+
+  # ── PHASE shell — root `shared` wire in the predicate ─────────
+  # Regression 2026-08-06: a predicate mixing runtime-state wires with
+  # a root `shared` cell the phase matter never references failed to
+  # compile ("unknown wire") — and a failed compile is logged-and-
+  # swallowed, so the phase ran with NO stop conditions armed. The
+  # trip below only fires if the shared-wire reference COMPILES; a
+  # regression runs all 600 cycles to a clean exit, which
+  # `expect-fail` catches as a missing failure.
+  phase_shared_wire:
+    - phase_shared_wire_trip
+
+phases:
+
+  # `cycles_total > 25` over a 600-cycle phase. Each op echoes OP_TICK,
+  # so the count of OP_TICK lines in stdout is the cycles_total at stop.
+  # `rate: 250` (ops/sec) paces dispatch at ~4 ms/op with the generic
+  # activity rate limiter — adapter-agnostic, so this runs as-is on the
+  # default adapter (no `result-latency`, no `adapter=` needed). The
+  # pacing gives the drain loop's ~5 ms stop-condition checks time to
+  # observe cycles_total cross the threshold before the 600 cycles drain.
+  phase_op_trip:
+    cycles: 600
+    concurrency: 1
+    rate: 250
+    stop_when:
+      - when: "cycles_total > 25"
+    ops:
+      tick:
+        stmt: "OP_TICK"
+
+  # SRD-83 Part 5 — the same `cycles_total > 25` trip as phase_op_trip,
+  # with `effect: stop` declared: the condition is a BUDGET, not a
+  # breach. The phase ends Interrupted+Succeeded with its partial
+  # result standing, the phase-level metric below is emitted (a
+  # gracefully stopped phase is a valid measurement), and the session
+  # exits zero. The `[stop_condition: …] … stopping phase` line lands
+  # in the session log at Warn.
+  phase_graceful_trip:
+    cycles: 600
+    concurrency: 1
+    rate: 250
+    stop_when:
+      - when: "cycles_total > 25"
+        effect: stop
+    bindings: |
+      volatile now_ms := current_epoch_millis()
+    metrics:
+      graceful_phase_ms:
+        kind: gauge
+        value: "now_ms - phase_start"
+    ops:
+      tick:
+        stmt: "GRACEFUL_TICK"
+
+  # SRD-83 C3 — `timeout: "150ms"` is GOVERNANCE, not a budget: the
+  # bound expiring means the phase is disqualified (Interrupted+
+  # Failed, reason class `timeout`), unlike phase_graceful_trip's
+  # clean `effect: stop`. The 600-cycle extent at 250 ops/s would
+  # run ~2.4 s; the 150 ms timeout cuts it at ~37 ops.
+  phase_timeout_trip:
+    cycles: 600
+    concurrency: 1
+    rate: 250
+    timeout: "150ms"
+    ops:
+      tick:
+        stmt: "TIMEOUT_TICK"
+
+  # The windowed-backstop SHAPE, minimally: `shared_trip_floor` is the
+  # root shared cell (f64, 0.0 — so `<=` holds from the first cycle),
+  # `cycles_total` the injected runtime wire; the phase's own matter
+  # never names the cell. Trips at ~op 26 IF the shared reference
+  # compiled; the live-value semantics (a daemon's cell write seen
+  # between ticks) are pinned by the unit test
+  # `stop_condition_reads_root_shared_wire`.
+  phase_shared_wire_trip:
+    cycles: 600
+    concurrency: 1
+    rate: 250
+    stop_when:
+      - when: "(shared_trip_floor <= to_f64(cycles_total)) & (cycles_total > 25)"
+    ops:
+      tick:
+        stmt: "SHARED_TICK"
+
+  # `elapsed_ms > 150` — the phase wall clock, not an op count. At
+  # 250 ops/sec this trips around op ~37, but the trigger is TIME: a
+  # slower-paced phase would trip at fewer ops.
+  phase_time_trip:
+    cycles: 600
+    concurrency: 1
+    rate: 250
+    stop_when:
+      - when: "elapsed_ms > 150"
+    ops:
+      tick:
+        stmt: "TIME_TICK"
+
+  # Three quick always-succeeding phases for the workload-shell
+  # scenario. STEP_A / STEP_B print; STEP_C must not (skipped on the
+  # workload trip after step_b completes).
+  step_a:
+    cycles: 2
+    concurrency: 1
+    ops:
+      mark:
+        stmt: "STEP_A"
+  step_b:
+    cycles: 2
+    concurrency: 1
+    ops:
+      mark:
+        stmt: "STEP_B"
+  step_c:
+    cycles: 2
+    concurrency: 1
+    ops:
+      mark:
+        stmt: "STEP_C"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run scenario=phase_cycles_total
+#@ expect-fail stop condition tripped
+#@ case shared_wire
+#@   run scenario=phase_shared_wire
+#@   expect-fail stop condition tripped

@@ -462,7 +462,7 @@ pub fn verify_source(
         // A workload with no rules is not a failure in general — it is a
         // workload nobody asked to be checked. `nmbrs check <dir>` walks every
         // YAML it finds, and most of those (adapter workloads, operational
-        // ones like compaction_demo_derived) exist to be RUN against real
+        // ones like an incremental compaction sweep) exist to be RUN against real
         // infrastructure, not to self-verify; failing them made the walk's
         // result meaningless and trained people to ignore it.
         //
@@ -853,7 +853,7 @@ mod rules_required_tests {
         ));
         assert!(requires_verification_rules("examples/w.yaml"));
         assert!(requires_verification_rules(
-            "/repo/examples/modules/module_test.yaml"
+            "/repo/nmbrs/examples/modules/module_test.yaml"
         ));
     }
 
@@ -862,7 +862,7 @@ mod rules_required_tests {
     #[test]
     fn other_locations_do_not_require_rules() {
         assert!(!requires_verification_rules(
-            "/repo/adapters/cql/workloads/compaction_demo_derived.yaml"
+            "/repo/nmbrs/workloads/cql/incremental_sweep.yaml"
         ));
         assert!(!requires_verification_rules("/tmp/scratch.yaml"));
         assert!(!requires_verification_rules("some_catalog_name"));

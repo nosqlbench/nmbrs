@@ -944,7 +944,7 @@ pub fn registered_adapter_params() -> Vec<&'static str> {
 //
 // Some adapters (e.g. `cql`) are backed by more than one
 // internal driver implementation — for CQL these are `scylla`
-// (pure Rust) and `cassandra-cpp` (DataStax C++ driver via FFI).
+// (pure Rust) and `cassandra-cpp` (Apache Cassandra C++ driver via FFI).
 // The adapter is a single user-facing concept; the driver is an
 // internal implementation detail surfaced through a per-adapter
 // selector parameter (e.g. `cqldriver=scylla`).

@@ -1,0 +1,48 @@
+#!/usr/bin/env nmbrs
+# heatmap.yaml — 2D Perlin noise heatmap
+#
+# Generates a grid of 2D noise values and plots each row as a
+# separate line in the plotter. The vertical stacking creates
+# a heatmap-like visualization of spatial noise.
+#
+# Each output (row_0..row_9) is a slice through the noise field
+# at a different y-coordinate, with the x-axis driven by cycle.
+#
+# Usage:
+#   nmbrs run workload=nmbrs/examples/workloads/visual/heatmap.yaml
+#   nmbrs run workload=nmbrs/examples/workloads/visual/heatmap.yaml cycles=2000
+
+params:
+  adapter: plotter
+  cycles: "1000"
+
+bindings: |
+  input cycle: u64
+
+  // 10 horizontal slices through 2D Perlin noise
+  row_0 := perlin_2d(cycle, 0, 42, 0.02)
+  row_1 := perlin_2d(cycle, 100, 42, 0.02)
+  row_2 := perlin_2d(cycle, 200, 42, 0.02)
+  row_3 := perlin_2d(cycle, 300, 42, 0.02)
+  row_4 := perlin_2d(cycle, 400, 42, 0.02)
+  row_5 := perlin_2d(cycle, 500, 42, 0.02)
+  row_6 := perlin_2d(cycle, 600, 42, 0.02)
+  row_7 := perlin_2d(cycle, 700, 42, 0.02)
+  row_8 := perlin_2d(cycle, 800, 42, 0.02)
+  row_9 := perlin_2d(cycle, 900, 42, 0.02)
+
+ops:
+  sample:
+    row_0: "{row_0}"
+    row_1: "{row_1}"
+    row_2: "{row_2}"
+    row_3: "{row_3}"
+    row_4: "{row_4}"
+    row_5: "{row_5}"
+    row_6: "{row_6}"
+    row_7: "{row_7}"
+    row_8: "{row_8}"
+    row_9: "{row_9}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

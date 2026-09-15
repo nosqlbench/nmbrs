@@ -8,12 +8,12 @@ keywords = ["nosqlbench", "workload", "benchmark", "simulation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.1" }
-nmbrs-adapter-stdout = { path = "../stdout", version = "0.1.1" }
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.1" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.2" }
+nmbrs-adapter-stdout = { path = "../stdout", version = "0.1.2" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.2" }
 tokio = { version = "1", features = ["time", "sync"] }
 serde_json = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

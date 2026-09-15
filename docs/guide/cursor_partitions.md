@@ -117,7 +117,7 @@ bindings: |
 A slice smaller than the budget finishes the moment it's
 exhausted (no wrap-around, no idling); a slice bigger than the
 budget stops on time. See
-[`examples/workloads/cursors/timeboxed_partition_sweep.yaml`](../../examples/workloads/cursors/timeboxed_partition_sweep.yaml)
+[`nmbrs/examples/workloads/cursors/timeboxed_partition_sweep.yaml`](../../nmbrs/examples/workloads/cursors/timeboxed_partition_sweep.yaml)
 for a complete runnable demonstration.
 
 One rule: an open-extent cursor has no extent to resolve a spec
@@ -163,5 +163,5 @@ Workloads can also *reify* their own knobs — declare
 `warmup_cursor` / `steady_cursor` params and bind each phase's
 cursor `over <param>`; operators then override each
 independently without knowing phase names. The coverage workload
-(`examples/workloads/cursors/cursor_partitions_coverage.yaml`)
+(`nmbrs/examples/workloads/cursors/cursor_partitions_coverage.yaml`)
 demonstrates every shape in this guide, one scenario per shape.

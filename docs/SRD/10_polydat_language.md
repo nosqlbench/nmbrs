@@ -69,7 +69,7 @@ workload's side:
   cycle (e.g. `cycle`). Declared via `input ...: u64` and
   wired via `{input:name}`.
 - **Binding output**. A named Polydat expression compiled into the
-  kernel (e.g. `dim := vector_dim("glove-25-angular")`). Read
+  kernel (e.g. `dim := vector_dim("example")`). Read
   via `{bind:name}` or `{name}`.
 - **Context node**. A stdlib node that reaches into a stable
   runtime surface and returns its current reading — `metric(...)`

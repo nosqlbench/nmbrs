@@ -1,12 +1,11 @@
-[![Build Status](https://github.com/cassandra-rs/cassandra-rs/actions/workflows/build.yml/badge.svg)](https://github.com/cassandra-rs/cassandra-rs/actions)
-[![Current Version](https://img.shields.io/crates/v/cassandra-cpp.svg)](https://crates.io/crates/cassandra-cpp)
-[![License](https://img.shields.io/github/license/cassandra-rs/cassandra-rs.svg)](#License)
 
 # cassandra-cpp
 
 This is a maintained Rust project that
-exposes the DataStax cpp driver at https://github.com/datastax/cpp-driver/
-in a somewhat-sane crate.
+exposes the Apache Cassandra C++ driver at
+https://github.com/apache/cassandra-cpp-driver in a somewhat-sane crate.
+This copy is the nmbrs fork (`nmbrs-cassandra-cpp`), which adds server-side
+trace capture; see CHANGES.local.md.
 It was originally a fork of https://github.com/tupshin/cassandra-rs but that is no longer maintained.
 
 It is a wrapper around the raw driver binding crate [cassandra-cpp-sys](https://github.com/cassandra-rs/cassandra-sys-rs).

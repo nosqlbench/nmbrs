@@ -8,12 +8,12 @@ keywords = ["nosqlbench", "workload", "benchmark", "http"]
 categories = ["command-line-utilities", "web-programming::http-client"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.1", default-features = false }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.2", default-features = false }
 polydat = "0.3"
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.1" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.2" }
 reqwest = { version = "0.12", features = ["json"] }
 serde_json = "1"
 inventory = "0.3.24"

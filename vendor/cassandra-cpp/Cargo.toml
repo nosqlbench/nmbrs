@@ -1,30 +1,33 @@
 [package]
-description = "A Cassandra CQL driver, built on top of the DataStax C++ driver for performance and functionality."
-documentation = "https://docs.rs/cassandra-cpp"
-# no homepage yet
-repository = "https://github.com/cassandra-rs/cassandra-rs"
+description = "Rust wrapper over the Apache Cassandra C++ driver — the nmbrs fork of cassandra-cpp 3.0.2, adding server-side trace capture."
+documentation = "https://docs.rs/nmbrs-cassandra-cpp"
+repository = "https://github.com/nosqlbench/nmbrs"
 readme = "README.md"
 keywords = [ "Cassandra", "binding", "CQL", "client", "database" ]
 categories = [ "api-bindings", "database", "external-ffi-bindings", "asynchronous" ]
 license = "Apache-2.0"
-name = "cassandra-cpp"
+name = "nmbrs-cassandra-cpp"
 version = "3.0.2"
-authors = ["Keith Wansbrough <keithw@lochan.org>"]
+authors = ["Keith Wansbrough <keithw@lochan.org>", "Jonathan Shook <jshook@gmail.com>"]
 edition = "2018"
-# Vendored fork of upstream cassandra-cpp 3.0.2 with the
-# trace_id retrieval surface added (see CHANGES.local.md).
-# Must NEVER be published to crates.io: the name + version
-# collide with the real `cassandra-cpp` crate we don't own,
-# and forks belong in vendor/, not on the public index.
-publish = false
+# Fork of upstream cassandra-cpp 3.0.2 with the trace_id retrieval
+# surface added (see CHANGES.local.md). Published under its own name
+# so the `engine-cassandra-cpp` feature of nmbrs-adapter-cql can be
+# built from crates.io; dependents import it as `cassandra_cpp` via
+# `package = "nmbrs-cassandra-cpp"`, so the wrapper's API paths are
+# unchanged from upstream.
+exclude = [".floki/", "floki.yaml", "scripts/", "tests/", "examples/"]
 
-# This is a vendored fork tracked against the upstream DataStax
-# C++ driver wrapper (see CHANGES.local.md). Its body is kept close
-# to upstream so future re-syncs stay cheap, so upstream's clippy
-# debt is not ours to relitigate site-by-site. Silence clippy for
-# the whole package (lib + examples + tests) in one place rather
-# than churning ~240 lint fixes into a fork we rebase; our own
-# crates stay lint-gated.
+# The library keeps upstream's crate name so the fork stays a
+# drop-in for code written against `cassandra_cpp::…`.
+[lib]
+name = "cassandra_cpp"
+
+# The body is kept close to upstream so future re-syncs stay cheap,
+# so upstream's clippy debt is not ours to relitigate site-by-site.
+# Silence clippy for the whole package (lib + examples + tests) in
+# one place rather than churning ~240 lint fixes into a fork we
+# rebase; our own crates stay lint-gated.
 [lints.clippy]
 all = "allow"
 

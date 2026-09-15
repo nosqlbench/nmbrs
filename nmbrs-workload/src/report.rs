@@ -1864,7 +1864,7 @@ g: |
 g: |
   plot p1
     over limit
-    where dataset=glove
+    where dataset=example
     custom_directive=foo
 "#,
         );
@@ -2175,7 +2175,7 @@ g: |
             name: "full".to_string(),
             label: Some("Full".to_string()),
             as_stem: Some("plot_full".to_string()),
-            body: "over limit\nby profile\nwhere dataset=glove\nagg=mean".to_string(),
+            body: "over limit\nby profile\nwhere dataset=example\nagg=mean".to_string(),
             ..Default::default()
         };
         item.style.palette = Some("tol_muted".to_string());

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SRD-106 — the `phases=` filter's prereq exemption, over
-//! `examples/workloads/controls/prereq_filter_smoke.yaml`.
+//! `nmbrs/examples/workloads/controls/prereq_filter_smoke.yaml`.
 //!
 //! Two rules, one boundary:
 //! - a `checkpoint: idempotent` phase in a LIVE scope stays in the
@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/controls/prereq_filter_smoke.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/controls/prereq_filter_smoke.yaml";
 
 struct Sandbox {
     dir: PathBuf,

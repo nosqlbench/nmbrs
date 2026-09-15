@@ -1,0 +1,400 @@
+#!/usr/bin/env nmbrs
+# scope_coverage.yaml — Thematic coverage workload for the
+# scope-model / Polydat comprehension / modifier surface (SRD 13c /
+# 13d / 13f / 16 / 18b).
+#
+# Follows the `<theme>_coverage.yaml` pattern: one operator-
+# readable artifact carrying every supported shape on a given
+# axis, paired with a matching `nmbrs/tests/<theme>.rs` test
+# file (`scope.rs` for this one).
+#
+# Each scenario exercises a specific construct (or combination)
+# and emits a stable, line-prefixed message that the matching
+# Rust integration test asserts against. The line-prefix
+# convention is `cm/<scenario>/<sublabel> <key>=<value> [...]`.
+#
+# Scenarios are independent — running any one in isolation
+# produces the same lines for that scenario as running the
+# default (which chains them all).
+#
+# Run individually:
+#   nmbrs run workload=nmbrs/examples/workloads/scope_coverage.yaml \
+#            scenario=<one of the scenario names below>
+#
+# Constructs exercised:
+#
+#   - All four shared-cell scalar types with literal initial
+#     values, including edge values (0, 0.0, "", false).
+#   - `const X := <literal>` modifiers (compile-time constants
+#     that bind_outer_scope can copy without aliasing).
+#   - Mixed modifiers in one workload (final + shared + plain).
+#   - Shared cells consumed in a derived binding RHS
+#     (`mul(shared_value, 2)` etc.) — proves the cell value
+#     reaches downstream nodes through the standard wiring.
+#   - Shared cells consumed in op-template `{name}` placeholders.
+#   - Workload-scope shared values visible from a do-loop body's
+#     child phase (3-level chain: workload → do-loop → phase).
+#   - Workload-scope values visible from a single-clause
+#     for_each body (3-level chain: workload → for_each → phase).
+#   - Conditional ops via `if:` referencing a shared cell.
+#   - `delay:` field referencing a shared cell — the runtime
+#     resolves the per-cycle delay from the cell.
+#   - Workload params with explicit declarations and CLI
+#     override eligibility.
+#   - Single-cycle and multi-cycle phases.
+#
+# Constructs *not* exercised here (documented elsewhere or
+# explicitly not yet supported):
+#
+#   - Concurrent `for_each` with shared writes — last-write-wins
+#     baseline is documented in SRD-16 §"Concurrent semantics:
+#     last-write-wins" but no workload pattern can deterministically
+#     verify it without stochastic ordering. Kernel-level
+#     `shared_last_write_wins_under_concurrent_writers` covers it.
+#   - State-dependent do-loop termination (condition flips because
+#     children mutated a shared cell). Per-cycle propagation from
+#     a leaf phase's per-cycle kernel back to the loop scope's
+#     cell is not yet wired — see SRD-18b §"Open: per-cycle
+#     propagation" (deferred).
+#   - Cursor-based workloads (`cursor X = ...`) — exercised by
+#     the vectordata integration tests with real datasets.
+#   - Non-literal `shared` init — explicitly rejected at compile
+#     time; a kernel-level test (`shared_non_literal_init_rejected`)
+#     covers the error path.
+
+description: |
+  Coverage matrix for user-accessible workload patterns.
+  Each scenario emits stable line prefixes for round-trip
+  verification.
+
+params:
+  # Two params for two iteration shapes:
+  #   - `iter_list` is a comma-separated value list — `for_each`
+  #     parses each comma-separated element as one iteration value.
+  #   - `iter_count` is a numeric upper bound for `do_while`
+  #     comparison conditions.
+  iter_list: "0,1,2"
+  iter_count: "3"
+
+bindings: |
+  input cycle: u64
+
+  # ── const modifier ─────────────────────────────────────────
+  # Compile-time constant. Folded once, never mutated; outer
+  # scopes can hand it to inner scopes via bind_outer_scope.
+  const base_dim := 256
+
+  # ── shared cells: all four scalar types ────────────────────
+  # Each compiles to an input slot + passthrough output. The
+  # output is marked Shared so seed_shared_cells creates the
+  # SharedCell at construction.
+  shared count_zero := 0
+  shared count_big := 1000
+  shared rate_zero := 0.0
+  shared rate_pi := 3.14159
+  shared label_empty := ""
+  shared label_text := "matrix"
+  shared flag_on := true
+  shared flag_off := false
+
+  # ── derived binding consuming a shared cell value ──────────
+  # The cell is a slot+passthrough output, so downstream
+  # Polydat wiring reads it like any other value.
+  doubled_count := mul(count_big, 2)
+
+scenarios:
+  # ── shared types: u64, f64, String, bool — all values
+  # including edge cases (0, 0.0, "", false) ─────────────────
+  shared_types:
+    - emit_shared_types
+
+  # ── const modifier round-trips through op template ────────
+  const_modifier:
+    - emit_const
+
+  # ── derived binding consumes shared cell value ────────────
+  # Verifies the cell is wired to downstream nodes, not just
+  # surfaced as a metadata-tagged output.
+  derived_from_shared:
+    - emit_derived
+
+  # ── 3-level scope chain: workload → for_each → phase ──────
+  # The phase reads workload-level shared values via the
+  # bind_outer_scope chain. Inner kernel sees the cell because
+  # bind_outer_scope shares the Arc.
+  for_each_chain:
+    - for_each: "iter in {iter_list}"
+      phases:
+        - emit_in_for_each
+
+  # ── Nested for_each: inner spec references outer iter var ──
+  # The inner clause `inner in pre_{outer}` uses `{outer}` —
+  # the outer for_each's iter var. Each outer iteration sets
+  # `outer` on the live execution kernel; the inner dispatcher
+  # picks up that kernel via `effective_parent_kernel` so
+  # interpolation resolves `{outer}` to the current value.
+  # Without that fix the inner sees only the scope-tree
+  # canonical (default-valued), and `{outer}` is unresolved.
+  nested_for_each:
+    - for_each: "outer in a,b,c"
+      phases:
+        - for_each: "inner in pre_{outer}"
+          phases:
+            - emit_nested
+
+  # ── 3-level scope chain: workload → do_while → phase ──────
+  # Same chain shape, with do_while iterating a counter.
+  do_while_chain:
+    - do_while: "{i} < {iter_count}"
+      counter: i
+      phases:
+        - emit_in_do_while
+
+  # ── conditional op via `if:` reading a shared bool ────────
+  # When `flag_on` is true (its compile-time literal), the
+  # conditional op fires. When `flag_off` is true (also a
+  # literal), it doesn't matter — flag_off is *false*, so its
+  # gated op is suppressed. The output line count proves both
+  # branches resolve correctly.
+  conditional_op:
+    - emit_conditional
+
+  # ── multiple shared cells in op-template placeholders ─────
+  # Exercises that distinct cells coexist correctly — each
+  # gets its own slot, its own SharedCell, no cross-name
+  # interference.
+  multi_cell:
+    - emit_multi_cell
+
+  # ── chain combinator: phases run sequentially with
+  # workload-scope shared values stable across them ─────────
+  sequential_phases:
+    - emit_shared_types
+    - emit_multi_cell
+    - emit_const
+
+  # ── default: chain everything back-to-back so a single
+  # `nmbrs run workload=...` exercises the whole matrix ──────
+  default:
+    - emit_shared_types
+    - emit_const
+    - emit_derived
+    - for_each: "iter in {iter_list}"
+      phases:
+        - emit_in_for_each
+    - do_while: "{i} < {iter_count}"
+      counter: i
+      phases:
+        - emit_in_do_while
+    - emit_conditional
+    - emit_multi_cell
+
+phases:
+  # Emit one line per shared scalar type, with edge values
+  # (zero/empty/false) and non-edge values for each.
+  emit_shared_types:
+    cycles: 1
+    concurrency: 1
+    ops:
+      u64_zero:
+        stmt: "cm/shared_types kind=u64 sub=zero value={count_zero}"
+      u64_big:
+        stmt: "cm/shared_types kind=u64 sub=big value={count_big}"
+      f64_zero:
+        stmt: "cm/shared_types kind=f64 sub=zero value={rate_zero}"
+      f64_pi:
+        stmt: "cm/shared_types kind=f64 sub=pi value={rate_pi}"
+      str_empty:
+        stmt: "cm/shared_types kind=str sub=empty value=[{label_empty}]"
+      str_text:
+        stmt: "cm/shared_types kind=str sub=text value={label_text}"
+      bool_on:
+        stmt: "cm/shared_types kind=bool sub=on value={flag_on}"
+      bool_off:
+        stmt: "cm/shared_types kind=bool sub=off value={flag_off}"
+
+  # `const X := 256` — folded constant, visible like any other
+  # name through the standard scope chain.
+  emit_const:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/const base_dim={base_dim}"
+
+  # Derived binding `doubled_count := mul(count_big, 2)` —
+  # consumes a shared cell value through Polydat wiring; should be
+  # 2 × 1000 = 2000.
+  emit_derived:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/derived count_big={count_big} doubled={doubled_count}"
+
+  # Phase invoked from inside a for_each. Sees both the
+  # for_each iter var (`iter`) and workload-scope shared
+  # values, proving the bind_outer_scope chain reaches all
+  # the way through.
+  emit_in_for_each:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/for_each_chain iter={iter} count_big={count_big} label={label_text}"
+
+  # Same shape but inside a do_while body — runtime sets the
+  # counter on the loop kernel, child binds it.
+  emit_in_do_while:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/do_while_chain i={i} count_big={count_big} label={label_text}"
+
+  # `if:` on the op references a shared bool. When the bool
+  # is true the op fires; when false it's silent.
+  emit_conditional:
+    cycles: 1
+    concurrency: 1
+    ops:
+      gated_on:
+        if: flag_on
+        stmt: "cm/conditional gated=on result=fired"
+      gated_off:
+        if: flag_off
+        stmt: "cm/conditional gated=off result=fired"
+      always:
+        stmt: "cm/conditional gated=always result=fired"
+
+  # Multiple distinct shared cells emitted side-by-side. Each
+  # name resolves to its own value via the cell-aware lookup
+  # path; no cross-name interference.
+  emit_multi_cell:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/multi_cell zero={count_zero} big={count_big} pi={rate_pi} text={label_text} on={flag_on} off={flag_off}"
+
+  # Nested-for_each leaf phase. Reports both iter vars, proving
+  # the live-parent-kernel chain delivers the outer iter var
+  # to the inner spec evaluator.
+  emit_nested:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "cm/nested outer={outer} inner={inner}"
+
+# ════════════════════════════════════════════════════════════
+# DOCUMENTED-BUT-NOT-EXERCISED scenarios
+# ════════════════════════════════════════════════════════════
+#
+# The scenarios below describe constructs that ARE meant to be
+# user-accessible but are not yet wired or not yet
+# deterministically testable end-to-end. They're left as YAML
+# comments so the gap is visible in this file (rather than
+# silently absent from the matrix). The corresponding Rust
+# tests in `nmbrs/tests/workload_examples.rs` are also commented
+# out with the same rationale, so when these constructs land
+# the test + workload pair flips on together.
+#
+# Each entry below names the construct, the limitation, and
+# the SRD anchor where the deferral is documented.
+#
+# ────────────────────────────────────────────────────────────
+# (1) Concurrent for_each writing to a shared cell
+# ────────────────────────────────────────────────────────────
+# # concurrent_shared:
+# #   - for_each: "n in 1,2,3,4,5,6,7,8"
+# #     schedule: "*"           # parallel — all branches concurrent
+# #     phases:
+# #       - decrement_budget    # each branch decrements `count_big`
+# #
+# # Limitation: SRD-16 §"Concurrent semantics: last-write-wins"
+# # documents that the Mutex-based shim loses concurrent updates
+# # for atomic-counter use cases (two writers compute 999, both
+# # write 999, one decrement is lost). Until the templated
+# # patterns (`shared(atomic)`, `shared(sum)`, etc.) ship, the
+# # behavior is non-deterministic in count and not assertable
+# # by exact line counts. The kernel-level test
+# # `shared_last_write_wins_under_concurrent_writers` covers
+# # the underlying Mutex serialization at the API surface.
+#
+# ────────────────────────────────────────────────────────────
+# (2) State-dependent do-loop termination
+# ────────────────────────────────────────────────────────────
+# # state_driven_do_while:
+# #   - do_while: "{count_big} > 0"  # condition reads shared cell
+# #     phases:
+# #       - decrement_budget          # child mutates count_big
+# #
+# # Limitation: per-cycle propagation from a leaf phase's
+# # per-cycle kernel back to the loop scope's SharedCell isn't
+# # wired — children can READ the cell value through
+# # bind_outer_scope, but a per-cycle Polydat binding can't WRITE to
+# # it (there's no Polydat binding syntax that targets an outer
+# # shared cell, and `shared X := <literal>` only accepts
+# # literal initializers). The do-loop dispatcher writes the
+# # counter on the loop kernel each iteration, but child phases
+# # don't have a write-back path for non-counter shared values.
+# # Tracked in SRD-18b §"Open: per-cycle propagation"
+# # (deferred follow-on to the streaming dispatch).
+#
+# ────────────────────────────────────────────────────────────
+# (3) Cursor-based workload (===auto cycles)
+# ────────────────────────────────────────────────────────────
+# # cursor_driven:
+# #   - cursor_phase
+# # phases:
+# #   cursor_phase:
+# #     cycles: ===auto    # extent inferred from the cursor
+# #     ops:
+# #       …
+# #
+# # Limitation: cursors require a real source (typically a
+# # vectordata dataset) to provide extent. Demonstrating the
+# # general pattern in a synthetic workload would need a
+# # mock source registered with the cursor sugar, which the
+# # adapter-testkit doesn't currently provide. Vectordata
+# # integration tests cover this path with real datasets;
+# # see SRD-53 §"Cursors and extent inference".
+#
+# ────────────────────────────────────────────────────────────
+# (4) Tuple-target shared binding (compile-error path)
+# ────────────────────────────────────────────────────────────
+# # bindings: |
+# #   input cycle: u64
+# #   shared (a, b) := mixed_radix(cycle, 100, 0)
+# #
+# # Limitation: the compiler rejects tuple-target shared
+# # bindings ("shared binding must be single-target, not tuple
+# # unpack"). Verified by the kernel-level test
+# # `shared_non_literal_init_rejected` and the parser's
+# # error-path test. A workload-level error-case test would
+# # require asserting on stderr from a compile failure, which
+# # is fine in principle but doesn't add coverage beyond the
+# # kernel test — both target the same compiler check.
+#
+# ────────────────────────────────────────────────────────────
+# (5) `delay:` field reading a shared cell
+# ────────────────────────────────────────────────────────────
+# # phases:
+# #   delayed:
+# #     ops:
+# #       step:
+# #         delay: rate_pi    # per-cycle delay = the shared rate
+# #         stmt: "step {cycle}"
+# #
+# # Limitation: `delay:` accepts a binding name and resolves
+# # it per cycle. Should work mechanically — the cell is
+# # cell-aware, the delay resolver reads via lookup. Not
+# # included in this matrix because the determinism check
+# # (assert "delay was actually applied") would need timing
+# # measurement, not stdout grepping. Round-trip via stdout
+# # alone can't verify this construct.
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run scenario=shared_types
+#@ expect completed, 0 failed

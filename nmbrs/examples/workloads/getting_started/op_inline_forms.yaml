@@ -1,0 +1,120 @@
+# op_inline_forms.yaml — how the `op=` CLI shorthand is detected and de-sugared
+#
+# `nmbrs run op='<spec>' ...` synthesizes a one-or-more-op workload from
+# a single string. There is ONE detection rule, and no special cases for
+# `name := ...` vs `{...}` vs a bare expression:
+#
+#   The spec is compiled as a Polydat program. If it COMPILES, it is a
+#   Polydat op whose bound wires become the op's fields (every adapter
+#   consumes them — stdout prints the values, plotter plots them). If it
+#   does NOT compile, it is a text-template op: a string with `{ref}` and
+#   `{{expr}}` interpolation, split on top-level `;` into multiple ops.
+#
+# Field shape:
+#   - Polydat op   → one field per bound wire, each `name: "{name}"`.
+#   - Text op      → a single `stmt` string with the interpolations inlined.
+#
+# You can see the de-sugared wiring for any of these with `dryrun=wiring`:
+#   nmbrs run op='x := cos(to_f64(cycle))' cycles=1 dryrun=wiring
+#
+# ----------------------------------------------------------------------
+# FORM 1 — Polydat bindings block (compiles → Polydat op)
+# ----------------------------------------------------------------------
+#   nmbrs run op='t := to_f64(cycle)*0.06; x := cos(t); y := sin(t)' cycles=120
+#
+# De-sugars to:
+#   bindings: |
+#     input cycle: u64
+#     t := to_f64(cycle)*0.06
+#     x := cos(t)
+#     y := sin(t)
+#   ops:
+#     inline_0:
+#       t: "{t}"          # each bound wire becomes a field
+#       x: "{x}"
+#       y: "{y}"
+#
+# ----------------------------------------------------------------------
+# FORM 2 — bare Polydat expression (compiles → Polydat op)
+# ----------------------------------------------------------------------
+#   nmbrs run op='sin(to_f64(cycle))' cycles=80
+#
+# A bare trailing expression is given an `out :=` so the program has an
+# output. De-sugars to:
+#   bindings: |
+#     input cycle: u64
+#     out := sin(to_f64(cycle))
+#   ops:
+#     inline_0:
+#       out: "{out}"
+#
+# ----------------------------------------------------------------------
+# FORM 3 — text template with an inline expression (does NOT compile → text op)
+# ----------------------------------------------------------------------
+#   nmbrs run op='key={{hash(cycle)}}' cycles=5
+#
+# `key={{hash(cycle)}}` is not a Polydat program, so it stays a text op.
+# Each `{{expr}}` is lifted into a synthetic `__inline_N` wire and the
+# template keeps a `{__inline_N}` placeholder. De-sugars to:
+#   bindings: |
+#     input cycle: u64
+#     __inline_0 := hash(cycle)
+#   ops:
+#     inline_0:
+#       stmt: "key={__inline_0}"
+#
+# ----------------------------------------------------------------------
+# FORM 4 — string composite via references (does NOT compile → text op)
+# ----------------------------------------------------------------------
+#   nmbrs run op='id-{cycle}' cycles=5
+#
+# `{cycle}` is a reference (a wire name), resolved per cycle. The text op
+# is the composite string. De-sugars to:
+#   bindings: |
+#     input cycle: u64
+#   ops:
+#     inline_0:
+#       stmt: "id-{cycle}"     # → "id-0", "id-1", ...
+#
+# ----------------------------------------------------------------------
+# FORM 5 — multiple ops with ratio prefixes (text ops, `;`-separated)
+# ----------------------------------------------------------------------
+#   nmbrs run op='3:read {{cycle}}; 1:write {{mod(hash(cycle),1000)}}' cycles=8
+#
+# Top-level `;` separates ops; an `N:` prefix sets the op ratio. De-sugars to:
+#   bindings: |
+#     input cycle: u64
+#     __inline_0 := cycle
+#     __inline_1 := mod(hash(cycle),1000)
+#   ops:
+#     inline_0:
+#       ratio: 3
+#       stmt: "read {__inline_0}"
+#     inline_1:
+#       ratio: 1
+#       stmt: "write {__inline_1}"
+#
+# ======================================================================
+# Runnable body: the explicit YAML equivalent of FORM 1. Run it with:
+#   nmbrs run workload=nmbrs/examples/workloads/getting_started/op_inline_forms.yaml cycles=8 adapter=stdout
+# and compare to the one-liner:
+#   nmbrs run op='t := to_f64(cycle)*0.06; x := cos(t); y := sin(t)' cycles=8
+# Both produce the same per-cycle x / y fields.
+# ======================================================================
+
+bindings: |
+  input cycle: u64
+  t := to_f64(cycle) * 0.06
+  x := cos(t)
+  y := sin(t)
+
+ops:
+  # FORM 1 exposes every bound wire as a field — t (intermediate),
+  # x, and y. Drop `t:` here if you only want the x/y outputs.
+  point:
+    t: "{t}"
+    x: "{x}"
+    y: "{y}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

@@ -8,13 +8,13 @@ keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 futures = "0.3"
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }

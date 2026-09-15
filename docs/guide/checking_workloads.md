@@ -14,7 +14,7 @@ local files *and* catalog names — you can check.
 ```sh
 nmbrs check workload=my_workload.yaml      # one file
 nmbrs check examples/cursors/all_cursor/enumerate   # a bundled catalog name (runs by name)
-nmbrs check examples/workloads/            # a whole directory (run concurrently)
+nmbrs check nmbrs/examples/workloads/            # a whole directory (run concurrently)
 ```
 
 A workload declares its verification rules in **either** of two equivalent

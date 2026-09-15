@@ -10,8 +10,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.1" }
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.1" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.2" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.2" }
 polydat = "0.3"
 # Portable terminal-size + is-tty detection (Unix ioctl + Windows
 # console API behind one API), consistent with the rest of the

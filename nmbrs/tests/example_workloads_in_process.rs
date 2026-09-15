@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SRD-88 — **the** example-tree walker: every workload under
-//! `examples/workloads` verified as concurrent in-process executions
+//! `nmbrs/examples/workloads` verified as concurrent in-process executions
 //! sharing one session (≤10 at a time), via
 //! [`nmbrs_runtime::runner::run_executions`]. This is the CI gate for the
 //! bundled examples (it retired the subprocess-per-case walker). It
@@ -493,6 +493,7 @@ fn all_example_workloads_match_their_rules_in_process() {
             Err(_) => PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
+                .join("nmbrs")
                 .join("examples"),
         };
         assert!(examples.is_dir(), "examples dir missing at {examples:?}");

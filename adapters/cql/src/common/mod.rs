@@ -3,7 +3,7 @@
 
 //! Engine-agnostic CQL surface shared by every engine module.
 //!
-//! Each engine — `cassandra_cpp` (DataStax C++ driver), `scylla`
+//! Each engine — `cassandra_cpp` (Apache Cassandra C++ driver), `scylla`
 //! (pure-Rust driver), and any future addition — implements its
 //! own [`nmbrs_runtime::adapter::DriverAdapter`] but consumes this
 //! module for everything that isn't transport-specific:

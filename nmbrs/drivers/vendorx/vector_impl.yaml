@@ -1,0 +1,248 @@
+#!/usr/bin/env nmbrs
+# nmbrs/drivers/vendorx/vector_impl.yaml — the vendorx implementation of
+# vector_suite_blueprint (SRD-108 Part B module; SRD-109 web-only
+# client driver).
+#
+# Every op is a literal HTTP request — the op surface is exactly
+# the http module's (`method` / `uri` / `body` / `headers`), so
+# what goes on the wire is what the operator reads here. The auth
+# flow is the SRD-109 named pattern: `connect` logs in and
+# captures the session token into the shared `auth_token` wire;
+# every later op presents it in an `api-key` header.
+#
+#   nmbrs run driver=vendorx scenario=search_perf
+
+description: |
+  vendorx implementation of the vector_suite blueprint: literal
+  REST requests for the full suite — schema, loads, build-wait,
+  serial/sweep/filtered probes, capacity fill, streaming, churn —
+  with a login → token auth flow in the connect phase and
+  `result:` projection of neighbor keys for relevancy scoring.
+
+implements: vector_suite_blueprint
+
+params:
+  # ── Protocol endpoint + credentials (protocol matter; the
+  # driver manifest supplies defaults, the CLI overrides).
+  base_url: "http://localhost:8099"
+  api_key: "dev-key"
+
+# The session token, landed by the connect phase's capture and
+# read by every subsequent op's headers. Shared: one login serves
+# the whole session across phases and fibers.
+bindings: |
+  shared auth_token := "anonymous"
+
+phases:
+
+  connect:
+    ops:
+      establish:
+        method: POST
+        uri: "{base_url}/auth/login"
+        body: '{"api_key": "{api_key}"}'
+        capture:
+          auth_token: /token
+
+  teardown:
+    ops:
+      drop_metadata_index:
+        method: DELETE
+        uri: "{base_url}/collections/{table}/indexes/metadata"
+        headers: "api-key: {auth_token}"
+        # 404 on a fresh target is the idempotent no-op.
+        ok_status: "200-299,404"
+      drop_vector_index:
+        method: DELETE
+        uri: "{base_url}/collections/{table}/indexes/vector"
+        headers: "api-key: {auth_token}"
+        ok_status: "200-299,404"
+      drop_table:
+        method: DELETE
+        uri: "{base_url}/collections/{table}"
+        headers: "api-key: {auth_token}"
+        ok_status: "200-299,404"
+
+  schema:
+    ops:
+      create_keyspace:
+        # Namespaces are implicit in this REST dialect; assert
+        # service health instead so schema failures name the
+        # right leg.
+        method: GET
+        uri: "{base_url}/health"
+        headers: "api-key: {auth_token}"
+      create_table:
+        method: PUT
+        uri: "{base_url}/collections/{table}"
+        headers: "api-key: {auth_token}"
+        body: '{"dim": {dim}, "metadata_schema": {"metadata": "int"}}'
+      create_vector_index:
+        method: PUT
+        uri: "{base_url}/collections/{table}/indexes/vector"
+        headers: "api-key: {auth_token}"
+        body: '{"metric": "{similarity_function}"}'
+      create_metadata_index:
+        method: PUT
+        uri: "{base_url}/collections/{table}/indexes/metadata"
+        headers: "api-key: {auth_token}"
+        body: '{"field": "metadata"}'
+
+  load_train:
+    ops:
+      insert:
+        method: PUT
+        uri: "{base_url}/collections/{table}/points"
+        headers: "api-key: {auth_token}"
+        body: '{"points": [{"id": "{id}", "vector": {train_vector}}]}'
+
+  fknn_rampup_data:
+    ops:
+      insert:
+        # Same point-upsert leg plus the metadata field the
+        # filtered probes' predicates select on.
+        method: PUT
+        uri: "{base_url}/collections/{table}/points"
+        headers: "api-key: {auth_token}"
+        body: '{"points": [{"id": "{id}", "vector": {train_vector}, "metadata": {meta}}]}'
+
+  await_index:
+    ops:
+      pending_build_work:
+        # The blueprint's poll predicate reads the yielded
+        # `active_build_tasks` wire; this endpoint reports the
+        # store's outstanding build work.
+        method: GET
+        uri: "{base_url}/collections/{table}/index_status"
+        headers: "api-key: {auth_token}"
+        capture:
+          active_build_tasks: /pending
+
+  serial_probe:
+    ops:
+      select_ann:
+        # `results: keys` delivery — vendor JSON normalized by
+        # projection: `result[*].id` collects the neighbor ids
+        # into the typed `keys` wire the blueprint's relevancy
+        # scoring reads.
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  sweep_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  filtered_probe:
+    ops:
+      select_ann_filtered:
+        # Predicate-filtered search: the metadata equality filter
+        # rides in the request body beside the vector.
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}, "filter": {"metadata": {predicate}}}'
+        result:
+          keys: result[*].id
+
+  fill_until_refusal:
+    ops:
+      ins:
+        # Capacity fill: the same point-upsert leg; the first
+        # refusal (a failing status) is the blueprint's SUCCESSFUL
+        # terminator.
+        method: PUT
+        uri: "{base_url}/collections/{table}/points"
+        headers: "api-key: {auth_token}"
+        body: '{"points": [{"id": "{id}", "vector": {train_vector}}]}'
+
+  stream_ingest:
+    ops:
+      insert:
+        method: PUT
+        uri: "{base_url}/collections/{table}/points"
+        headers: "api-key: {auth_token}"
+        body: '{"points": [{"id": "{id}", "vector": {train_vector}}]}'
+
+  stream_gate:
+    ops:
+      tick:
+        # Cheap liveness read — the gate's hold logic reads the
+        # ingest daemon's metrics, not this op's result.
+        method: GET
+        uri: "{base_url}/health"
+        headers: "api-key: {auth_token}"
+
+  stream_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  stream_gate_full:
+    ops:
+      tick:
+        method: GET
+        uri: "{base_url}/health"
+        headers: "api-key: {auth_token}"
+
+  cold_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  warm_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  churn_write:
+    ops:
+      upsert:
+        method: PUT
+        uri: "{base_url}/collections/{table}/points"
+        headers: "api-key: {auth_token}"
+        body: '{"points": [{"id": "{id}", "vector": {train_vector}}]}'
+
+  churn_delete:
+    ops:
+      delete:
+        method: DELETE
+        uri: "{base_url}/collections/{table}/points/{id}"
+        headers: "api-key: {auth_token}"
+        # 404 for an id inside the rotating delete window that was
+        # already deleted is the idempotent no-op.
+        ok_status: "200-299,404"
+
+  churn_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id

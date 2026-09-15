@@ -1,6 +1,0 @@
-cycle,date,start_state,jvector_branch,jvector_commit,cassandra_branch,cassandra_commit,sourcePretouchMaxNodes,sourcePretouchWindowNodes,frontierPrefetch,crossSourceSeedPrefetch,batchPrefetchDensity,adviseRandom,prefetch_hooks_reach_device,duration,outcome
-0,2026-08-21/22,populated,xlink-integration,n/a,compaction-integration-referencepoint,n/a,n/a,n/a,3,on,8,true,no,~24h,collapsed 39-46 b/min
-1,2026-08-23,populated,experiment/compaction-io-prefetch-20260823,55a262a7,compaction-integration-referencepoint,7b35421f24,0 (off),1048576,3,on,8,true,no,9h25m,collapsed 39-44 b/min
-2,2026-08-23,empty,experiment/compaction-io-prefetch-20260823,55a262a7,compaction-integration-referencepoint,7b35421f24,-1,1048576,3,on,8,true,NO (silent no-op),3h46m,stopped healthy at 385 GB
-3,2026-08-23/24,empty,experiment/compaction-io-prefetch-20260823,55a262a7,experiment/sai-vector-reader-prefetch-20260823,80064aa109,-1,1048576,3,on,8,true,yes,9h31m,collapsed 60-74 b/min
-4,2026-08-24,empty,experiment/compaction-io-prefetch-20260823,55a262a7,experiment/sai-vector-reader-prefetch-20260823,80064aa109,-1,1048576,32,on,8,true,yes,in progress,pending

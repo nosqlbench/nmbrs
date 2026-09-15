@@ -8,7 +8,7 @@
 //! initializer time and applies it via the engine's per-statement
 //! setter at execute time.
 //!
-//! A **batch is a statement too**: the DataStax C++ driver splits the
+//! A **batch is a statement too**: the Cassandra C++ driver splits the
 //! executable-op surface into distinct `CassStatement` / `CassBatch` C
 //! types with parallel setters, but both carry the same execution aspects
 //! (consistency, serial consistency, request timeout, tracing). So the

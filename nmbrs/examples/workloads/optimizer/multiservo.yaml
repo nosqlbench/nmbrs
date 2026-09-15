@@ -1,0 +1,97 @@
+# optimizer_multiservo.yaml — SRD-86 §4: servoing MULTIPLE controls in one phase
+#
+# optimizer_control servos ONE control (concurrency). This workload servos TWO —
+# `concurrency` AND `rate` — across ONE continuous phase. The search space is the
+# 2-D grid (concurrency × rate); at each point the daemon retargets BOTH live
+# controls (SRD-23, no restart), settles the windowed objective, then steps.
+# Both axes use the DIRECT form (the axis name IS the control) — which is also
+# the only way to servo `rate`, whose f64 field can't carry a `{var}`.
+#
+# Backend: 2 servers, queue depth 4. Concurrency caps in-flight ops, so dropping
+# concurrency to 2 (≤ depth 4) eliminates overloads on its own — the daemon lands
+# on a concurrency-2 corner (score = 0). Both controls are still retargeted at
+# every one of the 4 grid points; the point here is the multi-control servo
+# mechanism (two live controls moved together), not a rate/concurrency trade-off.
+#
+# Runs standalone:
+#   nmbrs run workload=nmbrs/examples/workloads/optimizer_multiservo.yaml \
+#       --session-path /tmp/opt-multiservo
+
+description: |
+  SRD-86 multi-control servoing: one continuous phase, the daemon live-retargets
+  BOTH `concurrency` and `rate` across the 2-D search grid, settling a windowed
+  MetricsQL objective at each point — finding the (concurrency, rate) corner that
+  eliminates backend overloads without ever rerunning the phase.
+
+# Sub-second metrics cadence: the SRD-86 settle detector samples the windowed
+# objective on the finest cadence pulse, so a 50ms cadence (vs the 1s default)
+# settles each grid point in a fraction of the wall-clock. Paired with the short
+# rate() window below — both scale down together, leaving the SIGNAL unchanged.
+params:
+  metrics_cadence: 50ms
+
+phases:
+  saturate:
+    # ONE continuous phase, sized so the daemon (≈ one settle window per grid
+    # point) finishes and stops it early; if it runs out first, it uses the best
+    # setting found so far.
+    cycles: 30000
+    # Warmup settings — the daemon retargets both live controls from here.
+    # `rate:` also DECLARES the rate control (it exists only when the field is
+    # set), so naming `rate` in `servo:` has a control to drive.
+    concurrency: 8
+    # Warmup rate (a control declaration). Scaled down 4× with the searched
+    # rates and the 4×-higher backend latency below, so every `rate×latency`
+    # product — i.e. the in-flight saturation each corner reaches — is
+    # unchanged; only the op throughput drops 4× (less load-sensitive).
+    rate: 500
+    # Overloads are the objective SIGNAL, not failures — warn, and never stop on
+    # the error rate (a Control-class phase deliberately dwells at saturating
+    # settings while the daemon explores).
+    errors: warn
+    error_rate_max: 1.0
+    # 2-D control search: concurrency × rate, both named directly after their
+    # live controls.
+    for_each: "concurrency in 32, 2, rate in 1000, 250"
+    optimize:
+      objective: score
+      max_evals: 10
+      # Servo BOTH controls live (list form) — each is retargeted per setting.
+      servo: [concurrency, rate]
+    bindings: |
+      input cycle: u64
+      # SYNTHETIC saturation signal (SRD-89): the LIVE per-execution concurrency
+      # setting. `control_u64` is volatile and resolves off THIS execution's own
+      # phase control, so `load` tracks the servo's concurrency retarget (32 at
+      # the warmup point, 2 once it steps down). Concurrency is the deciding axis
+      # (see the header note); the servo still retargets BOTH controls per point.
+      load := control_u64("concurrency")
+      # Windowed Overload error FRACTION (errors over OPS, not over time):
+      #   sum(rate(errors[W])) / sum(rate(cycles[W])) = Δerrors / Δcycles.
+      # The ratio cancels the op throughput, so the signal is the SYNTHETIC,
+      # load-independent per-op error fraction (1.0 at a saturating concurrency,
+      # 0.0 at a safe one). This is what makes the `rate` axis ORTHOGONAL to the
+      # objective: changing the op-rate cap moves throughput but NOT errors-per-op,
+      # so the optimizer servos `concurrency` to 2 at any `rate`. (errors-per-
+      # SECOND would couple them, since it scales with the op rate.)
+      err_frac := metricsql_scalar("sum(rate(errors_total[400ms])) / sum(rate(cycles_total[400ms]))")
+      # Maximize -err_frac: the lowest-concurrency corner (smallest error fraction).
+      score := 0 - err_frac
+    ops:
+      insert:
+        adapter: testkit
+        stmt: "INSERT INTO demo.events (id) VALUES ({cycle});"
+        # SYNTHETIC saturation (SRD-86 §6 / SRD-89): overload is a deterministic
+        # function of the live concurrency SETTING, not host timing — the op
+        # reports `result-load = {load}` and the backend rejects with Overload
+        # when load > result-overload. So the conc=32 grid points overload and
+        # the conc=2 points don't, identically serial or under concurrent CPU
+        # pressure — what makes the in-process walker deterministic.
+        result-load: "{load}"
+        result-overload: 4
+        # Pacing only — each served op takes 20ms so cycles span the 400ms settle
+        # window. (No `result-capacity`: overload is synthetic.)
+        result-latency: "20ms"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect \(control\): best \[2,

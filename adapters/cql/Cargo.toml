@@ -3,12 +3,12 @@ name = "nmbrs-adapter-cql"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CQL adapter for nmbrs — multi-engine: pure-Rust scylla driver (default), DataStax Cassandra C++ driver (opt-in)"
+description = "CQL adapter for nmbrs — multi-engine: pure-Rust scylla driver (default), Apache Cassandra C++ driver (opt-in)"
 keywords = ["nosqlbench", "cassandra", "cql", "scylla", "benchmark"]
 categories = ["command-line-utilities", "database"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [features]
 # Default: pure-Rust scylla driver. No C++ toolchain. Speaks the
@@ -21,7 +21,7 @@ default = ["engine-scylla"]
 # target: "scylla", default_rank: 200 }`.
 engine-scylla = ["dep:scylla", "dep:uuid"]
 
-# DataStax Cassandra C++ driver via FFI. Requires libcassandra +
+# Apache Cassandra C++ driver via FFI. Requires libcassandra +
 # libuv + openssl on the host. Registers `adapter=cassandra-cpp`
 # and `adapter=cassandra` in inventory; contributes the alias
 # entry with `default_rank: 100` so it wins over scylla when
@@ -35,14 +35,14 @@ engine-cassandra-cpp = ["dep:cassandra-cpp", "dep:cassandra-cpp-sys", "dep:uuid"
 all-engines = ["engine-scylla", "engine-cassandra-cpp"]
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.1", default-features = false }
-nmbrs-metrics = { path = "../../nmbrs-metrics", version = "0.1.1" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.1.2", default-features = false }
+nmbrs-metrics = { path = "../../nmbrs-metrics", version = "0.1.2" }
 polydat = "0.3"
 # IEEE 754 half-precision floats — used by the cassandra-cpp
 # CUSTOM (vector) binder's `Float16Type` / `HalfFloatType` path
 # so a `Value::VecF16` slice binds natively without widening.
 half = "2"
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.1" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.1.2" }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "rt"] }
 inventory = "0.3"
@@ -66,5 +66,5 @@ uuid = { version = "1", optional = true }
 # public surface), and trace_id is required for any meaningful
 # server-side trace capture. The fork at vendor/cassandra-cpp
 # adds the small surface — see vendor/cassandra-cpp/CHANGES.local.md.
-cassandra-cpp = { path = "../../vendor/cassandra-cpp", optional = true }
+cassandra-cpp = { package = "nmbrs-cassandra-cpp", version = "3.0.2", path = "../../vendor/cassandra-cpp", optional = true }
 cassandra-cpp-sys = { version = "1.1", optional = true }

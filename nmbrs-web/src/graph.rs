@@ -481,7 +481,36 @@ pub fn plot_graph(req: PlotRequest) -> PlotResult {
                 .collect();
 
             let step = req.cycle_step.max(1);
-            let mut cycles = Vec::new();
+            // The range is caller-controlled: bound the sample count
+            // before allocating or looping, and refuse an inverted
+            // range, so one request can never drive the process out of
+            // memory or into an unbounded evaluation loop.
+            const MAX_SAMPLES: u64 = 100_000;
+            let samples = match req.cycle_end.checked_sub(req.cycle_start) {
+                Some(span) => span / step + 1,
+                None => {
+                    return PlotResult {
+                        error: Some(format!(
+                            "cycle_end ({}) is below cycle_start ({})",
+                            req.cycle_end, req.cycle_start
+                        )),
+                        cycles: vec![],
+                        series: HashMap::new(),
+                        output_names,
+                    };
+                }
+            };
+            if samples > MAX_SAMPLES {
+                return PlotResult {
+                    error: Some(format!(
+                        "range spans {samples} samples at step {step}; the plot limit is {MAX_SAMPLES} — narrow the range or raise cycle_step"
+                    )),
+                    cycles: vec![],
+                    series: HashMap::new(),
+                    output_names,
+                };
+            }
+            let mut cycles = Vec::with_capacity(samples as usize);
             let mut series: HashMap<String, Vec<f64>> = HashMap::new();
             for name in &output_names {
                 series.insert(name.clone(), Vec::new());
@@ -507,7 +536,10 @@ pub fn plot_graph(req: PlotRequest) -> PlotResult {
                     };
                     series.get_mut(name).unwrap().push(f);
                 }
-                c += step;
+                match c.checked_add(step) {
+                    Some(next) => c = next,
+                    None => break,
+                }
             }
 
             PlotResult {

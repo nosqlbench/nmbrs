@@ -1,0 +1,128 @@
+#!/usr/bin/env nmbrs
+# shared_cells.yaml — End-to-end demonstration of `shared`
+# input-slot semantics (SRD-16 §"Mutability Rules: Shared Mutable").
+#
+# What this exercises:
+#
+#   - `shared X := <literal>` declarations across all four
+#     supported scalar types (u64, f64, String, bool).
+#   - The compiler's slot+passthrough emission (the `shared` cell
+#     becomes a real input slot, visible to op-template
+#     interpolation and binding-RHS references).
+#   - `lookup` is cell-aware: op templates resolve `{name}`
+#     against the kernel via the same path that would see
+#     cross-kernel writes propagate through the cell.
+#   - Do-loop counter dispatch: the runtime sets the counter on
+#     the loop kernel each iteration; children bind it through
+#     standard scope chain.
+#
+# The test's round-trip check is line-oriented: each scenario
+# emits one stdout line per cycle in a stable, easily-grepped
+# format. The test reads stdout as text and verifies presence /
+# absence of specific lines.
+#
+# Run individually:
+#   nmbrs run workload=nmbrs/examples/workloads/shared_cells.yaml scenario=basic
+#   nmbrs run workload=nmbrs/examples/workloads/shared_cells.yaml scenario=loop
+#   nmbrs run workload=nmbrs/examples/workloads/shared_cells.yaml scenario=mixed_types
+#
+# The default scenario runs all three.
+
+description: |
+  Demonstrates `shared X := <literal>` end-to-end through
+  stdout — verifies that shared-cell-backed slots are visible
+  in op templates and survive across iterations.
+
+params:
+  iterations: "3"
+
+bindings: |
+  input cycle: u64
+
+  # All four supported scalar types as shared cells. Each
+  # compiles to an input slot with the literal as initial
+  # value, plus a passthrough output, with the output marked
+  # `Shared` so downstream `bind_outer_scope` can wire the
+  # SharedCell.
+  shared budget_u64 := 100
+  shared rate_f64 := 0.5
+  shared label_str := "alpha"
+  shared enabled_bool := true
+
+  # A regular (non-shared) binding that consumes a shared
+  # value — its output is the read-time value of the cell.
+  # Demonstrates that shared cells participate in normal GK
+  # wiring.
+  scaled := mul(budget_u64, 2)
+
+scenarios:
+  # ───────────────────────────────────────────────────────────
+  # basic: shared values visible in op templates
+  # ───────────────────────────────────────────────────────────
+  # One phase, three cycles. Each cycle's stdout line shows
+  # all four shared values plus the derived `scaled`. The
+  # values stay constant (no writers), so every line is
+  # identical except for {cycle}.
+  basic:
+    - emit_shared
+
+  # ───────────────────────────────────────────────────────────
+  # loop: do-loop counter visible to children via shared chain
+  # ───────────────────────────────────────────────────────────
+  # The do-loop runs while `{i} < {iterations}` (defaults to 3).
+  # The runtime writes `i` per iteration on the loop kernel;
+  # the child phase reads `i` through the standard scope chain
+  # (cell-aware lookup). Output: three lines with i=0, i=1, i=2.
+  loop:
+    - do_while: "{i} < {iterations}"
+      counter: i
+      phases:
+        - emit_iter
+
+  # ───────────────────────────────────────────────────────────
+  # mixed_types: prove the four type variants round-trip
+  # ───────────────────────────────────────────────────────────
+  # Single cycle. Each shared type is emitted with a
+  # type-tagged label so the test can grep specific lines.
+  mixed_types:
+    - emit_typed
+
+  # Default: run all three for a full smoke test.
+  default:
+    - emit_shared
+    - do_while: "{i} < {iterations}"
+      counter: i
+      phases:
+        - emit_iter
+    - emit_typed
+
+phases:
+  emit_shared:
+    cycles: 3
+    concurrency: 1
+    ops:
+      line:
+        stmt: "shared/basic cycle={cycle} budget={budget_u64} rate={rate_f64} label={label_str} enabled={enabled_bool} scaled={scaled}"
+
+  emit_iter:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "shared/loop iter={i} budget={budget_u64}"
+
+  emit_typed:
+    cycles: 1
+    concurrency: 1
+    ops:
+      u64_line:
+        stmt: "shared/typed kind=u64 value={budget_u64}"
+      f64_line:
+        stmt: "shared/typed kind=f64 value={rate_f64}"
+      str_line:
+        stmt: "shared/typed kind=str value={label_str}"
+      bool_line:
+        stmt: "shared/typed kind=bool value={enabled_bool}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

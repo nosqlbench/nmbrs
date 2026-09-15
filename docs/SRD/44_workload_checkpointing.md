@@ -155,7 +155,7 @@ directly):
    every installed ancestor kernel, from the immediate parent
    scope up through the workload root AND the session-level
    workload-params module. Param VALUES are const slots on the
-   params module's program, so `dataset=sift1m` vs.
+   params module's program, so `dataset=example` vs.
    `dataset=sift10m` produce different chains even when every
    YAML byte is identical. Upstream binding edits land in the
    root / intermediate-scope programs the same way.

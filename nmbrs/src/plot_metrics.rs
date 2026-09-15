@@ -52,7 +52,9 @@ use plotters::prelude::*;
 /// backend would otherwise need fontconfig to find a system
 /// font, and bare-metal containers / sandboxed builds often
 /// don't ship one. DejaVu Sans is permissively licensed (a
-/// derivative of Bitstream Vera; redistribution permitted).
+/// derivative of Bitstream Vera; redistribution permitted) —
+/// the license text ships beside the font as
+/// `DejaVuSans-LICENSE.txt`.
 const DEJAVU_SANS: &[u8] = include_bytes!("DejaVuSans.ttf");
 
 /// Flags that take a value as the next arg. Used by

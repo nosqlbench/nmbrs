@@ -113,7 +113,7 @@ pub struct Directive {
 /// emitter uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum YamlForm {
-    /// `over cycle`, `by profile`, `where dataset=glove`,
+    /// `over cycle`, `by profile`, `where dataset=example`,
     /// `label "Demo"`, `as plot_demo`.
     Whitespace,
     /// `palette=wong`, `agg=mean`, `width=4`, `xscale=log`.

@@ -3,7 +3,7 @@
 
 //! SRD-46 unified `report:` block coverage tests.
 //!
-//! Each test runs `examples/workloads/metrics/reports_coverage.yaml`
+//! Each test runs `nmbrs/examples/workloads/metrics/reports_coverage.yaml`
 //! through the two-step report pipeline:
 //!
 //!   1. `nmbrs run`       — populates metrics.db + standalone
@@ -30,7 +30,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/metrics/reports_coverage.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/metrics/reports_coverage.yaml";
 
 struct SessionDir {
     path: PathBuf,

@@ -5,7 +5,7 @@
 //!
 //! The `cql` adapter is the single user-facing CQL adapter.
 //! Internally it has multiple driver implementations
-//! (`scylla` — pure Rust; `cassandra-cpp` — DataStax C++ via
+//! (`scylla` — pure Rust; `cassandra-cpp` — Apache Cassandra C++ via
 //! FFI), each registered as a [`DriverImpl`]
 //! (nmbrs_runtime::adapter::DriverImpl) under
 //! `adapter = "cql"`. Driver names are *internal* — they're

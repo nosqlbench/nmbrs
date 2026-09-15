@@ -32,7 +32,7 @@ toolchains.
 | Feature | Default | Adds |
 |---------|---------|------|
 | `engine-scylla` | yes | Pure-Rust ScyllaDB driver. `cqldriver=scylla`. |
-| `engine-cassandra-cpp` | no | DataStax Cassandra C++ driver. `cqldriver=cassandra-cpp`. Requires `libcassandra` + libuv + openssl on the host or via `adapters/cql/build.sh`. |
+| `engine-cassandra-cpp` | no | Apache Cassandra C++ driver. `cqldriver=cassandra-cpp`. Requires `libcassandra` + libuv + openssl on the host or via `adapters/cql/build.sh`. |
 | `all-engines` | no | Both CQL engines linked; runtime selection via `cqldriver=`. |
 | `openapi` | no | Adds `describe-openapi` and `run-openapi` subcommands that synthesize ops from an OpenAPI 3.x spec. |
 | `flamegraph` | no | Forwards to `nmbrs-runtime/flamegraph` for built-in CPU profiling. |
@@ -49,7 +49,7 @@ cargo build --release -p nmbrs
 
 ### Opt-in: cassandra-cpp engine
 
-The DataStax C++ driver isn't on crates.io; build infrastructure
+The Cassandra C++ driver isn't on crates.io; build infrastructure
 lives under `adapters/cql/`:
 
 ```bash

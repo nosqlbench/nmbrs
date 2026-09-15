@@ -41,12 +41,12 @@ impl Drop for TempDir {
     }
 }
 
-/// `<workspace>/examples/workloads/<rel>` as an absolute path.
+/// `<workspace>/nmbrs/examples/workloads/<rel>` as an absolute path.
 fn example(rel: &str) -> String {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("examples/workloads")
+        .join("nmbrs/examples/workloads")
         .join(rel)
         .to_string_lossy()
         .into_owned()

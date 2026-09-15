@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn renders_typed_params_with_native_literals() {
         let src = render_workload_params_source(&h(&[
-            ("dataset", "sift1m"),
+            ("dataset", "example"),
             ("k_values", "1,10"),
             ("count", "100"),
             ("ratio", "0.95"),
@@ -220,7 +220,7 @@ mod tests {
         // trip as quoted strings because Polydat has no bool token kind
         // (a bare `true` would parse as an identifier).
         let expected = "const count := 100\n\
-                        const dataset := \"sift1m\"\n\
+                        const dataset := \"example\"\n\
                         const k_values := \"1,10\"\n\
                         const ratio := 0.95\n\
                         const strict := \"true\"\n";
@@ -281,11 +281,11 @@ mod tests {
     #[test]
     fn compiles_to_valid_kernel() {
         let kernel =
-            build_workload_params_kernel(&h(&[("dataset", "sift1m"), ("count", "100")])).unwrap();
+            build_workload_params_kernel(&h(&[("dataset", "example"), ("count", "100")])).unwrap();
         // Both params are reachable as Polydat constants.
         let dataset = kernel.lookup("dataset").expect("dataset must resolve");
         let count = kernel.lookup("count").expect("count must resolve");
-        assert_eq!(dataset.to_display_string(), "sift1m");
+        assert_eq!(dataset.to_display_string(), "example");
         assert_eq!(count.as_u64(), 100);
     }
 

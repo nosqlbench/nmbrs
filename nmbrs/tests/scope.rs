@@ -4,7 +4,7 @@
 //! SRD-13c / 13d / 13f scope-model coverage tests.
 //!
 //! Each test runs one scenario from
-//! `examples/workloads/scope/scope_coverage.yaml` and asserts the
+//! `nmbrs/examples/workloads/scope/scope_coverage.yaml` and asserts the
 //! expected behavior of one construct:
 //!
 //! - All four shared-cell scalar types (u64, f64, str, bool)
@@ -24,7 +24,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/scope/scope_coverage.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/scope/scope_coverage.yaml";
 
 struct SessionDir {
     path: PathBuf,

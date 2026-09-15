@@ -615,36 +615,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "cassandra-cpp"
-version = "3.0.2"
-dependencies = [
- "bigdecimal",
- "cassandra-cpp-sys",
- "error-chain",
- "libc",
- "log",
- "parking_lot",
- "slog",
- "uuid",
-]
-
-[[package]]
-name = "cassandra-cpp"
-version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d341b47bc58a273da72536e76af56df43b5a2d7d7f00b9a5f0dcc6c977524eab"
-dependencies = [
- "bigdecimal",
- "cassandra-cpp-sys",
- "error-chain",
- "libc",
- "log",
- "parking_lot",
- "slog",
- "uuid",
-]
-
-[[package]]
 name = "cassandra-cpp-sys"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2838,7 +2808,6 @@ name = "nmbrs"
 version = "0.1.2"
 dependencies = [
  "arc-swap",
- "cassandra-cpp 3.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "glob",
  "libc",
  "libtest-mimic",
@@ -2848,6 +2817,7 @@ dependencies = [
  "nmbrs-adapter-plotter",
  "nmbrs-adapter-stdout",
  "nmbrs-adapter-testkit",
+ "nmbrs-cassandra-cpp",
  "nmbrs-errorhandler",
  "nmbrs-metrics",
  "nmbrs-metricsql",
@@ -2879,10 +2849,10 @@ dependencies = [
 name = "nmbrs-adapter-cql"
 version = "0.1.2"
 dependencies = [
- "cassandra-cpp 3.0.2",
  "cassandra-cpp-sys",
  "half",
  "inventory",
+ "nmbrs-cassandra-cpp",
  "nmbrs-metrics",
  "nmbrs-runtime",
  "nmbrs-workload",
@@ -2956,6 +2926,20 @@ dependencies = [
  "serde_json",
  "tokio",
  "xxhash-rust",
+]
+
+[[package]]
+name = "nmbrs-cassandra-cpp"
+version = "3.0.2"
+dependencies = [
+ "bigdecimal",
+ "cassandra-cpp-sys",
+ "error-chain",
+ "libc",
+ "log",
+ "parking_lot",
+ "slog",
+ "uuid",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ An `optimize:` block turns a phase's `for_each` sweep into a **search**: instead
 of visiting every coordinate, an optimizer proposes coordinates, reads an
 **objective** you name, and maximizes it. This guide is task-oriented; the full
 design is [SRD-86](../SRD/86_optimization.md). Every form below has a runnable
-example under `examples/workloads/optimizer_*.yaml`.
+example under `nmbrs/examples/workloads/optimizer_*.yaml`.
 
 > **Discover what's installed:** `nmbrs describe optimizers` lists the search
 > methods, and `nmbrs describe controls` lists the live controls you can `servo:`

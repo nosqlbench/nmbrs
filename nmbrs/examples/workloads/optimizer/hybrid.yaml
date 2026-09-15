@@ -1,0 +1,79 @@
+# optimizer_hybrid.yaml — SRD-86 §4 hybrid actuation (coordinate × control)
+#
+# A single optimize node whose sweep covers BOTH a non-control and a control
+# axis — the case that resolves by node nesting in SRD-86, here expressed in ONE
+# comprehension scope. The phase `for_each` is multi-clause:
+#
+#     for_each: "batch in [1,2], conc in [16,2]"
+#
+# `batch` is a plain COORDINATE axis (structural — it must be realized by
+# re-running the phase), and `conc` is named in `servo:` (a live
+# CONTROL — retargeted without restart). The hybrid executor partitions them:
+#
+#   - the coordinate axes form the OUTER rerun grid (one phase activation per
+#     `batch` value);
+#   - within each activation the Control daemon servos the control subspace
+#     INTERIOR to it (retargets `concurrency` across {16, 2}, settling the
+#     windowed objective at each).
+#
+# So `batch` iterates at its proper boundary and `conc` varies live within each
+# batch's continuous phase — `conc` written last is innermost by lex order. The
+# reported best is `(batch ; conc)` over all cells; here conc=2 fits the
+# 2-server / depth-4 backend (no overloads) for every batch.
+#
+# Runs standalone:
+#   nmbrs run workload=nmbrs/examples/workloads/optimizer_hybrid.yaml \
+#       --session-path /tmp/opt-hybrid
+
+description: |
+  SRD-86 hybrid actuation: one optimize node mixing a coordinate axis (`batch`,
+  rerun) and a control axis (`conc`, live-retargeted). The coordinate axis is the
+  outer rerun grid; the Control daemon servos the control subspace interior to
+  each cell — coordinate at its boundary, control varying live within.
+
+# Sub-second metrics cadence: the SRD-86 settle detector samples the windowed
+# objective on the finest cadence pulse, so a 50ms cadence (vs the 1s default)
+# settles each cell in a fraction of the wall-clock. Paired with the short
+# rate() window below — both scale down together, leaving the SIGNAL unchanged.
+params:
+  metrics_cadence: 50ms
+
+phases:
+  saturate:
+    # Each coordinate cell is ONE continuous phase, sized generously so the daemon
+    # finishes and stops it early.
+    cycles: 30000
+    concurrency: "{conc}"
+    # `rate` × backend `result-latency` (below) fixes the saturating in-flight
+    # depth, so they move together: 4× lower rate + 4× higher latency holds the
+    # SIGNAL (conc=16 saturates, conc=2 doesn't) at 4× lower op throughput —
+    # less CPU-intensive and less load-sensitive when many run concurrently.
+    rate: 500
+    # Overloads are the objective signal, not failures; `error_rate_max: 1.0`
+    # compiles to `error_rate > 1.0` (never trips — "allow 100%"), required for a
+    # continuous control phase that dwells at a saturating setting.
+    errors: warn
+    error_rate_max: 1.0
+    # Multi-clause: `batch` (coordinate, rerun) × `conc` (control, servoed).
+    for_each: "batch in [1,2], conc in [16,2]"
+    optimize:
+      objective: score
+      max_evals: 10
+      # `servo: conc` opts conc into live servoing; `batch` is not servoed, so it
+      # steps through by re-running the phase — the hybrid (coordinate outer grid,
+      # control servoed interior to each cell).
+      servo: conc
+    bindings: |
+      input cycle: u64
+      err_rate := metricsql_scalar("sum(rate(errors_total[400ms]))")
+      score := 0 - err_rate
+    ops:
+      insert:
+        adapter: testkit
+        stmt: "INSERT INTO demo.events (batch, id) VALUES ({batch}, {cycle});"
+        result-latency: "20ms"
+        result-capacity: 2
+        result-overload: 4
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect best \[

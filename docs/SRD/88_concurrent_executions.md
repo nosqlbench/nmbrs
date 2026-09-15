@@ -331,7 +331,7 @@ registered render hook the workload-end report block can invoke with the
    batch path at `run_executions` for in-process concurrency instead of
    subprocess fan-out where it pays. **SHIPPED** for the example walker:
    `nmbrs/tests/example_workloads_in_process.rs` checks the whole
-   `examples/workloads` tree as concurrent in-process executions sharing
+   `nmbrs/examples/workloads` tree as concurrent in-process executions sharing
    one session (≤10), with the **same** `#@`/`verify:` rules and
    `check_case_output` checker the `nmbrs check` CLI uses. Each case
    captures op stdout via its own `CaptureChannel`. This **retired** the

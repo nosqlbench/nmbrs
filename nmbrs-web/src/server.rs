@@ -71,12 +71,18 @@ async fn no_cache_headers(request: Request<axum::body::Body>, next: middleware::
     response
 }
 
-/// Start the web server on the given port (binds to 0.0.0.0).
+/// Start the web server on the given port, on loopback only: the
+/// dashboard carries no authentication, so exposing it beyond the
+/// host is an explicit `bind=` choice, never the default.
 ///
 /// Standalone mode — no live metrics, just browsing tools.
 pub async fn serve(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let broadcast = MetricsBroadcast::new(16);
-    serve_with(std::net::SocketAddr::from(([0, 0, 0, 0], port)), broadcast).await
+    serve_with(
+        std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        broadcast,
+    )
+    .await
 }
 
 /// Start the web server with a pre-configured broadcast channel.

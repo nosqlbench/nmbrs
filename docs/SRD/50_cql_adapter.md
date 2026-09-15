@@ -122,7 +122,7 @@ recall measurement:
 
 ```yaml
 params:
-  dataset: glove-25-angular
+  dataset: example
   k: "100"
   concurrency: "100"
 
@@ -151,7 +151,7 @@ ops:
       functions: [recall, precision, f1]
 ```
 
-Verified: recall@100 = 0.94 on glove-25-angular (1.2M vectors,
+Verified: recall@100 = 0.94 on the 25-dim public reference set (1.2M vectors,
 Cassandra 5.0 SAI).
 
 ---

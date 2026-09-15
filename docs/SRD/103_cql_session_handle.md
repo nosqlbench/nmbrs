@@ -222,6 +222,6 @@ is genuinely session-scoped in the drivers, so it stays.)
    `max_batch_size` GK-resolved and the `cql_session()` convenience over the
    SRD-104 accessor. Both drivers. This is the whole user-visible feature.
 2. **Resource-key narrowing** (drop `consistency`) — small, independent.
-3. Repoint the `compaction_demo_derived` insert from the `batch: 10` stopgap to
+3. Repoint the incremental compaction sweep's insert from the `batch: 10` stopgap to
    `max_batch_size: cql_server_batch_limit(cql_session())`; drop the docs/TODO
    `max_batch_size` no-op entry.

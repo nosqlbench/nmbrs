@@ -1,0 +1,46 @@
+# optimizer_sweep.yaml — SRD-86 optimizer demo (identity sweep + best-selection)
+#
+# A phase that carries an `optimize:` block is a SEARCH node (SRD-86 A12): the
+# optimizer drives the coordinate stream and reports the best by the objective.
+# The default method is `sweep` — the identity functor — so it visits every grid
+# point (the ordinary sweep) and reports the coordinate with the best objective.
+# The objective `score` is a synthetic-manifold phase wire (a parabola peaked at
+# ef=3), so the run is deterministic and needs no backend (stdout adapter).
+#
+# `method: sweep` is shown explicitly here; it is the DEFAULT, so a workload that
+# just wants "find the best by sweeping" can omit the `method:` line entirely. Set
+# an adaptive method (`nelder_mead`, `cmaes`, …) to search without enumerating.
+#
+# Usage (runs standalone):
+#   nmbrs run workload=nmbrs/examples/workloads/optimizer_sweep.yaml \
+#       --session-path /tmp/opt-sweep
+#
+# The objective is maximized (score = 0) at ef=3.
+
+description: |
+  SRD-86 optimizer seam: the default `sweep` (identity) optimizer over a discrete
+  axis, maximizing a synthetic-manifold phase metric. It visits every coordinate
+  and reports the best — the ordinary parameter sweep, with best-selection.
+
+phases:
+  sweep:
+    cycles: 1
+    # The search axis. With `optimize:` present, this is the search domain,
+    # not a pre-planned traversal (SRD-86 A12).
+    for_each: "ef in 1.0,2.0,3.0,4.0,5.0"
+    optimize:
+      method: sweep         # the default; omit it for the same effect
+      objective: score
+      max_evals: 10
+    # The objective: a synthetic-manifold phase wire (binding), peaked at ef=3.
+    bindings: |
+      score := 0 - (ef - 3) * (ef - 3)
+    ops:
+      probe:
+        adapter: stdout
+        params:
+          stdout: eventlog
+        stmt: "probe ef={ef}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect best \[3\]

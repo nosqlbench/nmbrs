@@ -6,8 +6,7 @@ kept for the *why*, not because they're authoritative:
 - **Algorithm / scenario sketches** with no dedicated design doc (only the code +
   catalog cover them): `09_alias_method`, `11_icd_sampling`, `25_pcg_rng`,
   `08_gk_performance_scenarios`.
-- **One-time records**: `recall_discrepancy_analysis` (a resolved investigation),
-  `tui_idempotent_phase_history_repaint` (the rationale for an approach that was later
+- **One-time records**: `tui_idempotent_phase_history_repaint` (the rationale for an approach that was later
   **reversed** — see SRD 81), `nosqlbench_binding_patterns` (a compatibility scan),
   `resumable_test_fixture` (a test-fixture design memo).
 

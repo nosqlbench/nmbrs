@@ -8,14 +8,14 @@ keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
 libc = "0.2"
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1" }
-nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }
+nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.2" }
 # Needed for SRD 23 §"TUI surface" — session-root lookup and
 # runtime-context globals that back the control-edit affordance.
 polydat = "0.3"

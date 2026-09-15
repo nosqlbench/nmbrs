@@ -4,8 +4,7 @@
 //! CQL/Cassandra adapter for nmbrs.
 //!
 //! Uses the Apache Cassandra C++ driver via the `cassandra-cpp`
-//! crate. Compatible with Apache Cassandra, ScyllaDB, and DataStax
-//! Astra.
+//! crate. Compatible with Apache Cassandra and ScyllaDB.
 //!
 //! The engine-agnostic surface — config parsing, consistency enum,
 //! op-mode dispatch, the `cql_timeuuid` Polydat node, default status
@@ -718,7 +717,7 @@ impl CqlAdapter {
         // dir so traces ride along with the rest of the run's
         // artifacts; explicit override via `trace_log=` lets
         // operators redirect to a known stable path.
-        let trace_log_path = resolve_trace_log_path(config);
+        let trace_log_path = resolve_trace_log_path(config)?;
         // Lazy: resolve the path but open NOTHING here. The file, the
         // retirement worker, and the `system_traces` prepare are all deferred
         // to the first op that is actually traced (`cql_trace_rate > 0`). With
@@ -749,11 +748,15 @@ impl CqlAdapter {
 /// `logs/latest -> logs/<session_id>` symlink keeps current.
 /// The symlink is created by `Session::new` before adapters
 /// connect, so this resolves consistently across the run.
-fn resolve_trace_log_path(config: &CqlConfig) -> std::path::PathBuf {
-    if let Some(ref explicit) = config.trace_log_path {
-        return std::path::PathBuf::from(explicit);
+fn resolve_trace_log_path(config: &CqlConfig) -> Result<std::path::PathBuf, String> {
+    let session_logs = std::path::Path::new("logs/latest");
+    match config.trace_log_path {
+        // A workload param can name the file, so it is confined to
+        // the session's log directory: no absolute paths, no `..`.
+        Some(ref explicit) => nmbrs_runtime::session::confine_to_dir(session_logs, explicit)
+            .map_err(|e| format!("trace_log: {e}")),
+        None => Ok(session_logs.join("cql_traces.jsonl")),
     }
-    std::path::PathBuf::from("logs/latest/cql_traces.jsonl")
 }
 
 // =========================================================================

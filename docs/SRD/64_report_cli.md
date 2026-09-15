@@ -132,7 +132,7 @@ one promotion path.
 ### 3.1 Why flag-form, not directive-string-form
 
 CLIs that accept `nmbrs report plot recall over limit by
-profile where dataset=glove` look ergonomic at a demo but
+profile where dataset=example` look ergonomic at a demo but
 fight the shell:
 
 - spaces inside quoted directives don't survive

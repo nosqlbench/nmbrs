@@ -208,7 +208,7 @@ outcome taxonomy. No new `EventType` / checkpoint variant is introduced.
 
 ---
 
-## 8. First consumer — `compaction_demo_derived`
+## 8. First consumer — the incremental compaction sweep (out of tree)
 
 Replace the three per-op `if: "end_of(p) <= effective_max_size"` gates with one
 `continue_if` on the tier-sweep node:

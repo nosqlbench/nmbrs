@@ -144,7 +144,7 @@ Net effect:
 
 ---
 
-## Workload shape (`examples/workloads/resume_test.yaml`)
+## Workload shape (`nmbrs/examples/workloads/resume_test.yaml`)
 
 Three phases, all declared `checkpoint: idempotent`:
 
@@ -336,7 +336,7 @@ otherwise leave as terminal.
 4. New testkit Polydat node: `failure_step(...)` with state-file machinery
    (per this memo). Ship the reset path alongside per OQ-4.
 5. Task 169 — testkit driver-level fixture op (variant A).
-6. Task 170 — `examples/workloads/resume_test.yaml`.
+6. Task 170 — `nmbrs/examples/workloads/resume_test.yaml`.
 7. Task 171 — integration test loop (4 invocations, asserts at each).
 
 Pre-existing checkpoint code (executor stamp + resume planner

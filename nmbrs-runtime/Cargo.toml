@@ -8,7 +8,7 @@ keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [features]
 default = []
@@ -16,10 +16,10 @@ flamegraph = ["pprof"]
 
 [dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "signal"] }
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1", features = ["victoriametrics", "sqlite"] }
-nmbrs-rate = { path = "../nmbrs-rate", version = "0.1.1" }
-nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.1.1" }
-nmbrs-workload = { path = "../nmbrs-workload", version = "0.1.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2", features = ["victoriametrics", "sqlite"] }
+nmbrs-rate = { path = "../nmbrs-rate", version = "0.1.2" }
+nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.1.2" }
+nmbrs-workload = { path = "../nmbrs-workload", version = "0.1.2" }
 polydat = { version = "0.3", features = ["vectordata"] }
 futures = "0.3"
 inventory = "0.3.24"
@@ -57,8 +57,8 @@ regex = "1"
 junction = "1"
 
 [dev-dependencies]
-nmbrs-adapter-stdout = { path = "../adapters/stdout", version = "0.1.1" }
-nmbrs-adapter-testkit = { path = "../adapters/testkit", version = "0.1.1" }
+nmbrs-adapter-stdout = { path = "../adapters/stdout", version = "0.1.2" }
+nmbrs-adapter-testkit = { path = "../adapters/testkit", version = "0.1.2" }
 proptest = "1"
 # SRD-77 refine_plan tests build a throwaway sqlite under a
 # `tempfile::tempdir()` and verify the loader's behavior.

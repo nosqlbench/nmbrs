@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SRD-106 D2 — skip-validity over `nmbrs refine`, using
-//! `examples/workloads/controls/prereq_filter_smoke.yaml`.
+//! `nmbrs/examples/workloads/controls/prereq_filter_smoke.yaml`.
 //!
 //! Three contracts:
 //! - a valid idempotent prereq (Completed+Succeeded prior outcome,
@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/controls/prereq_filter_smoke.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/controls/prereq_filter_smoke.yaml";
 
 struct Sandbox {
     dir: PathBuf,

@@ -1,0 +1,171 @@
+#!/usr/bin/env nmbrs
+# CQL Compaction Task Visibility Test
+#
+# Demonstrates that the Jolokia `CompactionManager.Compactions`
+# attribute reports active compaction tasks — including SAI
+# INDEX_BUILD side-effects — during a CREATE INDEX on a populated
+# table, and that the HTTP-adapter poll wrapper correctly waits
+# for them to complete.
+#
+# This workload:
+# 1. Drops and recreates a table
+# 2. Loads enough data that the subsequent index build is non-trivial
+# 3. CREATE INDEX on the populated table — triggers an SAI index build
+#    that surfaces as a compaction task at the JMX layer
+# 4. Polls Jolokia until the live compaction list is empty
+# 5. Verifies the index works with a query
+#
+# The prior version of this test polled `system_views.sstable_tasks`
+# / `sai_column_indexes.is_building`. Those virtual tables flip
+# their building/active flags off the instant a per-SSTable build
+# segment finishes, which can fire before the data is queryable
+# (the segment isn't registered with the query path yet). Jolokia's
+# `CompactionManager.Compactions` is the live JMX list driving the
+# server's own scheduling — empty list ⇒ no work outstanding.
+#
+# Usage:
+#   nmbrs workload=cql_compaction_test.yaml
+#   nmbrs workload=cql_compaction_test.yaml dataset=example profile=label_01
+
+description: |
+  CQL compaction-task visibility test: drives SAI-indexed writes,
+  forces flush + compaction over Jolokia, and asserts the
+  CompactionManager.Compactions attribute reports active tasks.
+  Requires a reachable Cassandra node with Jolokia.
+params:
+  # Curated default: `tries` = TOTAL attempts per op on retryable errors
+  # (e.g. CQL request timeouts) before a failure reaches the result level
+  # (SRD-82: the sigil for the conditional tries wrapper; omit it for
+  # single-attempt ops). No root `timeout` — it would override each op's own
+  # request timeout, clobbering long-running orchestration ops (flush /
+  # compaction); set `timeout:` per-op on the read/write ops that need a
+  # specific request timeout.
+  tries: 21
+  adapter: cql
+  dataset: example
+  profile: default
+  keyspace: baselines
+  table: compaction_test
+  host: localhost
+  concurrency: "100"
+  replication: "{'class': 'SimpleStrategy', 'replication_factor': '1'}"
+
+bindings: |
+  dim := vector_dim("{dataset}:{profile}")
+
+scenarios:
+  default:
+    - setup
+    - ddl
+    - rampup
+    - create_index_on_existing_data
+    - jolokia_flush
+    - jolokia_await_compaction
+    - verify
+
+phases:
+  setup:
+    cycles: ===auto
+    concurrency: 1
+    adapter: stdout
+    ops:
+      info:
+        stmt: "=== Compaction Test: {dataset}:{profile} dim={dim} ==="
+
+  ddl:
+    cycles: ===auto
+    concurrency: 1
+    ops:
+      create_ks:
+        raw: "CREATE KEYSPACE IF NOT EXISTS {keyspace} WITH replication = {replication}"
+      drop_table:
+        raw: "DROP TABLE IF EXISTS {keyspace}.{table}"
+      create_table:
+        raw: "CREATE TABLE IF NOT EXISTS {keyspace}.{table} (key text PRIMARY KEY, value vector<float, {dim}>)"
+
+  # Create SAI index AFTER data is loaded — triggers an INDEX_BUILD
+  # task that surfaces in Jolokia's CompactionManager.Compactions
+  # attribute. This is the scenario where task-completion tracking
+  # is essential — without it, the verify phase can race against a
+  # still-building index.
+  create_index_on_existing_data:
+    cycles: ===auto
+    concurrency: 1
+    ops:
+      idx:
+        raw: "CREATE CUSTOM INDEX IF NOT EXISTS {table}_idx ON {keyspace}.{table} (value) USING 'StorageAttachedIndex'"
+
+  rampup:
+    cycles: "{vector_count('{dataset}:{profile}')}"
+    concurrency: "{concurrency}"
+    bindings: |
+      const prebuffer := dataset_prebuffer("{dataset}:{profile}")
+      id := format_u64(cycle, 10)
+      train_vector := vector_at("{dataset}:{profile}", cycle)
+    ops:
+      insert:
+        prepared: "INSERT INTO {keyspace}.{table} (key, value) VALUES ('{id}', {train_vector})"
+
+  # Force a memtable flush so the SAI build operates on stable
+  # SSTables. Without this, the build can race against
+  # still-flushing memtables and the post-build query path can
+  # see partial coverage.
+  jolokia_flush:
+    adapter: http
+    concurrency: 1
+    cycles: 1
+    ops:
+      flush:
+        uri: "http://{host}:8778/jolokia/"
+        method: POST
+        body: |
+          {"type":"exec",
+           "mbean":"org.apache.cassandra.db:type=StorageService",
+           "operation":"forceKeyspaceFlush(java.lang.String,[Ljava.lang.String;)",
+           "arguments":["{keyspace}",[]]}
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        memo:
+          before: "flushing keyspace {keyspace}"
+          after:  "flushed keyspace {keyspace}"
+
+  # Poll Jolokia's CompactionManager.Compactions attribute until
+  # the live list is empty. The SAI build kicked off by the
+  # preceding `create_index_on_existing_data` phase shows up
+  # here as a compaction task; the loop blocks until it (plus
+  # any cascading compactions) drains.
+  jolokia_await_compaction:
+    adapter: http
+    concurrency: 1
+    ops:
+      compactions_running:
+        memo:
+          before: "awaiting compaction / SAI build on {keyspace}.{table}"
+          after: "compactions drained on {keyspace}.{table}"
+        uri: "http://{host}:8778/jolokia/read/org.apache.cassandra.db:type=CompactionManager/Compactions"
+        method: GET
+        request_timeout_ms: 10000
+        verify:
+          - field: status
+            eq: "200"
+        strict: true
+        poll:
+          mode: await_empty
+          interval_ms: 1000
+          timeout_ms: 600000
+          max_error_retries: 3
+          json_path: "/value"
+          metric_name: index_build_time_s
+
+  # Verify the index works with a query
+  verify:
+    cycles: 10
+    concurrency: 1
+    bindings: |
+      const prebuffer := dataset_prebuffer("{dataset}:{profile}")
+      query_vector := query_vector_at("{dataset}:{profile}", cycle)
+    ops:
+      query:
+        prepared: "SELECT key FROM {keyspace}.{table} ORDER BY value ANN OF {query_vector} LIMIT 10"

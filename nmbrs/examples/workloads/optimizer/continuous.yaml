@@ -1,0 +1,50 @@
+# optimizer_continuous.yaml — SRD-86 continuous-axis optimizer demo
+#
+# A phase that carries an `optimize:` block is a SEARCH node (SRD-86 A12). Where
+# optimizer_sweep searches a DISCRETE axis (an enumerated grid the `sweep`
+# optimizer just visits), this workload searches a CONTINUOUS axis: the float
+# range `ef in 1.0 .. 5.0`. A continuous source enumerates no points — the
+# optimizer IS the sampling strategy, drawing real-valued coordinates from the
+# interval and binding each into the phase kernel. So this needs a metric-space
+# solver: `nelder_mead`, the simplex method, which converges on the manifold.
+#
+# The objective `score` is a parabola peaked at ef=4 — interior to [1,5] but NOT
+# at the interval's centre (3.0), so the solver genuinely climbs from its
+# starting simplex to the optimum rather than sitting still. The peak ef≈4.0 is
+# a real-valued coordinate that no enumerated grid point would have named,
+# because there is no grid.
+#
+# Usage (runs standalone):
+#   nmbrs run workload=nmbrs/examples/workloads/optimizer_continuous.yaml \
+#       --session-path /tmp/opt-cont
+#
+# The objective is maximized (score = 0) at ef=4.
+
+description: |
+  SRD-86 continuous-axis search: the optimizer samples a real interval
+  (`ef in 1.0 .. 5.0`) rather than visiting an enumerated grid, and the
+  `nelder_mead` simplex solver climbs from the interval centre to the parabola's
+  off-centre interior peak at ef≈4 — a coordinate no discrete sweep could name.
+
+phases:
+  search:
+    cycles: 1
+    # The search axis is a CONTINUOUS interval (float endpoints → real domain).
+    # With `optimize:` present, the optimizer samples it; nothing is enumerated.
+    for_each: "ef in 1.0 .. 5.0"
+    optimize:
+      method: nelder_mead
+      objective: score
+      max_evals: 25
+    # The objective: a synthetic-manifold phase wire (binding), peaked at ef=4.
+    bindings: |
+      score := 0 - (ef - 4) * (ef - 4)
+    ops:
+      probe:
+        adapter: stdout
+        params:
+          stdout: eventlog
+        stmt: "probe ef={ef}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect best \[[34]\.

@@ -13,7 +13,7 @@
 //! pool has no self-heal, so lost fibers are never replaced). This test drives
 //! 4 fibers over 400 cycles with a deterministic ~2% panic rate and asserts all
 //! 400 cycles ran. (The companion example is
-//! `examples/workloads/controls/op_panic_resilience.yaml`.)
+//! `nmbrs/examples/workloads/controls/op_panic_resilience.yaml`.)
 
 use std::sync::Arc;
 

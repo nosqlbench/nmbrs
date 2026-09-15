@@ -10,7 +10,7 @@ keeps `count` / `ok` / path-expr semantics through the new
 type. `OpResult::body.to_text()` is added as the canonical
 text projection (default JSON-stringify; per-adapter
 overrides for TextBody and others). The
-`adapters/cql/workloads/full_cql_vector.yaml` migration is
+`nmbrs/workloads/cql/full_cql_vector.yaml` migration is
 landed in the new shape — `cql_dialect` param removed,
 `detect_dialect` phase prepended to every scenario, four
 `if`-gated ops collapsed to two `pick`-driven ops. The full
@@ -32,7 +32,7 @@ authors
   — replaces today's deferred-Warn stub at line ~751),
   `nmbrs-runtime/src/fixture.rs` / op-template scope wiring
   (magic `body` extern),
-  `adapters/cql/workloads/full_cql_vector.yaml` (first consumer)
+  `nmbrs/workloads/cql/full_cql_vector.yaml` (first consumer)
 **Cross-refs:** SRD-12 (GK stdlib), SRD-13d (op-template scope),
   SRD-16 (mutability rules — `shared`), SRD-34 (capture points),
   SRD-40b §5 (result-as-GK), SRD-50 (CQL adapter)
@@ -500,11 +500,11 @@ phases:
         if: "cql_dialect == 'cass5'"
         raw: "SELECT … FROM system_views.sai_column_indexes WHERE …"
         poll: await_empty
-      indexes_present_cndb:
-        if: "cql_dialect == 'cndb'"
+      indexes_present_vendor:
+        if: "cql_dialect == 'vendor'"
         raw: "SELECT … FROM system_views.indexes WHERE …"
-      indexes_built_cndb:
-        if: "cql_dialect == 'cndb'"
+      indexes_built_vendor:
+        if: "cql_dialect == 'vendor'"
         raw: "SELECT … FROM system_views.indexes WHERE …"
         poll: await_empty
 ```
@@ -589,7 +589,7 @@ For a Cassandra 5 cluster:
 - `pick` returns `"system_views.sai_column_indexes"`.
 - `await_index`'s ops query the SAI view exactly as before.
 
-For a CNDB cluster (or any deployment where only
+For a vendor-build cluster (or any deployment where only
 `system_views.indexes` exists):
 - `has_sai_column_indexes` → `false`; `has_indexes` → `true`.
 - `pick` returns `"system_views.indexes"`.
@@ -769,11 +769,11 @@ Three pushes with gates:
 
 ### Push 3 — Workload migration
 
-- `adapters/cql/workloads/full_cql_vector.yaml` rewrites per
+- `nmbrs/workloads/cql/full_cql_vector.yaml` rewrites per
   §"Worked example". `cql_dialect` param deleted; `if:` gates
   removed; four ops → two ops.
 - Smoke run against a Cassandra 5 cluster confirms the SAI
-  path; if a CNDB-shaped fixture exists, smoke that too. (The
+  path; if a vendor-shaped fixture exists, smoke that too. (The
   user's environment dictates which clusters are available;
   the test matrix is operator-driven, not CI-gated.)
 

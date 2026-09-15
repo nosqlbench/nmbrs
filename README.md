@@ -145,11 +145,11 @@ cycles arrive — `nmbrs run adapter=plotter op='…' render=live` (or
 
 ## Examples
 
-See [`examples/`](examples/):
-- [`workloads/`](examples/workloads/) — runnable workload YAMLs: phases,
+See [`nmbrs/examples/`](nmbrs/examples/):
+- [`workloads/`](nmbrs/examples/workloads/) — runnable workload YAMLs: phases,
   conditional ops (`if:`), delays, scenarios, cursors & partitions,
   capture flow, comprehensions, dynamic controls, and reports
-- [`modules/`](examples/modules/) — the Polydat module system
+- [`modules/`](nmbrs/examples/modules/) — the Polydat module system
   (`.polydat` files imported by module workloads)
 
 ## Architecture

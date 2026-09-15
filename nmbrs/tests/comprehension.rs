@@ -4,7 +4,7 @@
 //! SRD-18b / 18c / 18d / 18e comprehension surface coverage.
 //!
 //! Each test runs one scenario from
-//! `examples/workloads/iteration/comprehension_coverage.yaml` and asserts
+//! `nmbrs/examples/workloads/iteration/comprehension_coverage.yaml` and asserts
 //! the expected iteration shape: form (single var / multi-clause
 //! / array / union), range operator, named generator, set
 //! operator, traversal order, parallel-iter, `all(<cursor>)`,
@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/iteration/comprehension_coverage.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/iteration/comprehension_coverage.yaml";
 
 struct SessionDir {
     path: PathBuf,

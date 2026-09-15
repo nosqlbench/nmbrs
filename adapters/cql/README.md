@@ -6,7 +6,7 @@ underlying drivers via Cargo features.
 | Feature | Engine | C++ toolchain | crates.io build |
 |---------|--------|---------------|-----------------|
 | `engine-scylla` (default) | [scylla 1.6](https://crates.io/crates/scylla) — pure Rust | No | Yes |
-| `engine-cassandra-cpp` | [cassandra-cpp](https://crates.io/crates/cassandra-cpp) → DataStax C++ driver | Yes (libcassandra + libuv + openssl) | No (needs sysroot) |
+| `engine-cassandra-cpp` | [cassandra-cpp](https://crates.io/crates/cassandra-cpp) → Apache Cassandra C++ driver | Yes (libcassandra + libuv + openssl) | No (needs sysroot) |
 | `all-engines` | both | Yes | No |
 
 ## User-facing adapter name: `cql`

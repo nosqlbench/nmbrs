@@ -1,0 +1,51 @@
+#!/usr/bin/env nmbrs
+# SRD-101 — `continue_if` pre-entry sweep gate (testkit; no DB / dataset).
+#
+# The scenario sweeps a comprehension `k in 1,2,3,4,5` and runs one phase per
+# value. A `continue_if: "k <= 3"` gate rides the sweep: the walker evaluates
+# it BEFORE entering each iteration's body, against that iteration's COORDINATE
+# context (here just `k`). While the predicate holds the iteration runs; the
+# moment it goes false — at k=4 — the over-budget iteration is NOT entered and
+# the sweep ends gracefully (Interrupted+Succeeded, exit 0), recording a
+# `continue_if:` marker. So `tick` runs for k=1,2,3 only; k=4 and k=5 never run.
+#
+# This is the dataset-free regression guard for the gate's evaluation +
+# graceful halt (the compaction sweep uses the same gate keyed on
+# `end_of(p) <= effective_max_size`). Watch it:
+#   nmbrs run workload=nmbrs/examples/workloads/scope/continue_if_sweep.yaml
+#       → three `tick` phases (k=1,2,3), then the sweep halts cleanly.
+
+params:
+  adapter: testkit
+  rate: "200"
+
+# The cap is an outer-scope const, exactly like compaction's
+# `effective_max_size`: the gate predicate resolves it through the
+# per-iteration kernel's sub-context cascade (not as a coordinate).
+bindings: |
+  const cap := 3
+
+scenarios:
+  # Sweep k over 1..5; the gate halts the sweep once k would exceed `cap`.
+  default:
+    - for: "k in 1,2,3,4,5"
+      continue_if: "k <= cap"
+      phases:
+        - tick
+
+phases:
+  tick:
+    adapter: testkit
+    concurrency: 1
+    cycles: 5
+    rate: "{rate}"
+    ops:
+      beat:
+        stmt: "SELECT {k};"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+# Runs standalone (testkit; no host/dataset). The gate halts the sweep at k=4,
+# so the run completes gracefully with no failed phases (the over-budget
+# iterations are skipped, not failed).
+#@ run
+#@ expect completed, 0 failed

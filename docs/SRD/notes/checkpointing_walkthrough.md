@@ -18,7 +18,7 @@ enough to track every phase by hand.
 
 ```yaml
 params:
-  dataset: sift1m
+  dataset: example
   keyspace: bench
 
 scenarios:
@@ -110,7 +110,7 @@ classes:
 
 ## Scenario A — clean run baseline
 
-Operator: `nmbrs run workload=full.yaml dataset=sift1m`
+Operator: `nmbrs run workload=full.yaml dataset=example`
 
 Run completes without interruption. We trace the state at each
 30s sqlite-flush tick and at terminal completion.
@@ -175,7 +175,7 @@ somehow.
 
 ## Scenario B — crash mid-rampup; cursor-resume
 
-Operator: `nmbrs run workload=full.yaml dataset=sift1m`
+Operator: `nmbrs run workload=full.yaml dataset=example`
 
 Runs to t=152s (rampup at cycle ~63 000). Power loss. The
 last sqlite tick was at t=150s. The checkpoint flush
@@ -196,7 +196,7 @@ hit.
 
 ### Resume invocation
 
-Operator: `nmbrs run workload=full.yaml dataset=sift1m --resume-latest`
+Operator: `nmbrs run workload=full.yaml dataset=example --resume-latest`
 
 Pre-map runs against the current YAML. Workload + params
 unchanged → all phase hashes match. Resume planner reads the
@@ -348,7 +348,7 @@ After re-run + remaining phases 4–7:
 
 ## Scenario D — workload param change between invocations
 
-Operator: `nmbrs run workload=full.yaml dataset=sift1m`
+Operator: `nmbrs run workload=full.yaml dataset=example`
 
 Runs cleanly to completion (Scenario A's final state).
 
@@ -404,7 +404,7 @@ parameter shifted.
 ### Why phase 2 (rampup) correctly re-runs
 
 Phase 2's compiled program contains the resolved value of
-`vector_count("{dataset}")` — different for sift1m vs.
+`vector_count("{dataset}")` — different for example vs.
 sift10m (different cursor extent). Hash differs. The saved
 status is invalidated for phase 2 only; phase 2's previous
 rows are purged; rampup re-runs against the new dataset.
@@ -412,7 +412,7 @@ rows are purged; rampup re-runs against the new dataset.
 ### Final state
 
 `metrics.db` contains:
-- Phase 1 rows from invocation 1 (kept, sift1m schema is
+- Phase 1 rows from invocation 1 (kept, example schema is
   fine for either dataset).
 - Phase 2 rows from invocation 2 only (sift10m, 1 million
   cycles instead of 100 000).

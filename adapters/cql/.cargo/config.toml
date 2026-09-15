@@ -13,10 +13,12 @@ target-dir = "target"
 # Static linking for the Cassandra C++ driver.
 # The -sys crate emits -l dylib=cassandra; we need the static
 # lib. Sysroot lives at adapters/cql/target/sysroot/ — managed
-# by cargo's clean state for this crate.
+# by cargo's clean state for this crate. The linker search path
+# comes from the workspace config's `LIBRARY_PATH` (relative to
+# the workspace root, so it holds from this directory too) —
+# never an absolute path pinned to one machine.
 [target.x86_64-unknown-linux-gnu]
 rustflags = [
-    "-C", "link-arg=-L", "-C", "link-arg=/mnt/datamir/home/jshook/projects/nmbrs/adapters/cql/target/sysroot/lib",
     "-C", "link-arg=-Wl,-Bstatic",
     "-C", "link-arg=-lcassandra_static",
     "-C", "link-arg=-Wl,-Bdynamic",

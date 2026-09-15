@@ -1,0 +1,492 @@
+#!/usr/bin/env nmbrs
+# stdlib_coverage.yaml — Thematic coverage workload for the GK
+# standard library node catalog (SRD 12).
+#
+# Each scenario exercises one family of stdlib functions
+# (arithmetic, bitwise, comparison, hashing, formatting,
+# encoding, digests, distributions, lerp/quantize, picks/blend,
+# noise, JSON, regex, date/time, probability) by emitting a
+# stable `lib/<family>` prefixed line whose fields are
+# deterministic. The matching `nmbrs/tests/stdlib.rs` file
+# asserts on the exact emitted values.
+#
+# Scenarios are independent; running any one in isolation
+# produces the same line for that family.
+#
+# Run individually:
+#   nmbrs run workload=nmbrs/examples/workloads/stdlib_coverage.yaml \
+#            scenario=<one of the scenario names below>
+
+scenarios:
+
+  # ──────────────── Arithmetic + infix operators ────────────────
+  arithmetic_u64:
+    - arithmetic_u64_phase
+  arithmetic_f64:
+    - arithmetic_f64_phase
+  arithmetic_named_nodes:
+    # Same operations via named-node form (add, mul, div, mod,
+    # sub) rather than infix.
+    - arithmetic_named_phase
+
+  # ──────────────── Bitwise ────────────────
+  bitwise_ops:
+    - bitwise_phase
+
+  # ──────────────── Comparison + conditional gating ────────────────
+  comparison_ops:
+    # Comparison ops produce booleans; combined with `if:` gating
+    # to demonstrate they reach the dispenser.
+    - comparison_phase
+
+  # ──────────────── Type conversion ────────────────
+  conversion_to_f64_to_u64:
+    - conversion_phase
+  format_u64_bases:
+    # format_u64 with bases 10 / 16 / 2.
+    - format_u64_phase
+
+  # ──────────────── Hashing ────────────────
+  hash_chain:
+    - hash_phase
+
+  # ──────────────── String interpolation ────────────────
+  string_interpolation:
+    - string_interp_phase
+
+  # ──────────────── Encoding round-trips ────────────────
+  encoding_hex:
+    - encoding_hex_phase
+  encoding_base64:
+    - encoding_base64_phase
+  encoding_url:
+    - encoding_url_phase
+
+  # ──────────────── Digests ────────────────
+  digest_sha256:
+    - digest_sha256_phase
+  digest_md5:
+    - digest_md5_phase
+
+  # ──────────────── Distributions + probability ────────────────
+  probability_unit_interval:
+    # unit_interval(hash) → [0.0, 1.0). Deterministic given seed.
+    - probability_unit_phase
+  distribution_uniform:
+    # dist_uniform(seed, lo, hi) — uniform in [lo, hi).
+    - distribution_uniform_phase
+  fair_coin_flip:
+    # fair_coin(hash) → 0 or 1. Combined with `if:` gating.
+    - fair_coin_phase
+
+  # ──────────────── Weighted selection ────────────────
+  weighted_strings_pick:
+    - weighted_strings_phase
+  weighted_u64_pick:
+    - weighted_u64_phase
+
+  # ──────────────── Pick / select / blend ────────────────
+  pick_select_blend:
+    - pick_select_blend_phase
+
+  # ──────────────── Lerp / quantize / clamp ────────────────
+  lerp_and_clamp:
+    - lerp_clamp_phase
+
+  # ──────────────── Noise (deterministic per (x,y,seed)) ────────────────
+  noise_perlin_2d:
+    - noise_perlin_phase
+
+  # ──────────────── Date/time ────────────────
+  date_components:
+    - date_components_phase
+
+  # ──────────────── JSON ────────────────
+  json_round_trip:
+    - json_phase
+
+  # ──────────────── Regex ────────────────
+  regex_match_and_replace:
+    - regex_phase
+
+# ─────────────────────────────────────────────────────────────────
+# Phases — each emits one stable `lib/<family>` prefixed line
+# (or N lines for multi-cycle scenarios). Field values are
+# either deterministic literals or computed from cycle, which
+# is u64 0 for `cycles: 1` runs.
+# ─────────────────────────────────────────────────────────────────
+
+phases:
+
+  arithmetic_u64_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      a := 10
+      b := 3
+      sum_ := a + b
+      diff := a - b
+      prod := a * b
+      quot := a / b
+      rem  := a % b
+      pow  := a ** 2
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/arith_u64 sum={sum_} diff={diff} prod={prod} quot={quot} rem={rem} pow={pow}"
+
+  arithmetic_f64_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      x := 2.0
+      y := 8.0
+      sum_  := x + y
+      diff  := y - x
+      prod  := x * y
+      quot  := y / x
+      power := x ** 3.0
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/arith_f64 sum={sum_} diff={diff} prod={prod} quot={quot} power={power}"
+
+  arithmetic_named_phase:
+    # Each named arithmetic node is `(wire, const)` form
+    # (e.g. add(input, addend)). For two-wire summing use the
+    # variadic `sum(...)` / `product(...)` form.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      a := 10
+      sum_  := add(a, 3)
+      prod  := mul(a, 3)
+      quot  := div(a, 3)
+      rem   := mod(a, 3)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/arith_named sum={sum_} prod={prod} quot={quot} rem={rem}"
+
+  bitwise_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      a := 0xF0
+      b := 0x0F
+      and_ := a & b
+      or_  := a | b
+      xor_ := a ^ b
+      shl_ := a << 4
+      shr_ := a >> 4
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/bitwise and={and_} or={or_} xor={xor_} shl={shl_} shr={shr_}"
+
+  comparison_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      a := 10
+      b := 3
+      eq_  := a == b
+      ne_  := a != b
+      lt_  := a < b
+      gt_  := a > b
+      lte_ := a <= b
+      gte_ := a >= b
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/cmp eq={eq_} ne={ne_} lt={lt_} gt={gt_} lte={lte_} gte={gte_}"
+
+  conversion_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      // u64 → f64 → u64 round-trip. `f64_to_u64` is the registered
+      // name (truncates toward zero).
+      n := 42
+      as_f64 := to_f64(n)
+      back_u64 := f64_to_u64(as_f64)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/convert as_f64={as_f64} back_u64={back_u64}"
+
+  format_u64_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      n := 255
+      dec := format_u64(n, 10)
+      hex := format_u64(n, 16)
+      bin := format_u64(n, 2)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/format dec={dec} hex={hex} bin={bin}"
+
+  hash_phase:
+    # hash(cycle) is the canonical deterministic-randomness
+    # primitive. For cycle=0 it's a specific u64; the test
+    # asserts that two independent paths produce the same hash.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      h1 := hash(0)
+      h2 := hash(0)
+      h3 := hash(1)
+      eq := h1 == h2
+      same := h1 - h2
+      diff := h1 != h3
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/hash eq={eq} same={same} diff={diff}"
+
+  string_interp_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      name := "alice"
+      n    := 42
+      greeting := "hello, {name}!"
+      stringified := "{name} = {n}"
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/strinterp greeting={greeting} stringified={stringified}"
+
+  encoding_hex_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      b := u64_to_bytes(0xDEADBEEF)
+      h := to_hex(b)
+      // Round-trip back.
+      b2 := from_hex(h)
+      h2 := to_hex(b2)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/hex h={h} roundtrip_equal={h2}"
+
+  encoding_base64_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      b := u64_to_bytes(0xDEADBEEF)
+      e := to_base64(b)
+      d := from_base64(e)
+      e2 := to_base64(d)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/base64 e={e} roundtrip_equal={e2}"
+
+  encoding_url_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      raw := "hello world & friends"
+      enc := url_encode(raw)
+      dec := url_decode(enc)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/urlenc enc={enc} dec={dec}"
+
+  digest_sha256_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      b := u64_to_bytes(0)
+      h := sha256(b)
+      hex := to_hex(h)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/sha256 hex={hex}"
+
+  digest_md5_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      b := u64_to_bytes(0)
+      h := md5(b)
+      hex := to_hex(h)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/md5 hex={hex}"
+
+  probability_unit_phase:
+    # unit_interval(seed) → f64 in [0.0, 1.0). For a fixed seed
+    # the value is deterministic.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      u := unit_interval(hash(0))
+      // Bound the assertion to a stable form: just check it's
+      // in [0, 1) by emitting whether u < 1.0.
+      in_unit := u < 1.0
+      non_neg := u >= 0.0
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/unit_interval in_unit={in_unit} non_neg={non_neg}"
+
+  distribution_uniform_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      // dist_uniform(min, max) is an ICD sampler that expects a
+      // unit-interval f64 wire input. For a fixed seed the value
+      // is deterministic; we assert range membership.
+      seed := unit_interval(hash(0))
+      v := dist_uniform(seed, 10.0, 20.0)
+      ge_lo := v >= 10.0
+      lt_hi := v < 20.0
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/dist_uniform ge_lo={ge_lo} lt_hi={lt_hi}"
+
+  fair_coin_phase:
+    # fair_coin(seed) → 0 or 1. Combined with `if:` gating so
+    # the test sees one branch fire.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      flip := fair_coin(hash(0))
+      heads := flip == 1
+      tails := flip == 0
+      one_of_two := heads | tails
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/fair_coin one_of_two={one_of_two}"
+
+  weighted_strings_phase:
+    # weighted_strings(seed, "a:0.5;b:0.5") — deterministic given
+    # the seed.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      pick := weighted_strings(hash(0), "alpha:0.5;beta:0.5")
+      is_known := (pick == "alpha") | (pick == "beta")
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/weighted_strings is_known={is_known}"
+
+  weighted_u64_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      pick := weighted_u64(hash(0), "10:0.5;20:0.5")
+      is_known := (pick == 10) | (pick == 20)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/weighted_u64 is_known={is_known}"
+
+  pick_select_blend_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      // select(cond, if_true, if_false) — all three are wires;
+      // cond != 0 selects if_true.
+      cond := 1
+      a := 100
+      b := 200
+      sel := select(cond, a, b)
+      // blend(a, b, mix) — `a` and `b` are wires, `mix` is a
+      // const f64 in [0.0, 1.0]. blend(10, 20, 0.5) = 15.
+      lo := 10
+      hi := 20
+      bl := blend(lo, hi, 0.5)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/pick sel={sel} bl={bl}"
+
+  lerp_clamp_phase:
+    # `inv_lerp` exists as a struct but isn't yet registered in
+    # the Polydat function library (SRD-12), so this scenario covers
+    # the registered surface only: lerp / clamp_f64 / quantize.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      // lerp(t, lo, hi) — linear interpolation. t is a wire,
+      // lo and hi are const f64 endpoints.
+      t := 0.5
+      mid := lerp(t, 0.0, 100.0)
+      // clamp_f64(v, lo, hi) — saturating clamp on an f64 wire.
+      under_v  := -5.0
+      inside_v := 5.0
+      over_v   := 15.0
+      below  := clamp_f64(under_v,  0.0, 10.0)
+      inside := clamp_f64(inside_v, 0.0, 10.0)
+      above  := clamp_f64(over_v,   0.0, 10.0)
+      // quantize(v, step) — rounds to a multiple of step.
+      qv_in := 0.37
+      qv := quantize(qv_in, 0.1)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/lerp mid={mid} below={below} inside={inside} above={above} qv={qv}"
+
+  noise_perlin_phase:
+    # Perlin noise is deterministic given (x, y, seed). Check
+    # the value falls in the documented range [-1, 1].
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      n := perlin_2d(0, 0, 42, 0.01)
+      in_range := (n >= -1.0) & (n <= 1.0)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/perlin in_range={in_range}"
+
+  date_components_phase:
+    # date_components(epoch_millis) returns (y, mo, d, h, mi, s, ms).
+    # Use epoch 0 = 1970-01-01T00:00:00.000 UTC.
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      (y, mo, d, h, mi, s, ms) := date_components(0)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/date y={y} mo={mo} d={d} h={h} mi={mi} s={s} ms={ms}"
+
+  json_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      j := to_json(42)
+      s := json_to_str(j)
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/json s={s}"
+
+  regex_phase:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      s     := "abc123def"
+      matches := regex_match(s, "[0-9]+")
+      replaced := regex_replace(s, "[0-9]+", "###")
+    ops:
+      emit:
+        adapter: stdout
+        stmt: "lib/regex matches={matches} replaced={replaced}"
+
+# ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run scenario=arithmetic_named_nodes
+#@ expect completed, 0 failed

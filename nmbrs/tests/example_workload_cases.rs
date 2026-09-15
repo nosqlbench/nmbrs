@@ -72,7 +72,7 @@ fn main() {
     // override narrows it for fast iteration.
     let examples = std::env::var("NMBRS_TEST_EXAMPLES_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| repo_root().join("examples"));
+        .unwrap_or_else(|_| repo_root().join("nmbrs").join("examples"));
 
     let trials: Vec<Trial> = nmbrs_workload::verify::collect_workload_files(&examples)
         .into_iter()

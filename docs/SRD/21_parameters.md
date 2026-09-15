@@ -162,10 +162,10 @@ bind points are resolved **per cycle** during execution.
 
 ```yaml
 params:
-  dataset: glove-25-angular     # expanded pre-compile
+  dataset: example     # expanded pre-compile
 
 bindings: |
-  dim := vector_dim("{dataset}")  # {dataset} → "glove-25-angular" before Polydat sees it
+  dim := vector_dim("{dataset}")  # {dataset} → "example" before Polydat sees it
   user_id := hash(cycle)          # {user_id} resolved per cycle
 ```
 
@@ -220,11 +220,11 @@ strings are expanded from resolved workload params:
 
 ```yaml
 params:
-  dataset: glove-25-angular
+  dataset: example
 
 bindings: |
   dim := vector_dim("{dataset}")
-  # After expansion: dim := vector_dim("glove-25-angular")
+  # After expansion: dim := vector_dim("example")
 ```
 
 This is pure string substitution — the Polydat compiler never sees
@@ -234,7 +234,7 @@ at compile time, not cycle time.
 
 Additionally, params referenced in op templates (e.g., `{dataset}`
 in a stmt field) are injected as standalone Polydat constant bindings
-(e.g., `dataset := "glove-25-angular"`) before compilation. This
+(e.g., `dataset := "example"`) before compilation. This
 makes them available as normal Polydat outputs at cycle time, eliminating
 the need for a separate globals mechanism on `PolydatProgram`.
 
@@ -248,7 +248,7 @@ compiled into a dedicated **params-kernel** at the root of
 the scope chain:
 
 ```text
-params-kernel    final dataset := "glove-25-angular"
+params-kernel    final dataset := "example"
                  final dim     := 25                       ← folded constants
                  final concurrency := "100"
    ↓

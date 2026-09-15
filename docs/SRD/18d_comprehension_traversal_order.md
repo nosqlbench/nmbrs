@@ -553,14 +553,14 @@ A 4-clause sweep where most failures cluster at the corners.
 Visit corners first, abort on first failure:
 
 ```yaml
-- for: "k in 1, 10, 100, limit in 10, 100, 1000, profile in 'ann', 'exact', dataset in 'glove', 'sift' order extrema/1"
+- for: "k in 1, 10, 100, limit in 10, 100, 1000, profile in 'ann', 'exact', dataset in 'ds_a', 'ds_b' order extrema/1"
   phases: [search]
 ```
 
 Or with sibling keys:
 
 ```yaml
-- for: "k in 1, 10, 100, limit in 10, 100, 1000, profile in 'ann', 'exact', dataset in 'glove', 'sift'"
+- for: "k in 1, 10, 100, limit in 10, 100, 1000, profile in 'ann', 'exact', dataset in 'ds_a', 'ds_b'"
   order: extrema/1
   phases: [search]
 ```

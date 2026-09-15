@@ -8,7 +8,7 @@ documented in one place.
 
 ## Reproducer
 
-`adapters/cql/workloads/full_cql_vector.yaml`, scenario
+`nmbrs/workloads/cql/full_cql_vector.yaml`, scenario
 `test_oracles`. Three nested `for_each` levels:
 
 ```
@@ -24,7 +24,7 @@ and a `relevancy:` block with `k: "{k}"`, `r: "{limit}"`. The
 binding text and the relevancy block both consume names that
 are iter vars of *ancestor* scopes.
 
-## Failure 1 — `dataset_open: profile '0' not found in 'sift1m:0'`
+## Failure 1 — `dataset_open: profile '0' not found in 'example:0'`
 
 `{profile}` resolved to `"0"` instead of `"label_03"`. Root
 cause: `build_for_each_scope_kernel` cascaded only **workload
@@ -209,7 +209,7 @@ dump.
 ## Open follow-ons
 
 - The unset-input → `Value::U64(0)` rendering path that
-  produced the original `'sift1m:0'` symptom is still in the
+  produced the original `'example:0'` symptom is still in the
   code (`compile.rs:566`). The cascade fix makes it
   unreachable for our workloads, but it's a footgun for any
   future scope shape that recreates the gap. Worth replacing

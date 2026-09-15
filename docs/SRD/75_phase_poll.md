@@ -10,7 +10,7 @@ this SRD is reviewed against the Polydat invariants listed in
 > The synchronizer example in §"Workload surface" shows `trigger_compact`
 > as a *conditional regular op* (`if: …`, re-evaluated every poll
 > iteration). The shipped `ensure_compacted`
-> (`adapters/cql/workloads/full_cql_vector.yaml`) instead fires
+> (`nmbrs/workloads/cql/full_cql_vector.yaml`) instead fires
 > `trigger_compact` as a **daemon op** (SRD-79).
 >
 > The load-bearing correction: a daemon op does **not** "fire once at
@@ -38,7 +38,7 @@ this SRD is reviewed against the Polydat invariants listed in
 
 **Owner:** nmbrs-workload (model), nmbrs-runtime (synthesis,
 runner / executor), workloads (consumers under
-`adapters/cql/workloads/`).
+`nmbrs/workloads/cql/`).
 
 **Cross-refs:**
 - [SRD-11](11_polydat_evaluation.md) §"Two Evaluation
@@ -466,7 +466,7 @@ same machinery the existing per-op metrics use.
 
 - `docs/guide/workload_field_contexts.md` adds a
   `poll:` row under the phase-level fields.
-- `adapters/cql/workloads/full_cql_vector.yaml`
+- `nmbrs/workloads/cql/full_cql_vector.yaml`
   migrates `jolokia_compact` + `jolokia_await_compaction`
   to a single `ensure_compacted` phase using the new
   pattern (was P6 in the planning task list).
@@ -565,4 +565,4 @@ reading its OWN activity metrics from inside its poll loop sees no
 fresh frames while holding — cross-phase reads (the coordination-gate
 pattern) are the supported shape. Tested:
 `nmbrs/tests/poll_require.rs` over
-`examples/workloads/controls/poll_require_smoke.yaml`.
+`nmbrs/examples/workloads/controls/poll_require_smoke.yaml`.

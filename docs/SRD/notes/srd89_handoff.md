@@ -91,7 +91,7 @@ re-apply synthetic saturation (follow-on, below).
 | Non-nested snapshot helper (KEPT, reusable) | `nmbrs-metrics/src/component.rs::Component::control_snapshot` (~542) |
 | Control registry / handle | `nmbrs-metrics/src/controls.rs`: `ControlRegistry` (`list() -> Vec<Arc<dyn ErasedControl>>`, `get_erased`, `declare`); `trait ErasedControl` (`name`, `gauge_f64`, `value_string`, `branch_scope`, `set_f64`) |
 | Walker test | `nmbrs/tests/example_workloads_in_process.rs` — `group_concurrent = max_concurrent` (~219; isolation already dropped, gap documented in-code); env `NMBRS_TEST_WORKER_THREADS` / `NMBRS_TEST_CONCURRENCY` / `NMBRS_TEST_EXAMPLES_DIR` |
-| Optimizer examples (currently MEASURED) | `examples/workloads/optimizer/{control,multiservo,saturation,metricsql,hybrid}.yaml` |
+| Optimizer examples (currently MEASURED) | `nmbrs/examples/workloads/optimizer/{control,multiservo,saturation,metricsql,hybrid}.yaml` |
 
 ---
 
@@ -162,7 +162,7 @@ gated on an env var, written to `concat!(env!("CARGO_MANIFEST_DIR"),
   examples run serially exceed ~150s) — an earlier "reads fire 0×" conclusion
   was a **timeout artifact**. Use the **full** walker with a generous timeout
   (300s) for complete results; don't trust partial narrowed runs.
-- **Solo check:** `./target/debug/nmbrs run workload=examples/workloads/optimizer/control.yaml --session-path target/test-tmp/<uniq>`
+- **Solo check:** `./target/debug/nmbrs run workload=nmbrs/examples/workloads/optimizer/control.yaml --session-path target/test-tmp/<uniq>`
   → expect `best [2]`.
 - **Two-exec cross-talk unit** (worth adding): two `control.yaml` execs in one
   session, distinct retargets → distinct correct bests.

@@ -806,7 +806,21 @@ fn build_session_metrics(
         Some("1") | Some("true") | Some("yes") | Some("on") => {
             Some(session.output_dir.join("metrics.jsonl"))
         }
-        Some(explicit) => Some(std::path::PathBuf::from(explicit)),
+        Some(explicit) => {
+            // An explicit path from the `--metrics-log=` FLAG is the
+            // operator's own and is taken verbatim. The `metrics-log`
+            // PARAM (a workload file can set it) and the env form are
+            // confined to the session directory: a shared workload
+            // must never be able to name a write target elsewhere.
+            let from_flag = args.iter().any(|a| a.starts_with("--metrics-log"));
+            if from_flag {
+                Some(std::path::PathBuf::from(explicit))
+            } else {
+                Some(crate::session::confine_to_dir(&session.output_dir, explicit).map_err(
+                    |e| format!("metrics-log: {e} (an explicit path outside the session directory is only accepted from the --metrics-log= flag)"),
+                )?)
+            }
+        }
     };
     if let Some(log_path) = metrics_log_path {
         match nmbrs_metrics::reporters::metrics_log::MetricsLogReporter::new(&log_path) {
@@ -2684,7 +2698,7 @@ async fn run_execution(
     // (which substituted `{name}` → literal value before
     // compilation) was redundant once that path landed and
     // produced broken output for in-string placeholders
-    // (`"{dataset}:{profile}"` → `""sift1m":"default""`),
+    // (`"{dataset}:{profile}"` → `""example":"default""`),
     // so it has been retired.
     //
     // What's left here: rewrite inline `{{expr}}` constructs to
@@ -4832,7 +4846,7 @@ fn scan_param_refs(text: &str, refs: &mut ParamRefs) {
             refs.placeholders.insert(body.to_string());
         } else {
             // Inline Polydat expression body, e.g.
-            // `{is_one_of(cassandra_dialect, "cndb")}` or
+            // `{is_one_of(cassandra_dialect, "vendor")}` or
             // `{:=mod(hash(cycle), 100):=}`. Walk the body,
             // collect identifier-shaped tokens that aren't
             // inside string literals — those are Polydat name
@@ -4933,7 +4947,7 @@ fn collect_param_references(workload: &nmbrs_workload::model::Workload) -> Param
     // op map — `if:` (condition), `delay:`, and the
     // serde_json values inside `params:`. Missing any of those
     // produced false positives on the unused-param check
-    // (e.g. `if: '{is_one_of(cassandra_dialect, "cndb")}'`
+    // (e.g. `if: '{is_one_of(cassandra_dialect, "vendor")}'`
     // landed in `condition` rather than `op.op`, so the
     // workload param `cassandra_dialect` looked unreferenced).
     fn scan_op(op: &nmbrs_workload::model::ParsedOp, refs: &mut ParamRefs) {

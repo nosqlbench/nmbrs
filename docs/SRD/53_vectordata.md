@@ -430,7 +430,7 @@ Typical vector search workload with three phases:
 
 ```yaml
 params:
-  dataset: glove-25-angular
+  dataset: example
   concurrency: "100"
 
 bindings: |
@@ -557,7 +557,7 @@ change required.
 | Adapter conversion | none | none |
 | Total per cycle | **zero allocations** | one `Vec<f32>` (bounded by the reader's API) |
 
-For the typical workload (sift1m mmap'd locally), the per-cycle
+For the typical workload (a locally mmap'd dataset), the per-cycle
 data path is now allocation-free — the only per-cycle work is a
 slice borrow + an `Arc::clone` (one atomic increment) on the
 owner.

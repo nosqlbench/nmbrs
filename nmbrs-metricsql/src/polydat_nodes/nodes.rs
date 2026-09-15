@@ -63,7 +63,7 @@ fn parse_query(query: &str) -> Result<Expr, String> {
 /// selector that can NEVER match makes the no-data state permanent — and a
 /// permanent NaN silently disarms every comparison written against the wire
 /// (a live saturation breaker churned through a 45+ minute total outage
-/// exactly this way; nb-rs `docs/runwatch-20260826-runC.md`, 19:05 entry).
+/// exactly this way, 2026-08-26).
 /// The canonical cause is an op-template parameter left uninterpolated
 /// inside a binding string (`part="{part}"`): bindings do not interpolate
 /// `{…}` — params are constants there. Two guards make the failure loud

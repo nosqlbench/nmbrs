@@ -452,7 +452,7 @@ Per-verb wrappers are both semantically wrong and slow. Rejected.
    opts an op out) — a retry storm identifies itself even with
    every sampler off. User-facing walkthrough of the whole stack:
    `docs/guide/retry_visibility_and_throttle.md`; runnable
-   demonstrations: `examples/workloads/controls/retry_visibility.
+   demonstrations: `nmbrs/examples/workloads/controls/retry_visibility.
    yaml` and `throttle_backpressure.yaml`.
 5. **The injection bridge**: the `errors` wrapper resolves *before*
    the tries wrapper's activation is evaluated. A `retry` / `retry(N)`

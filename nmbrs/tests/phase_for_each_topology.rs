@@ -73,7 +73,7 @@ impl RunObserver for TreeCapturingObserver {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn phase_level_for_each_materializes_distinct_nodes_per_cell() {
     let workload = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../examples/workloads/iteration/control_flow.yaml")
+        .join("../nmbrs/examples/workloads/iteration/control_flow.yaml")
         .canonicalize()
         .expect("control_flow.yaml present");
 

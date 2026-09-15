@@ -9,20 +9,23 @@
 //! the full `BUNDLED` table, each entry `include_str!`-ing its
 //! yaml — the same embedding mechanism the polydat stdlib uses.
 //!
-//! Sources and their catalog namespaces / tiers:
+//! Sources (all inside this package, so a crates.io build bundles
+//! exactly what a checkout does) and their catalog namespaces / tiers:
 //!
-//! - `workloads/` (repo root)        → curated, top-level names
-//! - `adapters/cql/workloads/`      → curated, `cql/…` — included
-//!   only when a CQL engine feature is enabled, so the catalog
-//!   is truthful about what THIS binary can run (build scripts
-//!   see their crate's features as `CARGO_FEATURE_*` env vars)
+//! - `workloads/`                   → curated, top-level names; its
+//!   `cql/` subtree (`cql/…`) is included only when a CQL engine
+//!   feature is enabled, so the catalog is truthful about what THIS
+//!   binary can run (build scripts see their crate's features as
+//!   `CARGO_FEATURE_*` env vars)
 //! - `examples/workloads/`          → examples tier, `examples/…`
+//! - `drivers/`                     → examples tier, `drivers/…`
 //!
 //! Walk rules: only `.yaml`/`.yml` files; `_`-prefixed files
 //! skipped; subdirectories recurse into name segments except
 //! `local/` (per-checkout scratch) and `logs/` (session output);
 //! catalog names are extension-less; a duplicate catalog name is
-//! a build error.
+//! a build error. A missing source directory is a build error too:
+//! an empty catalog must never ship silently.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -31,26 +34,31 @@ struct BundleSpec {
     dir: PathBuf,
     namespace: &'static str,
     tier_expr: &'static str,
+    /// Top-level subdirectories of `dir` to leave out of this build.
+    skip_top: &'static [&'static str],
 }
 
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let repo_root = manifest_dir.parent().expect("nmbrs has a workspace root");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
     let cql_enabled = std::env::var_os("CARGO_FEATURE_ENGINE_SCYLLA").is_some()
         || std::env::var_os("CARGO_FEATURE_ENGINE_CASSANDRA_CPP").is_some();
 
-    let mut specs = vec![
+    let specs = vec![
         BundleSpec {
-            dir: repo_root.join("workloads"),
+            dir: manifest_dir.join("workloads"),
             namespace: "",
             tier_expr: "nmbrs_workload::catalog::Tier::Curated",
+            // The CQL suite rides under `workloads/cql/` and is only
+            // truthful when this binary links a CQL engine.
+            skip_top: if cql_enabled { &[] } else { &["cql"] },
         },
         BundleSpec {
-            dir: repo_root.join("examples").join("workloads"),
+            dir: manifest_dir.join("examples").join("workloads"),
             namespace: "examples",
             tier_expr: "nmbrs_workload::catalog::Tier::Example",
+            skip_top: &[],
         },
         // SRD-109 — driver manifests + their implementation
         // libraries (`drivers/<name>/driver` + siblings). The
@@ -58,25 +66,28 @@ fn main() {
         // unconditionally. Example tier: `describe drivers` is
         // their discovery surface, not the workload listing.
         BundleSpec {
-            dir: repo_root.join("drivers"),
+            dir: manifest_dir.join("drivers"),
             namespace: "drivers",
             tier_expr: "nmbrs_workload::catalog::Tier::Example",
+            skip_top: &[],
         },
     ];
-    if cql_enabled {
-        specs.push(BundleSpec {
-            dir: repo_root.join("adapters").join("cql").join("workloads"),
-            namespace: "cql",
-            tier_expr: "nmbrs_workload::catalog::Tier::Curated",
-        });
-    }
 
     let mut entries: Vec<(String, &'static str, String)> = Vec::new(); // (name, tier, abs_path)
     for spec in &specs {
         println!("cargo:rerun-if-changed={}", spec.dir.display());
-        if spec.dir.is_dir() {
-            walk(&spec.dir, spec.namespace, spec.tier_expr, &mut entries);
-        }
+        assert!(
+            spec.dir.is_dir(),
+            "bundled workload source directory missing: {} — the catalog must never ship empty",
+            spec.dir.display()
+        );
+        walk(
+            &spec.dir,
+            spec.namespace,
+            spec.tier_expr,
+            spec.skip_top,
+            &mut entries,
+        );
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     for w in entries.windows(2) {
@@ -108,6 +119,7 @@ fn walk(
     dir: &Path,
     namespace: &str,
     tier_expr: &'static str,
+    skip_top: &[&str],
     out: &mut Vec<(String, &'static str, String)>,
 ) {
     let mut children: Vec<_> = std::fs::read_dir(dir)
@@ -119,7 +131,7 @@ fn walk(
         let path = entry.path();
         let fname = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
-            if fname == "local" || fname == "logs" {
+            if fname == "local" || fname == "logs" || skip_top.contains(&fname.as_str()) {
                 continue;
             }
             let sub_ns = if namespace.is_empty() {
@@ -127,7 +139,7 @@ fn walk(
             } else {
                 format!("{namespace}/{fname}")
             };
-            walk(&path, &sub_ns, tier_expr, out);
+            walk(&path, &sub_ns, tier_expr, &[], out);
             continue;
         }
         if fname.starts_with('_') {

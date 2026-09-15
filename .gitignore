@@ -30,3 +30,8 @@ local/
 **/sessions
 **/tmp
 /.cl*
+
+# C++ driver sysroot is built into adapters/cql/target/sysroot by adapters/cql/build.sh;
+# never commit a copy of it or a built binary next to the crate.
+adapters/cql/sysroot/
+adapters/cql/nmbrs

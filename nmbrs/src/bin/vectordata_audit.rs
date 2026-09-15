@@ -7,7 +7,7 @@
 #![allow(clippy::doc_overindented_list_items)]
 
 //! `vectordata-audit` — structural + data-level validator for a
-//! per-label predicate-filtered ANN dataset (sift1m-style).
+//! per-label predicate-filtered ANN dataset (label-profile style).
 //!
 //! Reads through the vectordata 1.1.1 catalog API (transport-
 //! and cache-layout-agnostic) using the generic typed surface
@@ -47,7 +47,7 @@
 //! Usage:
 //!
 //! ```text
-//! vectordata-audit --dataset sift1m
+//! vectordata-audit --dataset <name>
 //! vectordata-audit --dataset path/to/dataset.yaml
 //! ```
 
@@ -210,7 +210,7 @@ fn parse_args() -> Result<String, String> {
                 eprintln!(
                     "usage: vectordata-audit --dataset <name|path|url>\n\
                      \n\
-                     Accepts a catalog dataset name (e.g. 'sift1m'),\n\
+                     Accepts a catalog dataset name (e.g. 'example'),\n\
                      a path to a dataset directory or `dataset.yaml`,\n\
                      or an http(s):// URL — anything\n\
                      `vectordata::catalog::resolver::Catalog::open` accepts."

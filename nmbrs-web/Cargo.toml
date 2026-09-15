@@ -8,7 +8,7 @@ keywords = ["nosqlbench", "workload", "benchmark", "web-ui", "htmx"]
 categories = ["command-line-utilities", "web-programming::http-server"]
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
@@ -18,9 +18,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 askama = "0.15"
 askama-derive-axum = "0.1"
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }
 polydat = "0.3"
-nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.1" }
+nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.2" }
 socket2 = "0.5"
 
 [dev-dependencies]

@@ -91,9 +91,9 @@ the missing contract surface between parent and child kernels:
    dataset_prebuffer("{dataset}:{profile}")` couldn't fold at
    compile time because the synthesiser emitted `extern dataset:
    String` (the manifest-cascade path) instead of `const dataset
-   := "sift1m"` (the workload-params path). The const binding's
+   := "example"` (the workload-params path). The const binding's
    evaluation classified as `ScopeInit`, ran with `Value::None`,
-   produced `Handle("sift1m:None")`, and downstream nodes
+   produced `Handle("example:None")`, and downstream nodes
    panicked. Fix: prefer workload-params over manifest cascade
    in the inner-source emission. This *should* have been an
    automatic consequence of the parent's effective module

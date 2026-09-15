@@ -3617,10 +3617,10 @@ pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> HashMap<String, String> {
     // op gets its OWN expression-to-name mapping, with
     // op-locally unique synth names — no cross-op dedup. Two ops
     // with textually identical inline expressions
-    // (`if: cql_dialect == 'cndb'` on both `indexes_present_cndb`
-    // and `indexes_built_cndb`) now get distinct
+    // (`if: cql_dialect == 'vendor'` on both `indexes_present_vendor`
+    // and `indexes_built_vendor`) now get distinct
     // `__expr_N`/`__expr_M` names. Without this, both ops
-    // injected the same `__expr_1 := cql_dialect == 'cndb'`
+    // injected the same `__expr_1 := cql_dialect == 'vendor'`
     // line into their bindings; the phase-scope ingest then saw
     // two ops each declaring `__expr_1` and tripped the
     // ride-along-uniqueness check (SRD-13c §"Op overriding op
@@ -4283,7 +4283,7 @@ extern table: String
             },
         );
         let mut workload_params = HashMap::new();
-        workload_params.insert("dataset".into(), "sift1m".into());
+        workload_params.insert("dataset".into(), "example".into());
         workload_params.insert("profile".into(), "label_00".into());
         workload_params.insert("keyspace".into(), "baselines".into());
         let kernel = build_op_template_scope_kernel(
@@ -4573,7 +4573,7 @@ extern keyspace: String
         // `const name := "value"` in the child's source rather
         // than auto-externing it.
         let parent =
-            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"sift1m\"\n")
+            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"example\"\n")
                 .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())
@@ -4598,7 +4598,7 @@ extern keyspace: String
         .expect("build_scope");
         let emitted = scope.emit();
         assert!(
-            emitted.contains("const dataset := \"sift1m\""),
+            emitted.contains("const dataset := \"example\""),
             "expected promoted-final emission, got:\n{emitted}"
         );
         assert!(
@@ -4646,7 +4646,7 @@ extern keyspace: String
         // at the synthesizer level with a structured error,
         // not via a downstream Polydat compiler error.
         let parent =
-            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"sift1m\"\n")
+            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"example\"\n")
                 .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())

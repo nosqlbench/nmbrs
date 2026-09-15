@@ -297,7 +297,7 @@ fired condition aborts in-flight siblings via the same cooperative path
 > failure. Tested: `nmbrs/tests/stop_conditions.rs`
 > `phase_graceful_stop_exits_zero_and_keeps_metrics` over the
 > `phase_graceful_stop` scenario in
-> `examples/workloads/controls/stop_conditions_coverage.yaml`.
+> `nmbrs/examples/workloads/controls/stop_conditions_coverage.yaml`.
 >
 > **Completed 2026-08-05 — governance `timeout:` + reason classes (C3).**
 > `WorkloadPhase.timeout` (duration / bare seconds / `{param}`)
@@ -520,5 +520,5 @@ User-facing walkthrough of the layered system (counters → advisory
 → exemplars → tracing → governor → stop conditions):
 `docs/guide/retry_visibility_and_throttle.md`. Runnable,
 walker-pinned demonstrations:
-`examples/workloads/controls/retry_visibility.yaml` and
-`examples/workloads/controls/throttle_backpressure.yaml`.
+`nmbrs/examples/workloads/controls/retry_visibility.yaml` and
+`nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.

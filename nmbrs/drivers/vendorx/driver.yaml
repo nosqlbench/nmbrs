@@ -1,0 +1,21 @@
+# nmbrs/drivers/vendorx/driver.yaml — SRD-109 driver manifest.
+#
+# vendorx is the reference web-only client driver: a REST vector
+# store reached purely through the http module. The manifest maps
+# names and defaults only — every op field lives in the library
+# (vector_impl.yaml) as a literal http request.
+#
+#   nmbrs describe drivers
+#   nmbrs run driver=vendorx scenario=search_perf
+
+driver: vendorx
+adapter: http
+library: vector_impl
+description: |
+  Reference REST vector client on the http module (SRD-109):
+  implements the vector_suite blueprint with literal HTTP ops,
+  including a login → token auth flow.
+defaults:
+  params:
+    base_url: "http://localhost:8099"
+    api_key: "dev-key"

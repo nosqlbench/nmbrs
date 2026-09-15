@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SRD-75 (C5) — phase-poll `require:` strict-gate coverage over
-//! `examples/workloads/controls/poll_require_smoke.yaml`.
+//! `nmbrs/examples/workloads/controls/poll_require_smoke.yaml`.
 //!
 //! A gate whose `until:` reads live metrics must not trust the
 //! predicate while a `require:` selector is unresolved (an
@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/controls/poll_require_smoke.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/controls/poll_require_smoke.yaml";
 
 struct Sandbox {
     dir: PathBuf,

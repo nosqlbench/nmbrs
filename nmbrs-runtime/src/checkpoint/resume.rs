@@ -335,7 +335,7 @@ mod tests {
         let mut e = entry(id.clone(), PhaseStatus::Completed, true);
         e.params_consumed = Some(format!(
             r#"{{"dataset":"{}"}}"#,
-            crate::checkpoint::params_scope::value_digest("sift1m"),
+            crate::checkpoint::params_scope::value_digest("example"),
         ));
         let saved = checkpoint_with(vec![e]);
 
@@ -363,12 +363,12 @@ mod tests {
         let mut e = entry(id.clone(), PhaseStatus::Completed, true);
         e.params_consumed = Some(format!(
             r#"{{"dataset":"{}"}}"#,
-            crate::checkpoint::params_scope::value_digest("sift1m"),
+            crate::checkpoint::params_scope::value_digest("example"),
         ));
         let saved = checkpoint_with(vec![e]);
 
         let mut params = HashMap::new();
-        params.insert("dataset".to_string(), "sift1m".to_string());
+        params.insert("dataset".to_string(), "example".to_string());
         params.insert("suite_k".to_string(), "100".to_string());
         let plan = ResumePlan::from_checkpoint(&saved, &[(id.clone(), true)], &params);
         assert!(

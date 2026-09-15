@@ -4,7 +4,7 @@
 //! SRD-71 cursor partitioning — end-to-end coverage tests.
 //!
 //! Each test runs one scenario from
-//! `examples/workloads/cursors/cursor_partitions_coverage.yaml` and
+//! `nmbrs/examples/workloads/cursors/cursor_partitions_coverage.yaml` and
 //! asserts the expected behavior of one shape:
 //!
 //! - Form 1 single sub-range (number forms + bracket tolerance)
@@ -21,7 +21,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/cursors/cursor_partitions_coverage.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/cursors/cursor_partitions_coverage.yaml";
 
 struct SessionDir {
     path: PathBuf,

@@ -345,7 +345,7 @@ store.
 ## 8. Verification
 
 - After step 6, the smoke test on
-  `examples/workloads/metrics/synthetic_metrics.yaml` should populate
+  `nmbrs/examples/workloads/metrics/synthetic_metrics.yaml` should populate
   `latency_curve_ms` / `load` / `step_counter` /
   `observation_dist` in `metrics.db`. The end-to-end
   synthetic-metrics path becomes observably correct.

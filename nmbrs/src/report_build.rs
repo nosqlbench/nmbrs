@@ -561,7 +561,7 @@ mod tests {
                 "--by",
                 "profile",
                 "--where",
-                "dataset=glove",
+                "dataset=example",
                 "--agg",
                 "mean",
                 "--label",
@@ -590,7 +590,7 @@ mod tests {
         assert_eq!(r.item.style.marker.as_deref(), Some("triangle"));
         assert!(r.item.body.contains("over limit"));
         assert!(r.item.body.contains("by profile"));
-        assert!(r.item.body.contains("where dataset=glove"));
+        assert!(r.item.body.contains("where dataset=example"));
         assert!(r.item.body.contains("agg=mean"));
         assert!(r.item.body.contains("xlabel=limit"));
         assert!(r.item.body.contains("ylabel=recall"));

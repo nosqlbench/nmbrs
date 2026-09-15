@@ -4,7 +4,7 @@
 //! SRD-12 stdlib node-catalog coverage tests.
 //!
 //! Each test runs one scenario from
-//! `examples/workloads/expressions/stdlib_coverage.yaml` and asserts the
+//! `nmbrs/examples/workloads/expressions/stdlib_coverage.yaml` and asserts the
 //! exact emitted line for one family of stdlib functions:
 //!
 //! - Arithmetic (u64 infix / f64 infix / named-node form)
@@ -27,7 +27,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const WORKLOAD: &str = "examples/workloads/expressions/stdlib_coverage.yaml";
+const WORKLOAD: &str = "nmbrs/examples/workloads/expressions/stdlib_coverage.yaml";
 
 struct SessionDir {
     path: PathBuf,

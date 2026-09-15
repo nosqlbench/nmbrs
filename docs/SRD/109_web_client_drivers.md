@@ -28,7 +28,7 @@ ruling) — and cost zero Rust per vendor.
 A vendor driver is a bundled implementation workload:
 
 ```yaml
-# drivers/vendorx/vector_impl.yaml
+# nmbrs/drivers/vendorx/vector_impl.yaml
 implements: vector_suite_blueprint
 
 params:
@@ -68,7 +68,7 @@ A small manifest gives library drivers the ergonomics of built-in
 adapters without any new op vocabulary:
 
 ```yaml
-# drivers/vendorx/driver.yaml
+# nmbrs/drivers/vendorx/driver.yaml
 driver: vendorx              # must match the directory name
 adapter: http
 library: vector_impl         # sibling implementation workload

@@ -139,10 +139,13 @@ impl ResourceKey {
     /// SRD-104 — the **canonical fingerprint rendering** of this key to a
     /// stable string, used as the accessor lookup key
     /// ([`polydat::ResourceAccessor::lookup`]). Unlike [`Self::fmt_for_log`]
-    /// this rendering is **identity-preserving** — it does NOT redact
-    /// secrets — because two keys that differ only in an identity-bearing
-    /// field (e.g. `password`) MUST render to different strings or they
-    /// would collide in the accessor. The `BTreeMap` makes the field order
+    /// this rendering is **identity-preserving**: two keys that differ
+    /// only in an identity-bearing field (e.g. `password`) MUST render to
+    /// different strings or they would collide in the accessor. A secret
+    /// field (`password`, `_secret_*`) contributes a SHA-256 digest of its
+    /// value rather than the value itself, so the fingerprint keeps its
+    /// identity without ever carrying the cleartext into a kernel binding
+    /// or a diagnostic. The `BTreeMap` makes the field order
     /// deterministic, so equal keys always render identically.
     ///
     /// This is the single rendering shared by both sides of the SRD-104
@@ -161,7 +164,16 @@ impl ResourceKey {
             first = false;
             s.push_str(k);
             s.push('=');
-            s.push_str(v);
+            if k.starts_with("_secret_") || k == "password" {
+                use sha2::{Digest, Sha256};
+                let digest = Sha256::digest(v.as_bytes());
+                s.push_str("sha256:");
+                for byte in &digest[..8] {
+                    s.push_str(&format!("{byte:02x}"));
+                }
+            } else {
+                s.push_str(v);
+            }
         }
         s.push('}');
         s
@@ -2378,8 +2390,8 @@ mod tests {
             "render_key must distinguish identity-bearing password"
         );
         assert!(
-            a.render_key().contains("password=p1"),
-            "got: {}",
+            !a.render_key().contains("p1") && a.render_key().contains("password=sha256:"),
+            "the fingerprint must carry a digest of the secret, never the cleartext; got: {}",
             a.render_key()
         );
         // BTreeMap makes field order irrelevant to the rendering.

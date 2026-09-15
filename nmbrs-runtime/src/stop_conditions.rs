@@ -571,7 +571,7 @@ mod tests {
     /// carrier is transitive) and read them LIVE.
     #[test]
     fn stop_condition_reads_root_shared_wire() {
-        // Root scope: f64 cells, as compaction_demo_derived declares
+        // Root scope: f64 cells, as the incremental compaction sweep declares
         // (`shared recent_result_failures: f64 := 0.0`) — the typed-
         // extern path matters, a u64 guess would corrupt the compare.
         let mut root = polydat::dsl::compile_polydat(

@@ -184,7 +184,7 @@ fn local_file_shadows_catalog_name_with_warning() {
     );
 }
 
-/// The incident that motivated nearest-first: a checkout's
+/// The incident that motivated nearest-first: a cwd's logical-layout
 /// `workloads/vector_suite_blueprint.yaml` must shadow the
 /// embedded catalog copy when a bundled impl's `implements:`
 /// resolves — a stale binary must never silently pair fresh

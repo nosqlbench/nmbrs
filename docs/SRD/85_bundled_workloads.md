@@ -72,9 +72,9 @@ source location:
 
 | Namespace | Source | Tier |
 |-----------|--------|------|
-| *(top level, no slash)* and per-domain groups | `workloads/` (new top-level repo dir) | **curated** |
-| `<adapter>/…` (e.g. `cql/…`) | `adapters/<adapter>/workloads/` | **curated**, present only when the adapter is compiled in |
-| `examples/…` | `examples/workloads/` | **examples** — bundled, runnable, unlisted by default |
+| *(top level, no slash)* and per-domain groups | `nmbrs/workloads/` (inside the binary's package, so a crates.io build bundles it) | **curated** |
+| `<adapter>/…` (e.g. `cql/…`) | `nmbrs/workloads/<adapter>/` | **curated**, present only when the adapter is compiled in |
+| `examples/…` | `nmbrs/examples/workloads/` | **examples** — bundled, runnable, unlisted by default |
 
 `workload=cql/keyvalue` and
 `workload=examples/cursors/timeboxed_partition_sweep` run a bundled
@@ -202,9 +202,9 @@ pub struct BundledWorkload {
 }
 ```
 
-- `workloads/` (curated, top-level names) and
-  `examples/workloads/` (examples tier) are always embedded.
-- `adapters/<a>/workloads/` directories are embedded under the
+- `nmbrs/workloads/` (curated, top-level names) and
+  `nmbrs/examples/workloads/` (examples tier) are always embedded.
+- `nmbrs/workloads/<a>/` subtrees are embedded under the
   adapter's namespace **only when the adapter's feature is
   enabled** — build scripts see their crate's features as
   `CARGO_FEATURE_*` env vars, so a build without the CQL engine

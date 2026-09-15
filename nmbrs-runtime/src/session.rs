@@ -1762,6 +1762,36 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
+/// Resolve an operator-supplied relative path INSIDE `base`, refusing
+/// anything that could name a location elsewhere: an absolute path, a
+/// `..` component, an empty path, or a Windows drive/prefix. Output
+/// paths that a workload file can set (`metrics-log`, `trace_log`)
+/// route through here, so a shared workload can only ever write into
+/// the session's own directory tree.
+pub fn confine_to_dir(base: &Path, rel: &str) -> Result<PathBuf, String> {
+    use std::path::Component;
+    let rel_path = Path::new(rel.trim());
+    if rel.trim().is_empty() {
+        return Err("empty path".to_string());
+    }
+    for comp in rel_path.components() {
+        match comp {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => {
+                return Err(format!(
+                    "'{rel}' escapes the session directory (`..` is not allowed)"
+                ));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "'{rel}' is absolute; only paths relative to the session directory are accepted here"
+                ));
+            }
+        }
+    }
+    Ok(base.join(rel_path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2474,5 +2504,41 @@ mod tests {
             "active session pointed-at by logs/latest must survive purge"
         );
         let _ = std::fs::remove_dir_all(&parent);
+    }
+}
+
+#[cfg(test)]
+mod confine_tests {
+    use super::confine_to_dir;
+    use std::path::Path;
+
+    #[test]
+    fn relative_paths_land_inside_the_base() {
+        let base = Path::new("/sess");
+        assert_eq!(
+            confine_to_dir(base, "traces.jsonl").unwrap(),
+            Path::new("/sess/traces.jsonl")
+        );
+        assert_eq!(
+            confine_to_dir(base, "./sub/x.log").unwrap(),
+            Path::new("/sess/./sub/x.log")
+        );
+    }
+
+    #[test]
+    fn escapes_and_absolutes_are_refused() {
+        let base = Path::new("/sess");
+        assert!(confine_to_dir(base, "../x").unwrap_err().contains(".."));
+        assert!(
+            confine_to_dir(base, "a/../../x")
+                .unwrap_err()
+                .contains("..")
+        );
+        assert!(
+            confine_to_dir(base, "/etc/passwd")
+                .unwrap_err()
+                .contains("absolute")
+        );
+        assert!(confine_to_dir(base, "").unwrap_err().contains("empty"));
     }
 }

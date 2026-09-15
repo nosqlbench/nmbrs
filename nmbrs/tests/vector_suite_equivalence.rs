@@ -65,14 +65,14 @@ fn load(path: &Path) -> nmbrs_workload::model::Workload {
 
 /// The direct monolith, extends-resolved.
 fn direct() -> nmbrs_workload::model::Workload {
-    load(&repo_root().join("adapters/cql/workloads/vector_suite/vector_suite_cql_direct.yaml"))
+    load(&repo_root().join("nmbrs/workloads/cql/vector_suite/vector_suite_cql_direct.yaml"))
 }
 
 /// The blueprint with the CQL implementation bound in.
 fn pair() -> nmbrs_workload::model::Workload {
-    let mut blueprint = load(&repo_root().join("workloads/vector_suite_blueprint.yaml"));
+    let mut blueprint = load(&repo_root().join("nmbrs/workloads/vector_suite_blueprint.yaml"));
     let implementation =
-        load(&repo_root().join("adapters/cql/workloads/vector_suite/vector_suite_cql_impl.yaml"));
+        load(&repo_root().join("nmbrs/workloads/cql/vector_suite/vector_suite_cql_impl.yaml"));
     nmbrs_workload::implements::bind_implementation(&mut blueprint, implementation)
         .expect("bind vector_suite_cql_impl into vector_suite_blueprint");
     assert!(
@@ -441,10 +441,10 @@ fn suite_model_equivalence() {
 fn pair_documents_do_not_mention_the_direct_form() {
     let root = repo_root();
     for rel in [
-        "workloads/vector_suite_blueprint.yaml",
-        "adapters/cql/workloads/vector_suite/vector_suite_cql_impl.yaml",
-        "adapters/cql/workloads/vector_suite/vector_suite_cql_oss.yaml",
-        "adapters/cql/workloads/vector_suite/vector_suite_cql_oss_sift1m.yaml",
+        "nmbrs/workloads/vector_suite_blueprint.yaml",
+        "nmbrs/workloads/cql/vector_suite/vector_suite_cql_impl.yaml",
+        "nmbrs/workloads/cql/vector_suite/vector_suite_cql_oss.yaml",
+        "nmbrs/workloads/cql/vector_suite/vector_suite_cql_oss_sift128.yaml",
     ] {
         let text =
             std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));

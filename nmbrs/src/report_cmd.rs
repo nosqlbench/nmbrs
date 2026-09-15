@@ -1184,7 +1184,7 @@ fn db_flag_path(args: &[String]) -> Option<PathBuf> {
 /// the start-of-run `workload` row — the arg as passed, often a
 /// bare name — which goes through the same name→path search `nmbrs
 /// run` uses (cwd, `workloads/`, `adapters/*/workloads/`,
-/// `examples/workloads/`). `None` when the db is absent/unreadable
+/// `nmbrs/examples/workloads/`). `None` when the db is absent/unreadable
 /// or no run recorded either row; an unresolvable name is returned
 /// as-is so the caller's error can say what the session recorded.
 fn workload_recorded_in(db_path: &Path) -> Option<PathBuf> {

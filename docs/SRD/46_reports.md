@@ -53,7 +53,7 @@ report:
   recall_block: |
     plot recall_at_k10
       over limit by profile
-      where dataset=glove
+      where dataset=example
       label "Recall@10 vs k limit"
       series profile=hnsw {"line": "dashed", "marker": "triangle"}
     table recall_summary
@@ -604,8 +604,8 @@ and the report renderers (`plot_metrics.rs` /
 giving operators **one query language across the whole
 system**. The legacy DSL keywords (`over` / `by` / `where`
 / `agg=`) still parse for back-compat with un-migrated
-workloads in `examples/workloads/` and
-`adapters/cql/workloads/backup.yaml`; their removal is the
+workloads in `nmbrs/examples/workloads/` and
+`nmbrs/workloads/cql/backup.yaml`; their removal is the
 remaining Push C work.
 
 ### Why
@@ -733,7 +733,7 @@ migrated to the new shape.
 
 **What's shipped:**
 
-- `adapters/cql/workloads/full_cql_vector.yaml` — the
+- `nmbrs/workloads/cql/full_cql_vector.yaml` — the
   canonical workload — is fully migrated to the new
   metricsql + `y:` / `x:` / `series:` shape. No legacy
   `over` / `by` / `where` / `agg=` directives remain in
@@ -746,11 +746,11 @@ migrated to the new shape.
 
 **What's left:**
 
-- Migrate the back-compat workloads — `examples/workloads/
-  summary.yaml`, `examples/workloads/metrics/summary/gk_context.yaml`,
-  `examples/workloads/metrics/summary/aggregates.yaml`,
-  `examples/workloads/metrics/report_text_file_demo.yaml`,
-  `adapters/cql/workloads/backup.yaml` — off the legacy DSL.
+- Migrate the back-compat workloads — `nmbrs/examples/workloads/
+  summary.yaml`, `nmbrs/examples/workloads/metrics/summary/gk_context.yaml`,
+  `nmbrs/examples/workloads/metrics/summary/aggregates.yaml`,
+  `nmbrs/examples/workloads/metrics/report_text_file_demo.yaml`,
+  `nmbrs/workloads/cql/backup.yaml` — off the legacy DSL.
   These workloads are example/test scaffolding rather than
   shipping configurations; they're the last live consumers
   of `over` / `by` / `where`.

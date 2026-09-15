@@ -24,7 +24,7 @@
   `is_stable` verdict + a time-based viability gate); and all three **axis
   kinds** — discrete, **continuous** (sampled by metric-space solvers like
   `nelder_mead`/`cmaes`), and **categorical** — at single OR multiple axes.
-  Examples: `examples/workloads/optimizer_*.yaml`; user guide:
+  Examples: `nmbrs/examples/workloads/optimizer_*.yaml`; user guide:
   `docs/guide/optimizer.md`.
 - **DESIGNED, not yet shipped:** the **node-level `optimizer:` property** over an
   arbitrary subtree (the phase-level `optimize:` block shipped instead); the §6
@@ -408,12 +408,12 @@ becomes the `IterationStep` to run depends on whether the axis is enumerable:
   owns. No hull, no holes, no skipping: every proposal is feasible by
   construction. (V8's continuous-requires-order check is a *validation* concern;
   the executor reads `metadata()` directly and never enumerates, so it never
-  applies here.) Reference: `examples/workloads/optimizer/continuous.yaml`.
+  applies here.) Reference: `nmbrs/examples/workloads/optimizer/continuous.yaml`.
 
 *Status:* The **continuous** path is fully operational at **single OR multiple**
 axes — a multi-clause `for_each` of float ranges (`x in 0.0 .. 6.0, y in 0.0 ..
 8.0`) is sampled jointly by a metric-space solver (see
-`examples/workloads/optimizer/multiaxis.yaml`). **Refinement still open** on the
+`nmbrs/examples/workloads/optimizer/multiaxis.yaml`). **Refinement still open** on the
 **discrete** path: `search_space_from_steps` derives a flat per-axis hull from
 the enumerated grid — it visits the feasible set *correctly* (off-grid proposals
 are skipped) but presents the **hull** to the optimizer, so an adaptive method
@@ -502,8 +502,8 @@ axis is therefore realized **only** by iterating its scope (never set
 ineffectually); the control varies live within each fixed-coordinate phase. The
 best is reported as `(coordinate-cell ; control-setting)`. `conc` written last is
 innermost by lex order, but the partition is order-independent within a node.
-References: `examples/workloads/optimizer/control.yaml` (all-control),
-`examples/workloads/optimizer/hybrid.yaml` (mixed).
+References: `nmbrs/examples/workloads/optimizer/control.yaml` (all-control),
+`nmbrs/examples/workloads/optimizer/hybrid.yaml` (mixed).
 
 **Deferred:** the `Control`-daemon's `Pulse-event` trigger and configurable
 feedback cadence (§5) beyond the reused settle; `Fixture` re-install/re-stack
@@ -814,7 +814,7 @@ Both adopted methods consume `AxisKind::Discrete` / `Categorical` **value-native
 | Disposition wiring | `nmbrs-runtime/src/stop_conditions.rs`, `workload_shell.rs` |
 | Settle statistic nodes | `polydat/src/library/*` (EWMA / rolling-variance / freshness / slope) |
 | `describe optimizers` | `nmbrs/src/describe.rs`; `nmbrs/tests/describe_optimizers.rs` |
-| Example workloads (per feature) | `examples/workloads/optimizer_*.yaml` — testkit synthetic-manifold objectives, runnable standalone |
+| Example workloads (per feature) | `nmbrs/examples/workloads/optimizer_*.yaml` — testkit synthetic-manifold objectives, runnable standalone |
 | Integration test | `nmbrs/tests/optimizer_manifold_e2e.rs` — testkit objective, drives the registry |
 | Layer + Contract Registry | `docs/SRD/05_dependency_rules.md`, `nmbrs/tests/architecture_rules.rs` |
 
@@ -870,7 +870,7 @@ The optimizer follows the **adapter/plugin pattern** — inverted from a naive
    (`CoordEval::Synthesized`); the objective read off each iteration's kernel.
    Validated end-to-end — `sweep` (pull), `nelder_mead`/`cmaes` (feedback via
    `ThreadBridge`) converge in a real `nmbrs run` across discrete, continuous,
-   multi-axis, and categorical axes (`examples/workloads/optimizer_*.yaml` +
+   multi-axis, and categorical axes (`nmbrs/examples/workloads/optimizer_*.yaml` +
    `workload_examples.rs`). *Follow-ups:* (a) a pre-existing synthesis gap means a
    phase cannot yet combine `for_each` with phase-level `metrics:`, so the
    objective is a `bindings:` wire (not a `metrics:` entry) for now; (b)
@@ -922,7 +922,7 @@ The optimizer follows the **adapter/plugin pattern** — inverted from a naive
     (parse-once at construction, evaluate per-eval; all `Purity::Nondeterministic` so they
     are never const-folded — [SRD 40c](40c_metric_query_api.md) MQ4); (d) coverage tests +
     `NotYetImplemented` surfacing. **(e) SHIPPED 2026-06-18** —
-    `examples/workloads/optimizer/metricsql.yaml` + the
+    `nmbrs/examples/workloads/optimizer/metricsql.yaml` + the
     `optimizer_metricsql_objective_settles` test: a `metricsql_scalar("sum(errors_total)")`
     objective, settled across the run by item 8's cadence-fed detector, picks the
     concurrency that eliminates overloads (best [2]) — the same causal oracle as
@@ -940,7 +940,7 @@ The optimizer follows the **adapter/plugin pattern** — inverted from a naive
 12. **Staged further:** the cost-economy learner, multi-objective Pareto.
 
 **Examples & acceptance.** Each feature ships with a paired **standalone**
-example in `examples/workloads/optimizer_*.yaml` (the Examples-Run-Standalone
+example in `nmbrs/examples/workloads/optimizer_*.yaml` (the Examples-Run-Standalone
 rule: defaults wired in, paced with `rate:`, testkit declared in-file, no
 required flags). The objective is a synthetic-manifold polydat `value:`
 expression over the coordinate axes — a known surface the optimizer climbs with

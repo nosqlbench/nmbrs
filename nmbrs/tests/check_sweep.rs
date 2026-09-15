@@ -24,6 +24,7 @@ fn cli_check_sweep_over_examples_is_green() {
     let examples: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("repo root")
+        .join("nmbrs")
         .join("examples");
     assert!(
         examples.is_dir(),

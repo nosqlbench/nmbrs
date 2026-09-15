@@ -114,7 +114,7 @@ pub fn web_command(args: &[String]) {
                 .or_else(|| a.strip_prefix("--bind="))
         })
         .or_else(|| space_value("--bind"))
-        .unwrap_or("0.0.0.0");
+        .unwrap_or("127.0.0.1");
     let port_raw = args
         .iter()
         .find_map(|a| {
