@@ -186,16 +186,17 @@ Implemented (Push 2) at two levels:
   message matches the interpreter's `is_positive({name}): …` format
   exactly; asserted by `violation_message_parity_between_engines`.
 
-> **polydat 0.3 (2026-09-14):** `set_default_jit_mode` is gone — the
-> mode is a property of each kernel built, never of the process, and
-> the interpreter entry points nmbrs compiles through fix it at
-> `Auto`. `jit=auto` is accepted; `jit=off` / `jit=force` are refused
-> with a message naming this gap (never accepted-and-ignored), and
-> the differential battery (`nmbrs/tests/jit_differential.rs`) is
-> `#[ignore]`d on the same reason. Re-enabling both needs polydat to
-> carry a `jit_mode` on `CompileOptions` (or an interpreter-typed
-> `compile_polydat_with_engine`), at which point the runner maps the
-> param onto that option per compile.
+> **REMOVED 2026-09-15 — the `jit=` session param no longer exists.**
+> polydat 0.3 made the JIT mode a property of each kernel built, never
+> of the process (`set_default_jit_mode` is gone), and its interpreter
+> entry points fix the mode at `Auto`. Rather than carry a knob the
+> engine cannot honour, nmbrs does not make the mode configurable:
+> `jit=` / `--jit` are not accepted parameters, the runner sets
+> nothing, and the differential battery
+> (`nmbrs/tests/jit_differential.rs`) is deleted with it. The
+> paragraphs below are the landing record of the original design. If
+> a per-session mode is wanted again, it is re-added end to end
+> (polydat `CompileOptions::jit_mode`, the param spec, the battery).
 
 The `jit=off|auto|force` session param (front-loaded from Push 3's
 config surface) maps to `polydat::set_default_jit_mode` at session

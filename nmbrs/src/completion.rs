@@ -194,10 +194,6 @@ pub static RUN_KV_PARAMS: &[crate::cli_spec::KvParam] = &[
         provider: static_completed_phases,
     },
     crate::cli_spec::KvParam {
-        key: "jit=",
-        provider: static_jit,
-    },
-    crate::cli_spec::KvParam {
         key: "phases=",
         provider: workload_phase_provider,
     },
@@ -420,10 +416,6 @@ fn static_skipped_phases(partial: &str, _ctx: &[&str]) -> Vec<String> {
 
 fn static_completed_phases(partial: &str, _ctx: &[&str]) -> Vec<String> {
     filter_prefix(&["full", "headers"], partial)
-}
-
-pub(crate) fn static_jit(partial: &str, _ctx: &[&str]) -> Vec<String> {
-    filter_prefix(&["off", "auto", "force"], partial)
 }
 
 fn static_schedule(partial: &str, _ctx: &[&str]) -> Vec<String> {

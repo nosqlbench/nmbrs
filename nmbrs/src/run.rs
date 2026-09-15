@@ -1108,15 +1108,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
             help: "Polydat kernel optimisation level (release|diagnostic).",
             repeatable: false,
         },
-        Flag {
-            long: "--jit",
-            short: None,
-            aliases: &[],
-            arity: Arity::Value,
-            value: ValueProvider::Custom(crate::completion::static_jit),
-            help: "SRD-105 session engine mix (off|auto|force).",
-            repeatable: false,
-        },
     ]
 }
 

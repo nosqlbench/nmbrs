@@ -61,7 +61,7 @@ pub(crate) fn is_cli_param(name: &str) -> bool {
 /// [`install_known_params`]. Before this, [`parse_params`] validated argv
 /// against its own hardcoded lists ([`RECOGNIZED_BARE_FLAGS`] /
 /// [`SESSION_DIR_FLAGS`]), which had drifted from the spec — declared flags
-/// like `--no-prompt` (bool) and the space forms of `--jit` / `--kernel-opt`
+/// like `--no-prompt` (bool) and the space form of `--kernel-opt`
 /// / declared aliases like `--session-dir` were hard-rejected while help and
 /// completion advertised them. The hardcoded lists remain only as the
 /// library/test-driver fallback.
@@ -2320,37 +2320,6 @@ async fn run_execution(
             })?,
         }
     };
-
-    // SRD-105 — session-wide engine mix: `jit=off|auto|force` (or
-    // `--jit=`). polydat 0.3 made the JIT mode a property of each
-    // kernel built, never of the process, and its interpreter entry
-    // points (the `PolydatKernel` path every nmbrs scope compiles
-    // through) fix the mode at `Auto`; no public entry point takes a
-    // mode for a program with traversals. Until polydat carries the
-    // mode on `CompileOptions`, `auto` is the only honourable value:
-    // `off` and `force` are refused loudly rather than accepted and
-    // ignored (the differential battery is parked on the same gap).
-    {
-        let raw = cli_flag_value(&args[..], "--jit").or_else(|| params.get("jit").cloned());
-        if let Some(s) = raw {
-            match s.trim() {
-                "auto" => {}
-                mode @ ("off" | "force") => {
-                    return Err(format!(
-                        "jit={mode} is not available: polydat 0.3 fixes the interpreter \
-                         kernel's JIT mode at 'auto' and exposes no per-compile override \
-                         for programs with traversals; use jit=auto (the default) or \
-                         omit the parameter"
-                    ));
-                }
-                bad => {
-                    return Err(format!(
-                        "unknown jit value '{bad}' — use 'off', 'auto', or 'force'"
-                    ));
-                }
-            }
-        }
-    }
 
     // Parse dryrun= param into diagnostic config
     if let Some(spec) = params.get("dryrun") {
