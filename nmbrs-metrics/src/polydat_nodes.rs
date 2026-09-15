@@ -34,7 +34,6 @@
 //! - `"rate"` — cycles/second (session-average / per-window)
 //! - `"p50"`, `"p99"`, `"mean"` — latency quantiles from cycles_servicetime (nanos)
 
-use polydat::derive_support::Const;
 use std::sync::{Arc, LazyLock, Mutex};
 
 // Node metadata + registration are emitted by `#[polydat::polydat_node]`

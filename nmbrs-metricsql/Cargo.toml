@@ -29,7 +29,7 @@ arc-swap = { version = "1", optional = true }
 # SRD-86 — the `metricsql_*` polydat node family (parse + evaluate +
 # project a query result to a polydat `Value`). Optional so the engine
 # stays polydat-free for consumers that only want parse/evaluate.
-polydat = { version = "0.2", optional = true }
+polydat = { version = "0.3", optional = true }
 inventory = { version = "0.3.24", optional = true }
 
 [features]

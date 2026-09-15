@@ -313,14 +313,14 @@ pub fn compile_continue_if(
         ));
     }
     source.push_str(&format!("__continue_if := {when}"));
-    polydat::dsl::compile_polydat_with_outputs(
-        &source,
-        None,
-        &["__continue_if".to_string()],
+    let options = polydat::dsl::compile::CompileOptions {
+        required_outputs: vec!["__continue_if".to_string()],
         strict,
-    )
-    .map(Arc::new)
-    .map_err(|e| format!("continue_if predicate `{when}`: {e}"))
+        ..Default::default()
+    };
+    polydat::dsl::compile::compile_polydat_with_options(&source, &options, None)
+        .map(Arc::new)
+        .map_err(|e| format!("continue_if predicate `{when}`: {e}"))
 }
 
 /// SRD-101 — evaluate a compiled `continue_if` gate for ONE iteration.

@@ -12,9 +12,11 @@
 //!   [`CqlServerBatchLimit`] applies the SRD-103 §4 back-off to the batch
 //!   fail-threshold.
 //!
-//! Every node is `cql_`-prefixed (`adapter = "cql"`) and lives here rather
-//! than in any one engine adapter, so both engines register the same node
-//! set and workloads using `cql_…(…)` are portable across engines.
+//! Every node is `cql_`-prefixed (the adapter-node naming convention —
+//! polydat 0.3 dropped the macro's `adapter = "…"` prefix check, so the
+//! prefix is authored, not enforced) and lives here rather than in any one
+//! engine adapter, so both engines register the same node set and
+//! workloads using `cql_…(…)` are portable across engines.
 //!
 //! ## Sync/async contract
 //!
@@ -44,7 +46,7 @@ use crate::common::CqlSessionHandle;
 /// Authored via `#[polydat::polydat_node]` (SRD-80b). Pure (deterministic in
 /// its seed): const-folds when the seed is const, evaluates per-cycle when
 /// the seed is a dynamic wire.
-#[polydat::polydat_node(category = RealData, adapter = "cql")]
+#[polydat::polydat_node(category = RealData)]
 fn cql_timeuuid(seed: u64) -> String {
     let h1 = xxhash_rust::xxh3::xxh3_64(&seed.to_le_bytes());
     let h2 = xxhash_rust::xxh3::xxh3_64(&h1.to_le_bytes());
@@ -68,7 +70,7 @@ fn cql_timeuuid(seed: u64) -> String {
 /// `0`) rather than a panic — the handle downcast in the consuming nodes
 /// always succeeds because this node always produces a `CqlSessionHandle`.
 #[polydat::polydat_node(
-    category = RealData, adapter = "cql",
+    category = RealData,
     purity = Nondeterministic("resolves a live pool-owned session by fingerprint")
 )]
 fn cql_session(key: &str) -> Arc<CqlSessionHandle> {
@@ -82,7 +84,7 @@ fn cql_session(key: &str) -> Arc<CqlSessionHandle> {
 /// memo, which the adapter primed (at most one query per (session, setting))
 /// at op-field mapping. `0` when un-primed / unknown (SRD-103 §4–5).
 #[polydat::polydat_node(
-    category = RealData, adapter = "cql",
+    category = RealData,
     purity = Nondeterministic("reads live cluster settings off the session memo")
 )]
 fn cql_read_cached(session: Arc<CqlSessionHandle>, name: &str) -> u64 {
@@ -94,7 +96,7 @@ fn cql_read_cached(session: Arc<CqlSessionHandle>, name: &str) -> u64 {
 /// eval; the freshness is realised at the async pre-read (`prime_current`)
 /// when the expression uses this node. `0` when unknown (SRD-103 §4–5).
 #[polydat::polydat_node(
-    category = RealData, adapter = "cql",
+    category = RealData,
     purity = Nondeterministic("reads live cluster settings off the session memo")
 )]
 fn cql_read_current(session: Arc<CqlSessionHandle>, name: &str) -> u64 {
@@ -106,7 +108,7 @@ fn cql_read_current(session: Arc<CqlSessionHandle>, name: &str) -> u64 {
 /// `cql_read_cached(session, "batch_size_fail_threshold") × 0.9`, `0` when
 /// unknown. A thin convenience over `cql_read_cached` + the back-off.
 #[polydat::polydat_node(
-    category = RealData, adapter = "cql",
+    category = RealData,
     purity = Nondeterministic("reads the live cluster batch fail-threshold")
 )]
 fn cql_server_batch_limit(session: Arc<CqlSessionHandle>) -> u64 {

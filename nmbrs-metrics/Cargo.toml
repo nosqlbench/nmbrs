@@ -28,7 +28,7 @@ arc-swap = "1"
 # polydat-side metric-reading node registration (formerly
 # `polydat::nodes::metrics`) so polydat itself doesn't take a
 # reverse dep on nmbrs-metrics.
-polydat = "0.2"
+polydat = "0.3"
 # `inventory` is needed for the polydat-node registration macro
 # (`polydat::register_nodes!`) to emit its `inventory::submit!`
 # block from this crate.

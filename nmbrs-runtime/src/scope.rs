@@ -4234,13 +4234,13 @@ extern limit: u64
 extern optimize_for: String
 extern table: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_with_libs(
+        let parent = polydat::dsl::compile::compile_polydat_with_options(
             parent_src,
+            &polydat::dsl::compile::CompileOptions {
+                context: "parent".to_string(),
+                ..Default::default()
+            },
             None,
-            vec![],
-            &[],
-            false,
-            "parent",
         )
         .expect("parent compile");
         let manifest: Vec<crate::runner::ManifestEntry> =
@@ -4351,13 +4351,13 @@ extern dataset: String
 extern profile: String
 extern keyspace: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_with_libs(
+        let parent = polydat::dsl::compile::compile_polydat_with_options(
             parent_src,
+            &polydat::dsl::compile::CompileOptions {
+                context: "parent".to_string(),
+                ..Default::default()
+            },
             None,
-            vec![],
-            &[],
-            false,
-            "parent",
         )
         .expect("parent compile");
         let manifest: Vec<crate::runner::ManifestEntry> =
@@ -5309,16 +5309,16 @@ extern keyspace: String
         let emitted = scope.emit();
 
         // ── compile_from_scope equivalent — uses the SAME compile
-        // path the executor takes (compile_polydat_with_libs_and_limit
-        // → compile_filtered with optional required_outputs filter).
+        // path the executor takes (compile_polydat_with_options with
+        // the scope's required_outputs filter).
         let required = scope.required_outputs();
-        let executor_kernel = polydat::dsl::compile_polydat_with_libs_and_limit(
+        let executor_kernel = polydat::dsl::compile::compile_polydat_with_options(
             &emitted,
-            None,
-            Vec::new(),
-            &required,
-            false,
-            "test",
+            &polydat::dsl::compile::CompileOptions {
+                required_outputs: required.clone(),
+                context: "test".to_string(),
+                ..Default::default()
+            },
             None,
         )
         .unwrap_or_else(|e| {
@@ -5504,13 +5504,13 @@ extern keyspace: String
         .expect("executor build_scope");
 
         let exec_source = exec_scope.emit();
-        let exec_kernel = polydat::dsl::compile_polydat_with_libs_and_limit(
+        let exec_kernel = polydat::dsl::compile::compile_polydat_with_options(
             &exec_source,
-            None,
-            Vec::new(),
-            &exec_scope.required_outputs(),
-            false,
-            "test_executor",
+            &polydat::dsl::compile::CompileOptions {
+                required_outputs: exec_scope.required_outputs(),
+                context: "test_executor".to_string(),
+                ..Default::default()
+            },
             None,
         )
         .unwrap_or_else(|e| panic!("exec compile failed: {e}\nexec source:\n{exec_source}"));

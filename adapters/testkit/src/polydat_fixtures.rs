@@ -42,7 +42,6 @@ use std::sync::Mutex;
 // The fallible-construction (`-> Result<…>`) macro path references the
 // `Const<…>` marker unqualified in its generated `try_new`, so it must be in
 // scope (the plain / poly_const paths fully-qualify it and don't need this).
-use polydat::Const;
 
 /// Process-wide cache of advanced sequence values, keyed by
 /// statefile path. The Polydat assembly path constructs the node
@@ -102,9 +101,10 @@ pub fn clear_sequence_cache_for(path: &str) {
 /// Signature: `testkit_throw_at(value: u64, threshold: u64, errorname: const str) ->
 /// u64`. Authored via `#[polydat::polydat_node]` (SRD-80b). `errorname` is
 /// the synthetic error label; the errors-cascade machinery treats it like
-/// any driver-emitted error name. `no_jit` — the body panics / formats, so
-/// it stays an eval-only (P1) node.
-#[polydat::polydat_node(category = Diagnostic, no_jit, adapter = "testkit")]
+/// any driver-emitted error name. The body panics / formats; polydat 0.3
+/// lowers a node without a native kit through its closure on every engine,
+/// so no opt-out flag is needed (0.2's `no_jit` is gone).
+#[polydat::polydat_node(category = Diagnostic)]
 fn testkit_throw_at(value: u64, threshold: u64, errorname: Const<&str>) -> u64 {
     if value == threshold {
         // Synthesized failure surfaces through the standard errors cascade —
@@ -130,7 +130,7 @@ fn testkit_throw_at(value: u64, threshold: u64, errorname: Const<&str>) -> u64 {
 /// body runs ONCE at node construction — it advances the state file and the
 /// `u64` is cached, so every eval returns the same picked value. An `Err`
 /// (bad CSV) surfaces as a build error.
-#[polydat::polydat_node(category = Diagnostic, adapter = "testkit")]
+#[polydat::polydat_node(category = Diagnostic)]
 fn testkit_side_effect_sequence_next_cycling(
     statefile_path: Const<&str>,
     csv_values: Const<&str>,
@@ -142,7 +142,7 @@ fn testkit_side_effect_sequence_next_cycling(
 /// Non-cycling variant: same per-session advance, but a hard error at
 /// construction when the sequence is fully consumed (design memo OQ-D-prime).
 /// **Fallible construction** — see [`testkit_side_effect_sequence_next_cycling`].
-#[polydat::polydat_node(category = Diagnostic, adapter = "testkit")]
+#[polydat::polydat_node(category = Diagnostic)]
 fn testkit_side_effect_sequence_next_noncycling(
     statefile_path: Const<&str>,
     csv_values: Const<&str>,
@@ -154,7 +154,7 @@ fn testkit_side_effect_sequence_next_noncycling(
 /// Companion node — deletes the named state file at construction (re-arm).
 /// Output is a sentinel `0`; consumers shouldn't read it. **Fallible
 /// construction** — the delete happens once, at build.
-#[polydat::polydat_node(category = Diagnostic, adapter = "testkit")]
+#[polydat::polydat_node(category = Diagnostic)]
 fn testkit_side_effect_sequence_reset(statefile_path: Const<&str>) -> Result<u64, String> {
     match std::fs::remove_file(statefile_path.0) {
         Ok(()) => {}

@@ -314,6 +314,7 @@ fn describe_source(s: &polydat::iteration::comprehension::Source) -> String {
                 LiteralValue::Float(f) => f.to_string(),
                 LiteralValue::String(st) => st.clone(),
                 LiteralValue::Bool(b) => b.to_string(),
+                LiteralValue::Json(j) => j.to_string(),
             })
             .collect::<Vec<_>>()
             .join(","),

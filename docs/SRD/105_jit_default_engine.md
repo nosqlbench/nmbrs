@@ -186,6 +186,17 @@ Implemented (Push 2) at two levels:
   message matches the interpreter's `is_positive({name}): …` format
   exactly; asserted by `violation_message_parity_between_engines`.
 
+> **polydat 0.3 (2026-09-14):** `set_default_jit_mode` is gone — the
+> mode is a property of each kernel built, never of the process, and
+> the interpreter entry points nmbrs compiles through fix it at
+> `Auto`. `jit=auto` is accepted; `jit=off` / `jit=force` are refused
+> with a message naming this gap (never accepted-and-ignored), and
+> the differential battery (`nmbrs/tests/jit_differential.rs`) is
+> `#[ignore]`d on the same reason. Re-enabling both needs polydat to
+> carry a `jit_mode` on `CompileOptions` (or an interpreter-typed
+> `compile_polydat_with_engine`), at which point the runner maps the
+> param onto that option per compile.
+
 The `jit=off|auto|force` session param (front-loaded from Push 3's
 config surface) maps to `polydat::set_default_jit_mode` at session
 start; unknown values are routed configuration errors.

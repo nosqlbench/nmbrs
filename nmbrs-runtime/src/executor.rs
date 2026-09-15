@@ -2442,10 +2442,12 @@ fn runtime_iterate(
         Ok(())
     };
 
+    // polydat 0.3: the evaluator reads names through `Lookup` — the
+    // parent kernel is the scope; the canonical program is only
+    // needed below, to materialise each tuple's per-iteration kernel.
     let tuples = evaluate_for_iteration(
         comprehension,
-        parent,
-        canonical,
+        parent.as_ref(),
         &ctx.workload_params,
         on_empty,
     )

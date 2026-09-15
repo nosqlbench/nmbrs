@@ -18,7 +18,6 @@
 //! locals the runtime sets during bootstrap and on every cycle
 //! tick.
 
-use polydat::Const;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};

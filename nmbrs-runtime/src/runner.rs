@@ -2322,21 +2322,33 @@ async fn run_execution(
     };
 
     // SRD-105 — session-wide engine mix: `jit=off|auto|force` (or
-    // `--jit=`). Off is the shipped default until the Push 3 flip;
-    // `force` drives the differential battery, `off` is the
-    // interpreter baseline / escape hatch.
+    // `--jit=`). polydat 0.3 made the JIT mode a property of each
+    // kernel built, never of the process, and its interpreter entry
+    // points (the `PolydatKernel` path every nmbrs scope compiles
+    // through) fix the mode at `Auto`; no public entry point takes a
+    // mode for a program with traversals. Until polydat carries the
+    // mode on `CompileOptions`, `auto` is the only honourable value:
+    // `off` and `force` are refused loudly rather than accepted and
+    // ignored (the differential battery is parked on the same gap).
     {
         let raw = cli_flag_value(&args[..], "--jit").or_else(|| params.get("jit").cloned());
         if let Some(s) = raw {
-            let mode = match s.trim() {
-                "off" => Ok(polydat::JitMode::Off),
-                "auto" => Ok(polydat::JitMode::Auto),
-                "force" => Ok(polydat::JitMode::Force),
-                bad => Err(format!(
-                    "unknown jit value '{bad}' — use 'off', 'auto', or 'force'"
-                )),
-            }?;
-            polydat::set_default_jit_mode(mode);
+            match s.trim() {
+                "auto" => {}
+                mode @ ("off" | "force") => {
+                    return Err(format!(
+                        "jit={mode} is not available: polydat 0.3 fixes the interpreter \
+                         kernel's JIT mode at 'auto' and exposes no per-compile override \
+                         for programs with traversals; use jit=auto (the default) or \
+                         omit the parameter"
+                    ));
+                }
+                bad => {
+                    return Err(format!(
+                        "unknown jit value '{bad}' — use 'off', 'auto', or 'force'"
+                    ));
+                }
+            }
         }
     }
 

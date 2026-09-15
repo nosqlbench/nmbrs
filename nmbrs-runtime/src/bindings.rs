@@ -256,15 +256,15 @@ pub fn compile_from_scope(
     let body = scope.emit();
     let required = scope.required_outputs();
     let source = prepend_effective_pragmas(pragmas, &body);
-    polydat::dsl::compile_polydat_with_libs_and_limit(
-        &source,
-        source_dir,
-        polydat_lib_paths,
-        &required,
+    let options = polydat::dsl::compile::CompileOptions {
+        source_dir: source_dir.map(std::path::Path::to_path_buf),
+        lib_paths: polydat_lib_paths,
+        required_outputs: required,
         strict,
-        context,
+        context: context.to_string(),
         cursor_limit,
-    )
+    };
+    polydat::dsl::compile::compile_polydat_with_options(&source, &options, None)
 }
 
 /// Prepend pragma directives matching the chain's effective
@@ -478,7 +478,13 @@ pub fn compile_bindings_with_opts(
                 }
             }
         }
-        return polydat::dsl::compile_polydat_with_outputs(&source, source_dir, &required, strict);
+        let options = polydat::dsl::compile::CompileOptions {
+            source_dir: source_dir.map(std::path::Path::to_path_buf),
+            required_outputs: required,
+            strict,
+            ..Default::default()
+        };
+        return polydat::dsl::compile::compile_polydat_with_options(&source, &options, None);
     }
 
     // Legacy mode: translate semicolon-chain bindings into Polydat source
@@ -568,7 +574,13 @@ pub fn compile_bindings_with_opts(
     }
 
     let polydat_source = polydat_lines.join("\n");
-    polydat::dsl::compile_polydat_with_outputs(&polydat_source, source_dir, &required, strict)
+    let options = polydat::dsl::compile::CompileOptions {
+        source_dir: source_dir.map(std::path::Path::to_path_buf),
+        required_outputs: required,
+        strict,
+        ..Default::default()
+    };
+    polydat::dsl::compile::compile_polydat_with_options(&polydat_source, &options, None)
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,13 @@
 //! on both engines) by exercising the full workload path:
 //! op-template synthesis, scope chains, capture wires, and the
 //! stdout dispenser.
+//!
+//! PARKED on polydat 0.3: the interpreter entry points fix the JIT
+//! mode at `auto` and expose no per-compile override for programs
+//! with traversals, so the runner refuses `jit=off`/`jit=force`
+//! (see the SRD-105 note). The three differential tests are
+//! `#[ignore]`d with that reason; `unknown_jit_value_is_rejected`
+//! still runs.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -116,6 +123,7 @@ fn assert_differential(workload: &str, scenario: Option<&str>) {
 }
 
 #[test]
+#[ignore = "polydat 0.3 fixes the interpreter kernel's JIT mode at auto and exposes no per-compile override; jit=off/force are refused by the runner (SRD-105 note) — re-enable when CompileOptions carries a jit_mode"]
 fn stdlib_coverage_is_differential() {
     for scenario in STDLIB_SCENARIOS {
         assert_differential(STDLIB_WORKLOAD, Some(scenario));
@@ -123,11 +131,13 @@ fn stdlib_coverage_is_differential() {
 }
 
 #[test]
+#[ignore = "polydat 0.3 fixes the interpreter kernel's JIT mode at auto and exposes no per-compile override; jit=off/force are refused by the runner (SRD-105 note) — re-enable when CompileOptions carries a jit_mode"]
 fn expression_examples_are_differential() {
     assert_differential("examples/workloads/expressions/math_and_bitwise.yaml", None);
 }
 
 #[test]
+#[ignore = "polydat 0.3 fixes the interpreter kernel's JIT mode at auto and exposes no per-compile override; jit=off/force are refused by the runner (SRD-105 note) — re-enable when CompileOptions carries a jit_mode"]
 fn getting_started_bindings_are_differential() {
     assert_differential(
         "examples/workloads/getting_started/polydat_bindings.yaml",

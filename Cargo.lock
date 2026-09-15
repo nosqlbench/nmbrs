@@ -1564,12 +1564,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
-name = "fixedbitset"
-version = "0.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
-
-[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3419,18 +3413,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "petgraph"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
-dependencies = [
- "fixedbitset 0.5.7",
- "hashbrown 0.15.5",
- "indexmap",
- "serde",
-]
-
-[[package]]
 name = "phf"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3570,30 +3552,41 @@ dependencies = [
 
 [[package]]
 name = "polydat"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fa11bf2a6b4f4e62e93eb58b8544ac29825d2386d3a26dd42e97da0f34b8d5"
+checksum = "950de7636fd5054b54da888bb58a4782265498bee1ff02607f15d7a24dd88075"
+dependencies = [
+ "clap",
+ "polydat-core",
+ "polydat-grammar",
+ "polydat-nodes",
+ "serde_json",
+]
+
+[[package]]
+name = "polydat-core"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "510542150e898e57309ab04d995f29ad5308381ae28d6d43e61b74f0f91aac54"
 dependencies = [
  "base64",
  "cranelift-codegen",
  "cranelift-frontend",
  "cranelift-jit",
  "cranelift-module",
+ "cranelift-native",
  "data-encoding",
  "half",
  "indexmap",
  "inventory",
- "layout-rs",
- "md-5",
  "paste",
- "petgraph",
  "polydat-derive",
+ "polydat-grammar",
  "regex",
+ "ryu",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
- "target-lexicon",
  "tokio",
  "vectordata",
  "xxhash-rust",
@@ -3601,13 +3594,43 @@ dependencies = [
 
 [[package]]
 name = "polydat-derive"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b002709082d6376272dbea1bb66e88297d93960183555c7a0c5784c1c5a39a9f"
+checksum = "648dfe5bd0f9f7b2deb480fed450f9cc3b147f7021e71d3404c0b70d6cdd77df"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "polydat-grammar"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f2ef99dce3550860e9731417e923b917ae4cbe47432c439e35d7124a73acd61"
+dependencies = [
+ "layout-rs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "polydat-nodes"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "688fde32a4671a672e6f5f79bebb90eb7f8e31c5ea15c35d290a49ec7008f74a"
+dependencies = [
+ "base64",
+ "data-encoding",
+ "inventory",
+ "md-5",
+ "polydat-core",
+ "polydat-derive",
+ "regex",
+ "serde_json",
+ "sha2",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -5165,7 +5188,7 @@ dependencies = [
  "fancy-regex",
  "filedescriptor",
  "finl_unicode",
- "fixedbitset 0.4.2",
+ "fixedbitset",
  "image 0.25.10",
  "libc",
  "log",
@@ -5305,7 +5328,7 @@ dependencies = [
  "bitflags 2.13.1",
  "fancy-regex",
  "finl_unicode",
- "fixedbitset 0.4.2",
+ "fixedbitset",
  "ordered-float",
  "schemars",
  "serde",

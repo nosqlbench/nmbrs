@@ -19,7 +19,7 @@ serde_json = "1"
 askama = "0.15"
 askama-derive-axum = "0.1"
 nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.1" }
-polydat = "0.2"
+polydat = "0.3"
 nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.1" }
 socket2 = "0.5"
 

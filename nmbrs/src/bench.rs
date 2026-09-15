@@ -630,41 +630,30 @@ fn explain_source(source: &str) {
         }
     }
 
-    // Engine auto-selection analysis
+    // Engine auto-selection. polydat 0.3 resolves `Provenance::Auto`
+    // from the graph's shape inside the engine constructor (the 0.2
+    // `auto_compile_p3` / `GraphAnalysis` surface is gone, and the
+    // resolved graph it analysed is private). The kernel reports the
+    // provenance the selector chose (`Kernel::engine`) and what the
+    // engine decided for the program (`Kernel::plan`: native
+    // segments / closure steps / interpreted nodes).
     if let Ok(asm) = compile_polydat_to_assembler(source) {
-        match asm.auto_compile_p3() {
-            Ok((engine, analysis)) => {
+        use polydat::{Engine, Provenance};
+        match asm.compile_with(Engine::Native(Provenance::Auto)) {
+            Ok(kernel) => {
                 println!("{bold}Engine Selection:{reset}");
-                println!(
-                    "  {dim}inputs: {}, nodes: {}, outputs: {}{reset}",
-                    analysis.num_inputs, analysis.total_nodes, analysis.num_outputs
-                );
-                println!(
-                    "  {dim}max cone ratio: {:.2}, avg cone ratio: {:.2}{reset}",
-                    analysis.max_cone_ratio, analysis.avg_cone_ratio
-                );
-                for (name, size) in &analysis.output_cone_sizes {
-                    let ratio = if analysis.total_nodes > 0 {
-                        *size as f64 / analysis.total_nodes as f64
-                    } else {
-                        0.0
-                    };
-                    println!("  {dim}  {name}: {size} nodes ({ratio:.0}%){reset}");
-                }
-                println!("  → {green}{:?}{reset}", engine.prov_mode());
+                println!("  → {green}{}{reset} — {}", kernel.engine(), kernel.plan());
                 println!();
             }
-            Err(_) => {
-                // P3 not available, try P2
+            Err(refusal) => {
+                // Native refused the program; the closure tier runs
+                // the same selector over the same graph.
                 if let Ok(asm2) = compile_polydat_to_assembler(source)
-                    && let Ok((engine, analysis)) = asm2.auto_compile_p2()
+                    && let Ok(kernel) = asm2.compile_with(Engine::Closures(Provenance::Auto))
                 {
-                    println!("{bold}Engine Selection (P2):{reset}");
-                    println!(
-                        "  {dim}max cone ratio: {:.2}, avg cone ratio: {:.2}{reset}",
-                        analysis.max_cone_ratio, analysis.avg_cone_ratio
-                    );
-                    println!("  → {green}{:?}{reset}", engine.prov_mode());
+                    println!("{bold}Engine Selection (closures):{reset}");
+                    println!("  {dim}native refused: {refusal}{reset}");
+                    println!("  → {green}{}{reset} — {}", kernel.engine(), kernel.plan());
                     println!();
                 }
             }

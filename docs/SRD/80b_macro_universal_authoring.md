@@ -225,7 +225,9 @@ explicit at the macro level:
 - `output_names(a, b, c)` — names for tuple-output ports
 - `compiled_u64_override = path` — operator-supplied JIT closure
 - `jit_constants_override = path` — operator-supplied jit_constants
-- `no_jit` — opt out of JIT emission even when eligible
+- `no_jit` — REMOVED in polydat 0.3: a node without a native kit
+  runs through its closure on every engine, so there is nothing to
+  opt out of (the macro rejects the flag)
 - `struct_name = X` — override the auto-derived struct name
   (justified for keyword conflicts and legacy compatibility,
   not for general renaming)

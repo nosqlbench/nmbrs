@@ -21,7 +21,7 @@ regex = "1"
 # of truth across the workspace. (Crosses the historical
 # "nmbrs-workload is standalone" boundary from SRD-01 — see
 # `docs/SRD/history/50_comprehensions_first_class.md`.)
-polydat = "0.2"
+polydat = "0.3"
 
 # SRD-64 §6.4–§6.5: AST-preserving workload edit primitive.
 #
