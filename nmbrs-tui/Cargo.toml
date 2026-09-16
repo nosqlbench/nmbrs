@@ -11,8 +11,8 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 libc = "0.2"
 nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }
 nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.1.2" }
@@ -22,7 +22,7 @@ polydat = "0.3"
 # tokio::spawn needed for non-blocking control writes from the
 # event loop; `rt` feature supplies the handle.
 tokio = { version = "1", features = ["sync", "time", "rt"] }
-throbber-widgets-tui = "0.8"
+throbber-widgets-tui = "0.11"
 # arc-swap publishes immutable RunState snapshots from the
 # RunState actor (see SRD-02 §"Display and Diagnostic
 # Decoupling"). The TUI / web / OOB surfaces all read via

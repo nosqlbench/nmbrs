@@ -16,7 +16,7 @@ polydat = "0.3"
 # Portable terminal-size + is-tty detection (Unix ioctl + Windows
 # console API behind one API), consistent with the rest of the
 # terminal stack and the shadow-terminal test harness.
-crossterm = "0.28"
+crossterm = "0.29"
 inventory = "0.3.24"
 serde_json = "1"
 # `shutdown()` draws the final plot on a `spawn_blocking` task (the sole
