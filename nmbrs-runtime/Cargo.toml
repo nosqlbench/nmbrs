@@ -39,7 +39,10 @@ indexmap = "2"
 # string; readers (inline status thread, readout context build)
 # load without blocking.
 arc-swap = "1"
-pprof = { version = "0.15", features = ["flamegraph"], optional = true }
+# Sampling only: the SVG is rendered by the `inferno-flamegraph` tool
+# (shelled out, like the perf path), so pprof's own `flamegraph`
+# feature — and the inferno/quick-xml crates behind it — stay out.
+pprof = { version = "0.15", optional = true }
 libc = "0.2"
 # Used by `report_anchor::resolve` to read scenario / phase
 # distinct values from the active session's metrics.db.

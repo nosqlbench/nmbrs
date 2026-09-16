@@ -136,7 +136,7 @@ impl ProfileGuard {
                     crate::observer::log(
                         crate::observer::LogLevel::Info,
                         &format!(
-                            "profiler: pprof started (997 Hz, Rust frames only), output → {output_path}"
+                            "profiler: pprof started (997 Hz, Rust frames only), output → {output_path} (rendered via inferno-flamegraph)"
                         ),
                     );
                     Some(Self {
@@ -325,31 +325,36 @@ impl ProfileGuard {
         match mode {
             #[cfg(feature = "flamegraph")]
             ProfileMode::Pprof { guard, output_path } => match guard.report().build() {
-                Ok(report) => match std::fs::File::create(&output_path) {
-                    Ok(file) => {
-                        if let Err(e) = report.flamegraph(file) {
-                            crate::observer::log(
-                                crate::observer::LogLevel::Warn,
-                                &format!("profiler: failed to write flamegraph: {e}"),
-                            );
-                        } else {
-                            crate::observer::log(
+                Ok(report) => {
+                    let folded = fold_report(&report);
+                    if folded.is_empty() {
+                        crate::observer::log(
+                            crate::observer::LogLevel::Warn,
+                            "profiler: pprof collected no samples — nothing to render",
+                        );
+                    } else if inferno_flamegraph_available() {
+                        render_folded(&folded, &output_path);
+                    } else {
+                        // No renderer on PATH: keep the folded stacks so the
+                        // operator can render them by hand, and say how.
+                        let folded_path =
+                            output_path.trim_end_matches(".svg").to_string() + ".folded";
+                        match std::fs::write(&folded_path, &folded) {
+                            Ok(()) => crate::observer::log(
                                 crate::observer::LogLevel::Info,
-                                &format!("profiler: wrote {output_path}"),
-                            );
-                            if let Some(name) = std::path::Path::new(&output_path)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                            {
-                                crate::session::Session::link_artifact(name);
-                            }
+                                &format!(
+                                    "profiler: `inferno-flamegraph` not found — wrote folded \
+                                     stacks to {folded_path}; render with: inferno-flamegraph \
+                                     < {folded_path} > {output_path}  (install: cargo install inferno)"
+                                ),
+                            ),
+                            Err(e) => crate::observer::log(
+                                crate::observer::LogLevel::Warn,
+                                &format!("profiler: failed to write {folded_path}: {e}"),
+                            ),
                         }
                     }
-                    Err(e) => crate::observer::log(
-                        crate::observer::LogLevel::Warn,
-                        &format!("profiler: failed to create {output_path}: {e}"),
-                    ),
-                },
+                }
                 Err(e) => crate::observer::log(
                     crate::observer::LogLevel::Warn,
                     &format!("profiler: failed to build report: {e}"),
@@ -486,83 +491,7 @@ impl ProfileGuard {
                                         t1.elapsed().as_secs_f64()
                                     ),
                                 );
-                                let t2 = std::time::Instant::now();
-                                crate::observer::log(
-                                    crate::observer::LogLevel::Info,
-                                    "profiler: stage 3/3: rendering `inferno-flamegraph` SVG...",
-                                );
-                                // 1) Flamegraph SVG (the visual).
-                                let flamegraph = std::process::Command::new("inferno-flamegraph")
-                                    .stdin(std::process::Stdio::piped())
-                                    .stdout(std::process::Stdio::piped())
-                                    .spawn();
-
-                                if let Ok(mut fg_proc) = flamegraph {
-                                    if let Some(ref mut stdin) = fg_proc.stdin {
-                                        let _ = stdin.write_all(&collapsed.stdout);
-                                    }
-                                    if let Ok(svg_output) = fg_proc.wait_with_output() {
-                                        if let Err(e) =
-                                            std::fs::write(&output_path, &svg_output.stdout)
-                                        {
-                                            crate::observer::log(
-                                                crate::observer::LogLevel::Warn,
-                                                &format!(
-                                                    "profiler: failed to write {output_path}: {e}"
-                                                ),
-                                            );
-                                        } else {
-                                            let size_kb = svg_output.stdout.len() / 1024;
-                                            crate::observer::log(
-                                                crate::observer::LogLevel::Info,
-                                                &format!(
-                                                    "profiler:   wrote {output_path} ({size_kb} KB) \
-                                                     in {:.1}s",
-                                                    t2.elapsed().as_secs_f64()
-                                                ),
-                                            );
-                                            // Convenience symlink only after the
-                                            // write succeeded — Session::new
-                                            // intentionally doesn't pre-create
-                                            // optional-artifact links so they
-                                            // never dangle when a run skips
-                                            // profiling.
-                                            if let Some(name) = std::path::Path::new(&output_path)
-                                                .file_name()
-                                                .and_then(|n| n.to_str())
-                                            {
-                                                crate::session::Session::link_artifact(name);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 2) Markdown summary (top-N tables) — same
-                                // folded input, parsed in-process. Companion
-                                // file alongside the SVG, swap .svg → .md.
-                                let md_path =
-                                    output_path.trim_end_matches(".svg").to_string() + ".md";
-                                let md = summarize_folded(&collapsed.stdout, 20);
-                                match std::fs::write(&md_path, md.as_bytes()) {
-                                    Ok(()) => {
-                                        crate::observer::log(
-                                            crate::observer::LogLevel::Info,
-                                            &format!(
-                                                "profiler: wrote {md_path} (top-20 self/inclusive)"
-                                            ),
-                                        );
-                                        if let Some(name) = std::path::Path::new(&md_path)
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                        {
-                                            crate::session::Session::link_artifact(name);
-                                        }
-                                    }
-                                    Err(e) => crate::observer::log(
-                                        crate::observer::LogLevel::Warn,
-                                        &format!("profiler: failed to write {md_path}: {e}"),
-                                    ),
-                                }
+                                render_folded(&collapsed.stdout, &output_path);
                             }
                         }
                     }
@@ -609,6 +538,136 @@ impl Drop for ProfileGuard {
     }
 }
 
+/// Whether the `inferno-flamegraph` renderer is on `PATH`. The perf
+/// path probes `inferno-collapse-perf` instead, since it needs both.
+#[cfg(feature = "flamegraph")]
+fn inferno_flamegraph_available() -> bool {
+    std::process::Command::new("inferno-flamegraph")
+        .arg("--help")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Fold a pprof report into inferno's collapsed-stack text: one line
+/// per distinct stack, `thread;root;…;leaf count`, root first — the
+/// same shape `inferno-collapse-perf` emits for the perf path, so both
+/// profilers feed one renderer and one summarizer.
+#[cfg(feature = "flamegraph")]
+fn fold_report(report: &pprof::Report) -> Vec<u8> {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for (frames, count) in &report.data {
+        let mut line = frames.thread_name_or_id();
+        line.push(';');
+        for frame in frames.frames.iter().rev() {
+            for symbol in frame.iter().rev() {
+                let _ = write!(line, "{symbol};");
+            }
+        }
+        line.pop();
+        let _ = writeln!(line, " {count}");
+        out.push_str(&line);
+    }
+    out.into_bytes()
+}
+
+/// Render folded stacks to the flamegraph SVG at `output_path` via
+/// `inferno-flamegraph`, then write the companion top-N markdown
+/// summary beside it (`.svg` → `.md`). Both artifacts are linked into
+/// the session on success. Shared by the pprof and perf profilers.
+fn render_folded(folded: &[u8], output_path: &str) {
+    use std::io::Write as _;
+    let t2 = std::time::Instant::now();
+    crate::observer::log(
+        crate::observer::LogLevel::Info,
+        "profiler: rendering `inferno-flamegraph` SVG...",
+    );
+    let flamegraph = std::process::Command::new("inferno-flamegraph")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn();
+    match flamegraph {
+        Ok(mut fg_proc) => {
+            if let Some(ref mut stdin) = fg_proc.stdin {
+                let _ = stdin.write_all(folded);
+            }
+            match fg_proc.wait_with_output() {
+                Ok(svg_output) if svg_output.status.success() => {
+                    if let Err(e) = std::fs::write(output_path, &svg_output.stdout) {
+                        crate::observer::log(
+                            crate::observer::LogLevel::Warn,
+                            &format!("profiler: failed to write {output_path}: {e}"),
+                        );
+                    } else {
+                        let size_kb = svg_output.stdout.len() / 1024;
+                        crate::observer::log(
+                            crate::observer::LogLevel::Info,
+                            &format!(
+                                "profiler:   wrote {output_path} ({size_kb} KB) in {:.1}s",
+                                t2.elapsed().as_secs_f64()
+                            ),
+                        );
+                        // Convenience symlink only after the write
+                        // succeeded — Session::new intentionally doesn't
+                        // pre-create optional-artifact links so they never
+                        // dangle when a run skips profiling.
+                        if let Some(name) = std::path::Path::new(output_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                        {
+                            crate::session::Session::link_artifact(name);
+                        }
+                    }
+                }
+                Ok(svg_output) => crate::observer::log(
+                    crate::observer::LogLevel::Warn,
+                    &format!(
+                        "profiler: `inferno-flamegraph` exited with {}: {}",
+                        svg_output.status,
+                        String::from_utf8_lossy(&svg_output.stderr).trim()
+                    ),
+                ),
+                Err(e) => crate::observer::log(
+                    crate::observer::LogLevel::Warn,
+                    &format!("profiler: `inferno-flamegraph` failed: {e}"),
+                ),
+            }
+        }
+        Err(e) => crate::observer::log(
+            crate::observer::LogLevel::Warn,
+            &format!("profiler: could not spawn `inferno-flamegraph`: {e}"),
+        ),
+    }
+
+    // Markdown summary (top-N tables) — same folded input, parsed
+    // in-process. Companion file alongside the SVG, swap .svg → .md.
+    let md_path = output_path.trim_end_matches(".svg").to_string() + ".md";
+    let companion = std::path::Path::new(output_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| output_path.to_string());
+    let md = summarize_folded(folded, 20, &companion);
+    match std::fs::write(&md_path, md.as_bytes()) {
+        Ok(()) => {
+            crate::observer::log(
+                crate::observer::LogLevel::Info,
+                &format!("profiler: wrote {md_path} (top-20 self/inclusive)"),
+            );
+            if let Some(name) = std::path::Path::new(&md_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+            {
+                crate::session::Session::link_artifact(name);
+            }
+        }
+        Err(e) => crate::observer::log(
+            crate::observer::LogLevel::Warn,
+            &format!("profiler: failed to write {md_path}: {e}"),
+        ),
+    }
+}
+
 /// Produce a markdown summary from inferno's "folded" stack
 /// format (`frame1;frame2;...;leaf count` per line).
 ///
@@ -628,8 +687,9 @@ impl Drop for ProfileGuard {
 /// `[unknown]` and bracket-quoted module names are kept (they
 /// surface unresolved-symbol cliffs explicitly rather than
 /// silently disappearing).
-fn summarize_folded(folded: &[u8], top_n: usize) -> String {
+fn summarize_folded(folded: &[u8], top_n: usize, companion: &str) -> String {
     use std::collections::HashMap;
+    use std::fmt::Write as _;
 
     let folded_str = match std::str::from_utf8(folded) {
         Ok(s) => s,
@@ -686,7 +746,7 @@ fn summarize_folded(folded: &[u8], top_n: usize) -> String {
     let mut out = String::new();
     out.push_str("# Profiler summary\n\n");
     out.push_str(&format!("- total samples: **{total_samples}**\n"));
-    out.push_str("- companion artefact: `flamegraph-perf.svg`\n");
+    let _ = writeln!(out, "- companion artefact: `{companion}`");
     out.push_str("- self time = leaf-frame samples (where CPU was);\n");
     out.push_str("  inclusive time = stacks containing the frame anywhere\n\n");
 
@@ -768,7 +828,7 @@ mod tests {
             a;b;d 20\n\
             a;e 30\n\
             f 5\n";
-        let md = summarize_folded(folded, 10);
+        let md = summarize_folded(folded, 10, "flamegraph.svg");
         assert!(md.contains("total samples: **65**"));
         // Self time leaders: e=30, d=20, c=10, f=5
         assert!(md.contains("`e`"), "self table should rank `e`: {md}");
@@ -789,13 +849,13 @@ mod tests {
 
     #[test]
     fn summarize_folded_handles_empty() {
-        assert!(summarize_folded(b"", 10).contains("no samples"));
+        assert!(summarize_folded(b"", 10, "flamegraph.svg").contains("no samples"));
     }
 
     #[test]
     fn summarize_folded_escapes_pipes_in_frame_names() {
         let folded = b"frame|with|pipes 7\n";
-        let md = summarize_folded(folded, 5);
+        let md = summarize_folded(folded, 5, "flamegraph.svg");
         assert!(md.contains("frame\\|with\\|pipes"));
     }
 }
