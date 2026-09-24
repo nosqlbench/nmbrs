@@ -393,12 +393,12 @@ mod tests {
 
     #[test]
     fn characterize_row_size_evaluates_wires_at_coord_zero() {
-        use polydat::dsl::compile::compile_polydat;
+        use polydat::dsl::compile::compile_polydat_interpreter;
         // A coord-driven output: at cursor offset 0, `val` = 0 * 8 = 0.
         // The probe must set the coord to 0 and pull `val` through the
         // same wire surface the batch dispenser uses at execute time.
-        let kernel =
-            compile_polydat("input cycle: u64\nval := cycle * 8\n").expect("compile probe program");
+        let kernel = compile_polydat_interpreter("input cycle: u64\nval := cycle * 8\n")
+            .expect("compile probe program");
         let parent = std::sync::Arc::new(kernel);
         // One bind name → a single U64 → 8 bytes (bigint wire width)
         // plus the per-mutation overhead every row carries.

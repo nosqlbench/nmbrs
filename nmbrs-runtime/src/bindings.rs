@@ -846,7 +846,7 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        assert_eq!(kernel.pull("myval").as_u64(), 42);
+        assert_eq!(kernel.pull_ref("myval").as_u64(), 42);
     }
 
     #[test]
@@ -859,7 +859,7 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        let val = kernel.pull("id").as_u64();
+        let val = kernel.pull_ref("id").as_u64();
         assert!(val < 1_000_000, "got {val}");
     }
 
@@ -872,9 +872,9 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        let v1 = kernel.pull("id").as_u64();
+        let v1 = kernel.pull_ref("id").as_u64();
         kernel.set_inputs(&[42]);
-        let v2 = kernel.pull("id").as_u64();
+        let v2 = kernel.pull_ref("id").as_u64();
         assert_eq!(v1, v2);
     }
 
@@ -888,8 +888,8 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[5]);
-        assert_eq!(kernel.pull("a").as_u64(), 5);
-        assert!(kernel.pull("b").as_u64() < 100);
+        assert_eq!(kernel.pull_ref("a").as_u64(), 5);
+        assert!(kernel.pull_ref("b").as_u64() < 100);
     }
 
     #[test]
@@ -912,7 +912,7 @@ mod tests {
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[5]);
         // 5 + 100 = 105, 105 % 1000 = 105
-        assert_eq!(kernel.pull("val").as_u64(), 105);
+        assert_eq!(kernel.pull_ref("val").as_u64(), 105);
     }
 
     #[test]
@@ -920,7 +920,7 @@ mod tests {
         let ops = vec![ParsedOp::simple("test", "cycle={cycle}")];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[99]);
-        assert_eq!(kernel.pull("cycle").as_u64(), 99);
+        assert_eq!(kernel.pull_ref("cycle").as_u64(), 99);
     }
 
     #[test]

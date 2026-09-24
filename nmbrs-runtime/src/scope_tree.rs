@@ -1475,8 +1475,8 @@ mod tests {
     /// suffices to populate `output_map` so `get_constant`
     /// returns the folded value.
     fn compile_kernel(source: &str) -> std::sync::Arc<polydat::kernel::PolydatKernel> {
-        let kernel =
-            polydat::dsl::compile::compile_polydat(source).expect("test source should compile");
+        let kernel = polydat::dsl::compile::compile_polydat_interpreter(source)
+            .expect("test source should compile");
         std::sync::Arc::new(kernel)
     }
 
@@ -1518,7 +1518,7 @@ mod tests {
         // Parent: a workload-shaped kernel exposing `k_values`.
         let parent_src = "const k_values := \"1, 10\"\n";
         let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat(parent_src).unwrap());
+            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
 
         // Build the for_each scope kernel as the runner would.
         let parent_manifest = crate::runner::extract_manifest(parent.program());
@@ -1584,7 +1584,7 @@ mod tests {
 
         let parent_src = "const k_values := \"1, 10\"\n";
         let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat(parent_src).unwrap());
+            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
         let parent_manifest = crate::runner::extract_manifest(parent.program());
 
         let kernel = crate::scope_synth::build_for_each_scope_kernel(
@@ -1631,7 +1631,7 @@ mod tests {
             "const k_10_limits := \"10, 20, 30\"\n",
         );
         let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat(parent_src).unwrap());
+            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
         let parent_manifest = crate::runner::extract_manifest(parent.program());
 
         let kernel = crate::scope_synth::build_for_each_scope_kernel(

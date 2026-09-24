@@ -96,10 +96,10 @@ pub(crate) fn consumed_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::dsl::compile::compile_polydat_interpreter;
 
     fn kernel(source: &str) -> Arc<PolydatKernel> {
-        Arc::new(compile_polydat(source).expect("compile test kernel"))
+        Arc::new(compile_polydat_interpreter(source).expect("compile test kernel"))
     }
 
     fn params(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -215,7 +215,7 @@ mod tests {
 
     /// The derivation counts a program's extern as consumed only
     /// when it feeds an output the program OWNS. A bare
-    /// `compile_polydat` re-exports every declared extern as an
+    /// `compile_polydat_interpreter` re-exports every declared extern as an
     /// output WITHOUT the `inherited` passthrough marking (that
     /// marking is applied by the runtime's scope synthesis), so
     /// this fixture legitimately reads as consumption. The

@@ -670,7 +670,9 @@ mod tests {
     /// Minimal kernel used as the `parent` argument to `map_op`
     /// in tests that don't need a richer Polydat context (SRD-68 Push 2).
     fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
-        std::sync::Arc::new(polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap())
+        std::sync::Arc::new(
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
+        )
     }
 
     #[test]

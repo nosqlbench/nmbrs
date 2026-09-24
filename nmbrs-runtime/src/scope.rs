@@ -4012,7 +4012,7 @@ mod tests {
         // shared output `budget`, and a dynamic output `load`
         // (cycle-dependent, no modifier). Each shape exercises
         // a different `ParentRefKind` arm.
-        polydat::dsl::compile::compile_polydat(
+        polydat::dsl::compile::compile_polydat_interpreter(
             "input cycle: u64\n\
              const dim := 128\n\
              shared budget := 100\n\
@@ -4234,7 +4234,7 @@ extern limit: u64
 extern optimize_for: String
 extern table: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_with_options(
+        let parent = polydat::dsl::compile::compile_polydat_interpreter_with_options(
             parent_src,
             &polydat::dsl::compile::CompileOptions {
                 context: "parent".to_string(),
@@ -4351,7 +4351,7 @@ extern dataset: String
 extern profile: String
 extern keyspace: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_with_options(
+        let parent = polydat::dsl::compile::compile_polydat_interpreter_with_options(
             parent_src,
             &polydat::dsl::compile::CompileOptions {
                 context: "parent".to_string(),
@@ -4465,7 +4465,7 @@ extern keyspace: String
             const k_value := 5\n\
             const limit_value := 100\n";
         let real_parent =
-            polydat::dsl::compile::compile_polydat(kernel_src).expect("parent compile");
+            polydat::dsl::compile::compile_polydat_interpreter(kernel_src).expect("parent compile");
         let real_manifest = polydat::kernel::extract_manifest(real_parent.program())
             .into_iter()
             .map(|e| crate::runner::ManifestEntry {
@@ -4572,9 +4572,10 @@ extern keyspace: String
         // upstream and a Str, the synthesizer emits
         // `const name := "value"` in the child's source rather
         // than auto-externing it.
-        let parent =
-            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"example\"\n")
-                .expect("compile parent");
+        let parent = polydat::dsl::compile_polydat_interpreter(
+            "input cycle: u64\nconst dataset := \"example\"\n",
+        )
+        .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())
                 .into_iter()
@@ -4609,8 +4610,9 @@ extern keyspace: String
 
     #[test]
     fn promoted_final_emits_inline_literal_for_u64() {
-        let parent = polydat::dsl::compile_polydat("input cycle: u64\nconst count := 42\n")
-            .expect("compile parent");
+        let parent =
+            polydat::dsl::compile_polydat_interpreter("input cycle: u64\nconst count := 42\n")
+                .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())
                 .into_iter()
@@ -4645,9 +4647,10 @@ extern keyspace: String
         // `{tirp}` instead of the declared `trip`) is rejected
         // at the synthesizer level with a structured error,
         // not via a downstream Polydat compiler error.
-        let parent =
-            polydat::dsl::compile_polydat("input cycle: u64\nconst dataset := \"example\"\n")
-                .expect("compile parent");
+        let parent = polydat::dsl::compile_polydat_interpreter(
+            "input cycle: u64\nconst dataset := \"example\"\n",
+        )
+        .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())
                 .into_iter()
@@ -4754,7 +4757,7 @@ extern keyspace: String
                           shared has_indexes := false\n";
         scope.ingest_polydat_source(workload_polydat, BindingOrigin::Inherited);
         let source = scope.emit();
-        let kernel = polydat::dsl::compile_polydat(&source)
+        let kernel = polydat::dsl::compile_polydat_interpreter(&source)
             .unwrap_or_else(|e| panic!("compile failed for source:\n{source}\nerror: {e}"));
         let shared = kernel.program().shared_outputs();
         assert!(
@@ -4904,7 +4907,7 @@ extern keyspace: String
         );
         // The emitted source must compile as a phase kernel body, with
         // `__metric_time_to_index` surfacing as an output.
-        let kernel = polydat::dsl::compile_polydat(&src)
+        let kernel = polydat::dsl::compile_polydat_interpreter(&src)
             .unwrap_or_else(|e| panic!("compile failed:\n{src}\nerror: {e}"));
         assert!(
             kernel
@@ -5046,7 +5049,7 @@ extern keyspace: String
         let parent_kernel = crate::scope_synth::build_for_each_scope_kernel(
             &[("p".to_string(), "partitions(\"linear:3\")".to_string())],
             &[],
-            &polydat::dsl::compile_polydat("\n").unwrap(),
+            &polydat::dsl::compile_polydat_interpreter("\n").unwrap(),
             &HashMap::new(),
             Vec::new(),
             None,
@@ -5100,7 +5103,7 @@ extern keyspace: String
             &[("p".to_string(), "partitions(\"linear:3\")".to_string())],
             &[], // empty parent_manifest is fine; for_each scope only
             // cascades names it actually references.
-            &polydat::dsl::compile_polydat("\n").unwrap(),
+            &polydat::dsl::compile_polydat_interpreter("\n").unwrap(),
             &HashMap::new(),
             Vec::new(),
             None,
@@ -5169,7 +5172,7 @@ extern keyspace: String
         // attaches gets a slot whose declared type doesn't match
         // the cell's actual Value variant — downstream consumers
         // (e.g. pick) see the runtime variant and reject it.
-        let parent = polydat::dsl::compile_polydat(
+        let parent = polydat::dsl::compile_polydat_interpreter(
             "input cycle: u64\nshared has_sai_column_indexes := false\n\
              shared has_indexes := false\n",
         )
@@ -5244,7 +5247,7 @@ extern keyspace: String
         use polydat::kernel::extract_manifest;
 
         // ── workload root ──
-        let root = polydat::dsl::compile_polydat(
+        let root = polydat::dsl::compile_polydat_interpreter(
             "shared has_a := true\n\
              shared has_b := false\n\
              selector := mod(cycle, 1)\n",
@@ -5309,10 +5312,10 @@ extern keyspace: String
         let emitted = scope.emit();
 
         // ── compile_from_scope equivalent — uses the SAME compile
-        // path the executor takes (compile_polydat_with_options with
+        // path the executor takes (compile_polydat_interpreter_with_options with
         // the scope's required_outputs filter).
         let required = scope.required_outputs();
-        let executor_kernel = polydat::dsl::compile::compile_polydat_with_options(
+        let executor_kernel = polydat::dsl::compile::compile_polydat_interpreter_with_options(
             &emitted,
             &polydat::dsl::compile::CompileOptions {
                 required_outputs: required.clone(),
@@ -5384,7 +5387,8 @@ extern keyspace: String
         for k in sorted {
             params_source.push_str(&format!("const {k} := \"{}\"\n", workload_params[k]));
         }
-        let params_kernel = polydat::dsl::compile_polydat(&params_source).expect("params compile");
+        let params_kernel =
+            polydat::dsl::compile_polydat_interpreter(&params_source).expect("params compile");
 
         // Step 2: workload-root kernel.
         let mut scope = build_scope(
@@ -5504,7 +5508,7 @@ extern keyspace: String
         .expect("executor build_scope");
 
         let exec_source = exec_scope.emit();
-        let exec_kernel = polydat::dsl::compile::compile_polydat_with_options(
+        let exec_kernel = polydat::dsl::compile::compile_polydat_interpreter_with_options(
             &exec_source,
             &polydat::dsl::compile::CompileOptions {
                 required_outputs: exec_scope.required_outputs(),
@@ -5555,7 +5559,7 @@ extern keyspace: String
         //
         // The actual function takes a complex set of args; here
         // we replicate the essential moves to expose what differs
-        // from a direct `compile_polydat(source)` invocation.
+        // from a direct `compile_polydat_interpreter(source)` invocation.
         //
         // SRD-13c §"Shared Mutable" requires has_a to be ExternalWrite
         // kind, Bool type on the workload-root program. The
@@ -5580,7 +5584,8 @@ extern keyspace: String
             let v = &workload_params[k];
             params_source.push_str(&format!("const {k} := \"{v}\"\n"));
         }
-        let params_kernel = polydat::dsl::compile_polydat(&params_source).expect("params compile");
+        let params_kernel =
+            polydat::dsl::compile_polydat_interpreter(&params_source).expect("params compile");
 
         // The workload's `bindings:` block. The trigger.
         let workload_level_polydat = "selector := mod(cycle, 1)\n\
@@ -5704,7 +5709,7 @@ extern keyspace: String
 
         // Step 1: workload root with shared bool AND a
         // non-shared cycle binding. The trigger.
-        let root = polydat::dsl::compile_polydat(
+        let root = polydat::dsl::compile_polydat_interpreter(
             "shared has_a := true\n\
              shared has_b := false\n\
              selector := mod(cycle, 1)\n",
@@ -5813,7 +5818,7 @@ extern keyspace: String
         // bind_outer_scope then cell-attaches at each level so
         // the original SharedCell reaches the leaf.
         use polydat::kernel::extract_manifest;
-        let root = polydat::dsl::compile_polydat(
+        let root = polydat::dsl::compile_polydat_interpreter(
             "input cycle: u64\nshared has_sai_column_indexes := false\n\
              shared has_indexes := false\n",
         )

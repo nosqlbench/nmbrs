@@ -282,7 +282,7 @@ mod tests {
             let wire = decl.split_once(" :=").unwrap().0;
             let k = compile_polydat(decl).unwrap_or_else(|e| panic!("compile {decl}: {e:?}"));
             assert_eq!(
-                k.program().output_port_type(wire),
+                k.output_type(wire),
                 Some(port),
                 "wrong output port for {decl}",
             );
@@ -293,11 +293,9 @@ mod tests {
     fn registered_and_discoverable_through_the_polydat_compiler() {
         // The macro's inventory registration makes the node findable by name
         // when polydat compiles a program that uses it.
-        let k = compile_polydat("score := metricsql_scalar(\"up\")");
-        assert!(
-            k.is_ok(),
-            "metricsql_scalar should be a registered node: {k:?}"
-        );
+        if let Err(e) = compile_polydat("score := metricsql_scalar(\"up\")") {
+            panic!("metricsql_scalar should be a registered node: {e:?}");
+        }
     }
 
     #[test]

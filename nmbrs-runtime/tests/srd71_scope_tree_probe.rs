@@ -103,7 +103,7 @@ fn install_chain_preserves_partition_iter_var_type_through_phase() {
     // pre-eval correctly classifies `partitions(...)` as a
     // PartitionList; this test exercises the post-pre-eval
     // synthesis chain.
-    let workload_root = polydat::dsl::compile_polydat("\n").unwrap();
+    let workload_root = polydat::dsl::compile_polydat_interpreter("\n").unwrap();
 
     // Comprehension scope: install as the runner does.
     let comp_kernel = nmbrs_runtime::scope_synth::build_for_each_scope_kernel(
@@ -200,7 +200,7 @@ phases:
 
     // Workload-root install: minimal kernel (empty params).
     let workload_root =
-        Arc::new(polydat::dsl::compile_polydat("\n").expect("workload root compile"));
+        Arc::new(polydat::dsl::compile_polydat_interpreter("\n").expect("workload root compile"));
     scope_tree.install_kernel(scope_tree.root, workload_root.clone());
 
     // Walk DFS, install Comprehension and Phase kernels in

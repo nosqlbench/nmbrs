@@ -23,24 +23,24 @@ use nmbrs_runtime::adapter::{
 use nmbrs_runtime::fixture::ScopeFixture;
 use nmbrs_runtime::validation::ValidatingDispenser;
 use nmbrs_runtime::wrappers::{ConditionalDispenser, DelayDispenser, WhileWrapper};
-use polydat::dsl::compile::compile_polydat;
+use polydat::dsl::compile::compile_polydat_interpreter;
 use polydat::kernel::PolydatProgram;
 
 /// Minimal program with `cycle` + `ground_truth: Str` extern.
 fn program_with_gt() -> Arc<PolydatProgram> {
-    compile_polydat(
+    compile_polydat_interpreter(
         "input cycle: u64\n\
          extern ground_truth: Str = \"\"\n",
     )
-    .expect("compile_polydat")
+    .expect("compile_polydat_interpreter")
     .into_program()
 }
 
 /// Program with no externs — every wrapper that registers any
 /// non-`cycle` name will fail.
 fn program_minimal() -> Arc<PolydatProgram> {
-    compile_polydat("input cycle: u64\n")
-        .expect("compile_polydat")
+    compile_polydat_interpreter("input cycle: u64\n")
+        .expect("compile_polydat_interpreter")
         .into_program()
 }
 
@@ -181,11 +181,11 @@ fn while_with_synthesised_binding_succeeds() {
     // When the op-kernel synthesiser has injected `__while` as
     // an extern (or as an output), WhileWrapper::wrap registers
     // the pull cleanly.
-    let program = polydat::dsl::compile::compile_polydat(
+    let program = polydat::dsl::compile::compile_polydat_interpreter(
         "input cycle: u64\n\
          extern __while: bool = false\n",
     )
-    .expect("compile_polydat")
+    .expect("compile_polydat_interpreter")
     .into_program();
     let mut fx = ScopeFixture::new(program);
     let inner: Arc<dyn OpDispenser> = Arc::new(NoopDispenser);
@@ -203,12 +203,12 @@ fn while_with_synthesised_binding_succeeds() {
 fn delay_before_after_registers_both_pulls() {
     // The BeforeAfter form must register a pull handle for each
     // declared subkey so the dispenser can read independently.
-    let program = polydat::dsl::compile::compile_polydat(
+    let program = polydat::dsl::compile::compile_polydat_interpreter(
         "input cycle: u64\n\
          extern pre: u64 = 0\n\
          extern post: u64 = 0\n",
     )
-    .expect("compile_polydat")
+    .expect("compile_polydat_interpreter")
     .into_program();
     let mut fx = ScopeFixture::new(program);
     let inner: Arc<dyn OpDispenser> = Arc::new(NoopDispenser);
@@ -223,11 +223,11 @@ fn delay_before_after_registers_both_pulls() {
 
 #[test]
 fn delay_before_after_only_before_registers_one_pull() {
-    let program = polydat::dsl::compile::compile_polydat(
+    let program = polydat::dsl::compile::compile_polydat_interpreter(
         "input cycle: u64\n\
          extern pre: u64 = 0\n",
     )
-    .expect("compile_polydat")
+    .expect("compile_polydat_interpreter")
     .into_program();
     let mut fx = ScopeFixture::new(program);
     let inner: Arc<dyn OpDispenser> = Arc::new(NoopDispenser);

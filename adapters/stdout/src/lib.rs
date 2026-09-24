@@ -644,7 +644,9 @@ mod tests {
     /// signature as `Arc<PolydatKernel>`; tests pass this fixture so
     /// they don't need to stand up the full activity-init pipeline.
     fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
-        std::sync::Arc::new(polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap())
+        std::sync::Arc::new(
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
+        )
     }
 
     fn typed_fields() -> ResolvedFields {
@@ -784,7 +786,8 @@ mod tests {
         let template = ParsedOp::simple("test", "key=value42");
         let dispenser = adapter.map_op(&template, test_kernel()).await.unwrap();
 
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = ResolvedFields::new(Vec::new(), Vec::new());
@@ -820,13 +823,13 @@ mod tests {
         let dispenser = adapter.map_op(&template, test_kernel()).await.unwrap();
 
         // Two compiled kernels — one per row's wire values.
-        let mut k1 = polydat::dsl::compile::compile_polydat(
+        let mut k1 = polydat::dsl::compile::compile_polydat_interpreter(
             "input cycle: u64\n\
              name := \"alice\"\n\
              age := \"30\"\n",
         )
         .unwrap();
-        let mut k2 = polydat::dsl::compile::compile_polydat(
+        let mut k2 = polydat::dsl::compile::compile_polydat_interpreter(
             "input cycle: u64\n\
              name := \"bob\"\n\
              age := \"25\"\n",
@@ -991,7 +994,8 @@ mod tests {
             serde_json::Value::String("default_terminal_marker_abc".into()),
         );
         let dispenser = adapter.map_op(&template, test_kernel()).await.unwrap();
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = ResolvedFields::new(Vec::new(), Vec::new());
@@ -1041,7 +1045,8 @@ mod tests {
         );
 
         let dispenser = adapter.map_op(&template, test_kernel()).await.unwrap();
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = ResolvedFields::new(Vec::new(), Vec::new());
@@ -1093,7 +1098,8 @@ mod tests {
             .insert("stdout".into(), serde_json::Value::String("silent".into()));
 
         let dispenser = adapter.map_op(&template, test_kernel()).await.unwrap();
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = ResolvedFields::new(Vec::new(), Vec::new());

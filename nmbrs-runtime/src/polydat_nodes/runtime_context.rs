@@ -593,17 +593,18 @@ mod tests {
     fn control_reads_current_value() {
         let _g = serial_test();
         install_session_with_control("rate", 500);
-        let mut k = polydat::dsl::compile_polydat("x := control(\"rate\")").expect("compile");
-        assert_eq!(k.pull("x").as_f64(), 500.0);
+        let mut k =
+            polydat::dsl::compile_polydat_interpreter("x := control(\"rate\")").expect("compile");
+        assert_eq!(k.pull_ref("x").as_f64(), 500.0);
     }
 
     #[test]
     fn control_missing_name_returns_zero() {
         let _g = serial_test();
         install_session_with_control("rate", 500);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control(\"not_declared\")").expect("compile");
-        assert_eq!(k.pull("x").as_f64(), 0.0);
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control(\"not_declared\")")
+            .expect("compile");
+        assert_eq!(k.pull_ref("x").as_f64(), 0.0);
     }
 
     // Live re-read after a write is covered end-to-end by
@@ -617,16 +618,17 @@ mod tests {
     fn rate_node_is_alias_of_control_rate() {
         let _g = serial_test();
         install_session_with_control("rate", 750);
-        let mut k = polydat::dsl::compile_polydat("x := rate()").expect("compile");
-        assert_eq!(k.pull("x").as_f64(), 750.0);
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := rate()").expect("compile");
+        assert_eq!(k.pull_ref("x").as_f64(), 750.0);
     }
 
     #[test]
     fn concurrency_node_reads_concurrency_control() {
         let _g = serial_test();
         install_session_with_control("concurrency", 32);
-        let mut k = polydat::dsl::compile_polydat("x := concurrency()").expect("compile");
-        assert_eq!(k.pull("x").as_f64(), 32.0);
+        let mut k =
+            polydat::dsl::compile_polydat_interpreter("x := concurrency()").expect("compile");
+        assert_eq!(k.pull_ref("x").as_f64(), 32.0);
     }
 
     #[tokio::test]
@@ -634,10 +636,10 @@ mod tests {
         let phase_arc: Arc<str> = Arc::from("rampup");
         with_fiber_context(phase_arc.clone(), empty_controls(), async {
             set_task_cycle(4242);
-            let mut k = polydat::dsl::compile_polydat("p := phase()\nc := cycle()")
+            let mut k = polydat::dsl::compile_polydat_interpreter("p := phase()\nc := cycle()")
                 .expect("compile phase/cycle");
-            assert_eq!(k.pull("p").as_str(), "rampup");
-            assert_eq!(k.pull("c").as_u64(), 4242);
+            assert_eq!(k.pull_ref("p").as_str(), "rampup");
+            assert_eq!(k.pull_ref("c").as_u64(), 4242);
         })
         .await;
     }
@@ -647,22 +649,22 @@ mod tests {
         // Reading outside a fiber context — e.g. from a unit test or a
         // non-fiber call site — silently returns the empty string rather
         // than panicking (the task_local's `try_with` Err maps to default).
-        let mut k = polydat::dsl::compile_polydat("p := phase()").expect("compile");
-        assert_eq!(k.pull("p").as_str(), "");
+        let mut k = polydat::dsl::compile_polydat_interpreter("p := phase()").expect("compile");
+        assert_eq!(k.pull_ref("p").as_str(), "");
     }
 
     #[test]
     fn cycle_is_zero_outside_fiber_scope() {
-        let mut k = polydat::dsl::compile_polydat("c := cycle()").expect("compile");
-        assert_eq!(k.pull("c").as_u64(), 0);
+        let mut k = polydat::dsl::compile_polydat_interpreter("c := cycle()").expect("compile");
+        assert_eq!(k.pull_ref("c").as_u64(), 0);
     }
 
     #[tokio::test]
     async fn set_task_cycle_is_noop_outside_scope() {
         // A stray call with no active scope must not panic.
         set_task_cycle(99);
-        let mut k = polydat::dsl::compile_polydat("c := cycle()").expect("compile");
-        assert_eq!(k.pull("c").as_u64(), 0);
+        let mut k = polydat::dsl::compile_polydat_interpreter("c := cycle()").expect("compile");
+        assert_eq!(k.pull_ref("c").as_u64(), 0);
     }
 
     // ---- control_set ------------------------------------------
@@ -748,18 +750,18 @@ mod tests {
         let _g = serial_test();
         install_session_with_control("concurrency", 64);
         // `control_u64` is macro-authored — compile + pull it end to end.
-        let mut k = polydat::dsl::compile_polydat("x := control_u64(\"concurrency\")")
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_u64(\"concurrency\")")
             .expect("compile control_u64");
-        assert_eq!(k.pull("x").as_u64(), 64);
+        assert_eq!(k.pull_ref("x").as_u64(), 64);
     }
 
     #[test]
     fn control_u64_missing_name_returns_zero() {
         let _g = serial_test();
         install_session_with_control("concurrency", 5);
-        let mut k = polydat::dsl::compile_polydat("x := control_u64(\"not_there\")")
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_u64(\"not_there\")")
             .expect("compile control_u64");
-        assert_eq!(k.pull("x").as_u64(), 0);
+        assert_eq!(k.pull_ref("x").as_u64(), 0);
     }
 
     #[test]
@@ -771,7 +773,7 @@ mod tests {
         // output re-read on every pull. A Pure reader would fold `x` to a
         // compile-time constant — which is exactly how the old hand-written
         // node (no purity override) cached a stale first value.
-        let k = polydat::dsl::compile_polydat("x := control_u64(\"concurrency\")")
+        let k = polydat::dsl::compile_polydat_interpreter("x := control_u64(\"concurrency\")")
             .expect("compile control_u64");
         assert!(
             k.get_constant("x").is_none(),
@@ -783,46 +785,46 @@ mod tests {
     fn control_bool_projects_gauge_to_boolean() {
         let _g = serial_test();
         install_session_with_control("enabled", 1);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control_bool(\"enabled\")").expect("compile");
-        assert!(k.pull("x").as_bool());
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_bool(\"enabled\")")
+            .expect("compile");
+        assert!(k.pull_ref("x").as_bool());
     }
 
     #[test]
     fn control_bool_zero_is_false() {
         let _g = serial_test();
         install_session_with_control("enabled", 0);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control_bool(\"enabled\")").expect("compile");
-        assert!(!k.pull("x").as_bool());
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_bool(\"enabled\")")
+            .expect("compile");
+        assert!(!k.pull_ref("x").as_bool());
     }
 
     #[test]
     fn control_bool_missing_name_is_false() {
         let _g = serial_test();
         install_session_with_control("enabled", 1);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control_bool(\"absent\")").expect("compile");
-        assert!(!k.pull("x").as_bool());
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_bool(\"absent\")")
+            .expect("compile");
+        assert!(!k.pull_ref("x").as_bool());
     }
 
     #[test]
     fn control_str_renders_value_string() {
         let _g = serial_test();
         install_session_with_control("concurrency", 42);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control_str(\"concurrency\")").expect("compile");
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_str(\"concurrency\")")
+            .expect("compile");
         // u32's Debug rendering is its decimal representation.
-        assert_eq!(k.pull("x").as_str(), "42");
+        assert_eq!(k.pull_ref("x").as_str(), "42");
     }
 
     #[test]
     fn control_str_missing_name_returns_empty() {
         let _g = serial_test();
         install_session_with_control("concurrency", 42);
-        let mut k =
-            polydat::dsl::compile_polydat("x := control_str(\"log_level\")").expect("compile");
-        assert_eq!(k.pull("x").as_str(), "");
+        let mut k = polydat::dsl::compile_polydat_interpreter("x := control_str(\"log_level\")")
+            .expect("compile");
+        assert_eq!(k.pull_ref("x").as_str(), "");
     }
 
     #[tokio::test]

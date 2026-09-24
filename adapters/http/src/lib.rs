@@ -786,7 +786,9 @@ mod tests {
     }
 
     fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
-        std::sync::Arc::new(polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap())
+        std::sync::Arc::new(
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
+        )
     }
 
     /// Build an HTTP op-template programmatically. Bypasses
@@ -843,7 +845,8 @@ mod tests {
             .await
             .expect("map_op");
 
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = nmbrs_runtime::adapter::ResolvedFields::new(Vec::new(), Vec::new());
@@ -882,7 +885,8 @@ mod tests {
             .await
             .expect("map_op");
 
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = nmbrs_runtime::adapter::ResolvedFields::new(Vec::new(), Vec::new());
@@ -950,7 +954,8 @@ mod tests {
             .await
             .expect("map_op");
 
-        let mut k = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
         let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
         let empty = nmbrs_runtime::adapter::ResolvedFields::new(Vec::new(), Vec::new());

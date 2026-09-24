@@ -291,7 +291,7 @@ fn write_index(path: &str, index: usize) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{clear_sequence_cache_for, parse_csv_values};
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::dsl::compile::compile_polydat_interpreter;
 
     fn tmpfile(tag: &str) -> String {
         let n = std::time::SystemTime::now()
@@ -311,8 +311,9 @@ mod tests {
     /// macro-authored fixtures do their work at node CONSTRUCTION (which
     /// happens during compile), so each compile models one "session".
     fn pull_u64(src: &str) -> u64 {
-        let mut k = compile_polydat(src).unwrap_or_else(|e| panic!("compile {src}: {e:?}"));
-        k.pull("out").as_u64()
+        let mut k =
+            compile_polydat_interpreter(src).unwrap_or_else(|e| panic!("compile {src}: {e:?}"));
+        k.pull_ref("out").as_u64()
     }
 
     #[test]
@@ -327,8 +328,9 @@ mod tests {
         // payload when evaluated (on pull here; per-cycle in a live workload).
         let r = std::panic::catch_unwind(|| {
             let mut k =
-                compile_polydat("out := testkit_throw_at(10, 10, \"staircase\")").expect("compile");
-            k.pull("out").as_u64()
+                compile_polydat_interpreter("out := testkit_throw_at(10, 10, \"staircase\")")
+                    .expect("compile");
+            k.pull_ref("out").as_u64()
         });
         assert!(r.is_err(), "testkit_throw_at at threshold must panic");
         let payload = r.unwrap_err();
@@ -376,7 +378,8 @@ mod tests {
         assert_eq!(pull_u64(&src), 20);
         clear_sequence_cache_for(&path);
         // Exhausted → construction (compile) hard-errors.
-        let err = compile_polydat(&src).expect_err("noncycling should hard-error after exhaustion");
+        let err = compile_polydat_interpreter(&src)
+            .expect_err("noncycling should hard-error after exhaustion");
         assert!(format!("{err:?}").contains("past the end"), "got: {err:?}");
         let _ = std::fs::remove_file(&path);
     }

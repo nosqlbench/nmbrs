@@ -546,7 +546,7 @@ mod tests {
     /// accessor install is guarded so this is the only setter in the binary.
     #[tokio::test]
     async fn max_batch_size_resolves_through_mock_source() {
-        use polydat::dsl::compile::compile_polydat;
+        use polydat::dsl::compile::compile_polydat_interpreter;
 
         let key = "cql{driver=scylla,hosts=testhost,keyspace=,port=9042}";
         let mut values = HashMap::new();
@@ -563,7 +563,7 @@ mod tests {
             handle,
         }));
 
-        let parent = compile_polydat("__seed := 0").expect("compile parent kernel");
+        let parent = compile_polydat_interpreter("__seed := 0").expect("compile parent kernel");
 
         // Literal magnitude → no cluster read, byte-identical to Phase 1a.
         let literal = resolve_max_batch_bytes(&parent, key, Some(&serde_json::json!("64KB")))
@@ -598,11 +598,11 @@ mod tests {
     /// the resolution is fully local (test-order independent).
     #[tokio::test]
     async fn batch_count_resolves_literal_and_expression() {
-        use polydat::dsl::compile::compile_polydat;
+        use polydat::dsl::compile::compile_polydat_interpreter;
 
         // A key that never matches an installed accessor → lookup_handle None.
         let key = "cql{driver=scylla,hosts=batchtest,keyspace=,port=9042}";
-        let parent = compile_polydat("__seed := 0").expect("compile parent kernel");
+        let parent = compile_polydat_interpreter("__seed := 0").expect("compile parent kernel");
 
         // Bare integer literal → no kernel, no session read.
         let lit = resolve_batch_count(&parent, key, Some(&serde_json::json!(8)))

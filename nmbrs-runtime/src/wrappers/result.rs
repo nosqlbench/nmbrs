@@ -673,12 +673,12 @@ mod tests {
     }
 
     fn kernel_with_extern_inputs(names: &[(&str, &str)]) -> polydat::kernel::PolydatKernel {
-        use polydat::dsl::compile::compile_polydat;
+        use polydat::dsl::compile::compile_polydat_interpreter;
         let mut src = String::from("input cycle: u64\n");
         for (n, ty) in names {
             src.push_str(&format!("extern {n}: {ty}\n"));
         }
-        let mut k = compile_polydat(&src).expect("kernel_with_extern_inputs compile");
+        let mut k = compile_polydat_interpreter(&src).expect("kernel_with_extern_inputs compile");
         k.set_inputs(&[0]);
         k
     }

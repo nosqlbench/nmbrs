@@ -1078,7 +1078,7 @@ mod tests {
 
         // Stand up a shared canonical via the public API.
         let workload_src = "input cycle: u64\nfolded := 42\n";
-        let canonical_program = polydat::dsl::compile::compile_polydat(workload_src)
+        let canonical_program = polydat::dsl::compile::compile_polydat_interpreter(workload_src)
             .expect("compile probe canonical")
             .program()
             .clone();
@@ -1204,7 +1204,7 @@ mod tests {
         // Plan B normally runs in the executor; for this unit test
         // we simulate it by pulling the init binding once on the
         // activation kernel.
-        let v = kernel.pull("ticks").clone();
+        let v = kernel.pull_ref("ticks").clone();
         assert_eq!(v, Value::U64(42));
         let after_pull = calls.load(Ordering::Relaxed);
         // The fold pass evaluates the node once, then ConstU64

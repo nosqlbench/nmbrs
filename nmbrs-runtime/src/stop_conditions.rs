@@ -574,7 +574,7 @@ mod tests {
         // Root scope: f64 cells, as the incremental compaction sweep declares
         // (`shared recent_result_failures: f64 := 0.0`) — the typed-
         // extern path matters, a u64 guess would corrupt the compare.
-        let mut root = polydat::dsl::compile_polydat(
+        let mut root = polydat::dsl::compile_polydat_interpreter(
             "shared recent_result_failures: f64 := 0.0
              shared recent_result_total: f64 := 0.0
              rx := 1",
@@ -663,8 +663,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(all_fail.result_failure_fraction(), 1.0);
-        let phase_kernel =
-            polydat::dsl::compile_polydat("input cycle: u64\nx := 5").expect("phase kernel");
+        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
+            .expect("phase kernel");
         let mut cond = compile_stop_condition(
             &phase_kernel,
             0,
@@ -702,7 +702,8 @@ mod tests {
             extern cycles_total: u64 = 0\n\
             extern result_failure: u64 = 0\n\
             volatile sum := cycles_total + result_failure";
-        let mut k = polydat::dsl::compile_polydat(src).expect("compile predicate kernel");
+        let mut k =
+            polydat::dsl::compile_polydat_interpreter(src).expect("compile predicate kernel");
 
         RuntimeState {
             cycles_total: 10,
@@ -710,7 +711,7 @@ mod tests {
             ..Default::default()
         }
         .inject_into(&mut k);
-        assert_eq!(*k.pull("sum"), Value::U64(15));
+        assert_eq!(*k.pull_ref("sum"), Value::U64(15));
 
         RuntimeState {
             cycles_total: 40,
@@ -718,7 +719,7 @@ mod tests {
             ..Default::default()
         }
         .inject_into(&mut k);
-        assert_eq!(*k.pull("sum"), Value::U64(42));
+        assert_eq!(*k.pull_ref("sum"), Value::U64(42));
     }
 
     #[test]
@@ -727,8 +728,8 @@ mod tests {
         // a `ScopedExpr` bound to the phase kernel, evaluated per trigger
         // against an injected runtime-state snapshot — never baked into
         // the phase matter.
-        let phase_kernel =
-            polydat::dsl::compile_polydat("input cycle: u64\nx := 5").expect("phase kernel");
+        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
+            .expect("phase kernel");
         let mut cond = compile_stop_condition(
             &phase_kernel,
             0,
@@ -767,8 +768,8 @@ mod tests {
 
     #[test]
     fn stop_condition_set_installs_default_error_rate_and_declared_predicates() {
-        let phase_kernel =
-            polydat::dsl::compile_polydat("input cycle: u64\nx := 5").expect("phase kernel");
+        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
+            .expect("phase kernel");
         // The synthesized error-rate guard (0.1) rides the SAME list
         // as the declared op-count predicate — one uniform path
         // (SRD-82: no hidden conditions).
@@ -862,7 +863,8 @@ mod tests {
         assert!(!StopConditionDecl::action_cancels_ops(None));
 
         // A compiled abort decl surfaces cancel_ops=true through evaluate.
-        let root = polydat::dsl::compile_polydat("input cycle: u64").expect("root kernel");
+        let root =
+            polydat::dsl::compile_polydat_interpreter("input cycle: u64").expect("root kernel");
         let mut set = StopConditionSet::build_for_phase(
             &root,
             &[StopConditionDecl {

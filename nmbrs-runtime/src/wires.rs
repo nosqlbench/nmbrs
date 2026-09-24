@@ -731,7 +731,7 @@ fn is_dotted_ident(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::dsl::compile::compile_polydat_interpreter;
 
     #[test]
     fn polydatkernel_get_resolves_inputs_and_constants() {
@@ -739,7 +739,7 @@ mod tests {
         // input slots and scope-init constants — the names available
         // without a memoizing pull. `folded := 42` lands as a
         // compile-folded constant; `cycle` is a coordinate input.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              folded := 42\n",
         )
@@ -758,7 +758,7 @@ mod tests {
         // wires impl that can pull outputs. This test pins the
         // current contract so the Push 2 change is visible as a
         // diff.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              cyc_dep := hash(cycle)\n",
         )
@@ -770,14 +770,14 @@ mod tests {
 
     #[test]
     fn polydatkernel_get_returns_none_for_unknown_name() {
-        let k = compile_polydat("input cycle: u64\nx := 1\n").unwrap();
+        let k = compile_polydat_interpreter("input cycle: u64\nx := 1\n").unwrap();
         let wires: &dyn WireSource = &k;
         assert!(wires.get("not_a_real_name").is_none());
     }
 
     #[test]
     fn polydatkernel_names_lists_declared_outputs_and_inputs() {
-        let k = compile_polydat("input cycle: u64\nfolded := 42\n").unwrap();
+        let k = compile_polydat_interpreter("input cycle: u64\nfolded := 42\n").unwrap();
         let wires: &dyn WireSource = &k;
         let names: Vec<String> = wires.names().collect();
         assert!(
@@ -803,7 +803,7 @@ mod tests {
         // the bare `&PolydatKernel` impl can't reach. `cyc_dep` is a
         // computed output — pulling it requires `&mut state` to
         // fire the eval cone and cache the result.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              folded := 42\n\
              cyc_dep := hash(cycle)\n",
@@ -827,9 +827,10 @@ mod tests {
     /// and never leaves a stale prior reading.
     #[test]
     fn cycle_wires_reset_restores_declared_default() {
-        let mut k =
-            compile_polydat("input cycle: u64\nextern pressure: u64 = 7\nx := pressure + 1\n")
-                .unwrap();
+        let mut k = compile_polydat_interpreter(
+            "input cycle: u64\nextern pressure: u64 = 7\nx := pressure + 1\n",
+        )
+        .unwrap();
         let cw = CycleWires::new(&mut k);
         let wires: &dyn WireSource = &cw;
 
@@ -855,7 +856,7 @@ mod tests {
 
     #[test]
     fn cycle_wires_returns_none_for_unknown_name() {
-        let mut k = compile_polydat("input cycle: u64\nx := 1\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nx := 1\n").unwrap();
         let cw = CycleWires::new(&mut k);
         let wires: &dyn WireSource = &cw;
         assert!(wires.get("not_a_real_name").is_none());
@@ -874,10 +875,10 @@ mod tests {
         // adapter cycle time.
         //
         // This unit test simulates the shape directly via
-        // `compile_polydat` rather than spinning up the full activity
+        // `compile_polydat_interpreter` rather than spinning up the full activity
         // pipeline; it pins the contract that `wires.get` answers
         // for any name the program declares as an output.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              keyspace := \"baselines\"\n\
              table := \"vec_label_00\"\n\
@@ -904,7 +905,7 @@ mod tests {
 
     #[test]
     fn substitute_via_wires_resolves_bare_names() {
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              keyspace := \"baselines\"\n\
              table := \"vec_label_00\"\n",
@@ -918,7 +919,7 @@ mod tests {
 
     #[test]
     fn substitute_via_wires_passes_through_literal_braces() {
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              ks := \"baselines\"\n",
         )
@@ -1014,7 +1015,7 @@ mod tests {
 
     #[test]
     fn substitute_via_wires_errors_on_unresolved_name() {
-        let mut k = compile_polydat("input cycle: u64\nx := \"a\"\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nx := \"a\"\n").unwrap();
         let cw = CycleWires::new(&mut k);
         let err = substitute_via_wires("hi {nonexistent}", &cw).unwrap_err();
         assert!(
@@ -1037,7 +1038,7 @@ mod tests {
         // render as `""`. Empty string is a real value; absent is
         // not the same thing, and conflating them was the
         // wire-protocol corruption class this SRD closes.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern undef: str\n\
              const x := \"{undef}\"\n",
@@ -1079,7 +1080,7 @@ mod tests {
         // The fix mirrors `nmbrs_workload::bindpoints::extract_bind_points`:
         // when `{` is followed by `'` or `"`, treat it as a CQL
         // map opener (emit the brace, continue scanning).
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              optimize_for := \"RECALL\"\n\
              similarity_function := \"EUCLIDEAN\"\n",
@@ -1099,7 +1100,7 @@ mod tests {
 
     #[test]
     fn substitute_via_wires_errors_on_qualifier_prefix() {
-        let mut k = compile_polydat("input cycle: u64\nx := \"a\"\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nx := \"a\"\n").unwrap();
         let cw = CycleWires::new(&mut k);
         let err = substitute_via_wires("hi {bind:x}", &cw).unwrap_err();
         assert!(
@@ -1110,7 +1111,7 @@ mod tests {
 
     #[test]
     fn substitute_via_wires_passes_through_inline_expr() {
-        let mut k = compile_polydat("input cycle: u64\nx := \"a\"\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nx := \"a\"\n").unwrap();
         let cw = CycleWires::new(&mut k);
         let resolved = substitute_via_wires("v = {{x + 1}}", &cw).unwrap();
         // `{{...}}` is reserved for the inline-expression desugar
@@ -1141,13 +1142,13 @@ mod tests {
         // verify the value propagates through `build_subscope`
         // and is visible via `CycleWires::get`.
         use polydat::ast::Value;
-        use polydat::dsl::compile::compile_polydat;
+        use polydat::dsl::compile::compile_polydat_interpreter;
         use polydat::kernel::subcontext::PolydatMatter;
 
         // Parent: declares `optimize_for` as extern + auto-passthrough
         // output via `final` — same pattern the phase synthesizer
         // uses for iter-var cascade.
-        let mut parent = compile_polydat(
+        let mut parent = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern optimize_for: String\n",
         )
@@ -1164,7 +1165,7 @@ mod tests {
 
         // Child: program declares the same name as an extern.
         // Mimics the per-op canonical the dispenser owns.
-        let child_program = compile_polydat(
+        let child_program = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern optimize_for: String\n",
         )
@@ -1212,8 +1213,8 @@ mod tests {
         // body) gives materialize_wiring_from_outer something to walk. With ONLY
         // an extern decl, there's no body reference, no auto-passthrough,
         // and the chain breaks.
-        use polydat::dsl::compile::compile_polydat;
-        let k = compile_polydat(
+        use polydat::dsl::compile::compile_polydat_interpreter;
+        let k = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern optimize_for: String\n",
         )
@@ -1232,7 +1233,7 @@ mod tests {
         // underlying kernel's coord input so subsequent `get`
         // calls produce values for that coord. Verify by pulling
         // a coord-dependent output before and after advance.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              id := format_u64(cycle, 10)\n",
         )
@@ -1275,7 +1276,7 @@ mod tests {
         // input (e.g. `count`), then a later wrapper or the eval
         // cone reads it. `wires.write` lands the value; `wires.get`
         // returns it on the next read.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern count: u64\n\
              extern body: Json\n",
@@ -1297,7 +1298,7 @@ mod tests {
     fn cycle_wires_write_returns_no_slot_for_unknown_name() {
         // The closure-binding economy's DCE signal: no slot, value
         // silently dropped. Caller is unaffected.
-        let mut k = compile_polydat("input cycle: u64\nx := 1\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nx := 1\n").unwrap();
         let cw = CycleWires::new(&mut k);
         let wires: &dyn WireSource = &cw;
         assert_eq!(wires.write("nope", Value::U64(99)), WriteOutcome::NoSlot);
@@ -1309,7 +1310,7 @@ mod tests {
         // input, read an output that depends on it through the
         // eval cone. This is the metrics-wrapper-reading-row_count
         // scenario from the design memo.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern count: u64\n\
              row_count := count\n",
@@ -1337,7 +1338,7 @@ mod tests {
     fn resolve_op_fields_four_case_dispatch() {
         // Pin the four-case dispatch contract for op-field resolution.
         // See `resolve_op_fields_via_wires` doc for the cases.
-        let mut k = compile_polydat(
+        let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              table := \"users\"\n\
              count := 42\n",
@@ -1405,7 +1406,7 @@ mod tests {
         // (hash is deterministic per coordinate, but the kernel's
         // dirty-tracking would require a state mutation to
         // re-fire — the property still holds).
-        let mut k = compile_polydat("input cycle: u64\nh := hash(cycle)\n").unwrap();
+        let mut k = compile_polydat_interpreter("input cycle: u64\nh := hash(cycle)\n").unwrap();
         k.set_inputs(&[42]);
         let cw = CycleWires::new(&mut k);
         let wires: &dyn WireSource = &cw;

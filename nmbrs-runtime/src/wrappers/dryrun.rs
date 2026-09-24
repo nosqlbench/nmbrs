@@ -176,7 +176,8 @@ mod tests {
         let inner: Arc<dyn OpDispenser> = Arc::new(PanicIfCalled);
         let wrapper = DryRunWrapper::wrap(inner);
 
-        let mut kernel = polydat::dsl::compile::compile_polydat("input cycle: u64\n").unwrap();
+        let mut kernel =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
         let cw = crate::wires::CycleWires::new(&mut kernel);
         let fields = crate::adapter::ResolvedFields::new(vec![], vec![]);
         let pulls = ResolvedPulls::empty();

@@ -27,7 +27,7 @@ use nmbrs_runtime::fixture::{PullPlan, ResolvedPulls, ScopeFixture};
 use nmbrs_runtime::validation::ValidatingDispenser;
 use nmbrs_runtime::wires::CycleWires;
 use polydat::ast::Value;
-use polydat::dsl::compile::compile_polydat;
+use polydat::dsl::compile::compile_polydat_interpreter;
 use polydat::kernel::PolydatProgram;
 
 /// Result body shaped like `CqlResultBody.to_json()` — a JSON array of
@@ -102,11 +102,11 @@ impl OpDispenser for FixedBodyDispenser {
 /// slot; tests inject the ground-truth value via `set_input` per
 /// cycle.
 fn make_gt_program() -> Arc<PolydatProgram> {
-    let kernel = compile_polydat(
+    let kernel = compile_polydat_interpreter(
         "input cycle: u64\n\
          extern ground_truth: Str = \"\"\n",
     )
-    .expect("compile_polydat extern declaration");
+    .expect("compile_polydat_interpreter extern declaration");
     kernel.into_program()
 }
 
@@ -186,11 +186,11 @@ fn pulls_with_gt_string(
 /// resolves to the test fixture value. Returns the kernel by value;
 /// the caller wraps `CycleWires` around it for the cycle's duration.
 fn kernel_with_gt_string(gt_csv: &str) -> polydat::kernel::PolydatKernel {
-    let mut k = compile_polydat(
+    let mut k = compile_polydat_interpreter(
         "input cycle: u64\n\
          extern ground_truth: Str = \"\"\n",
     )
-    .expect("compile_polydat extern declaration");
+    .expect("compile_polydat_interpreter extern declaration");
     k.set_inputs(&[0]);
     let idx = k
         .program()

@@ -380,15 +380,15 @@ impl<'a> ExecCtx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::dsl::compile::compile_polydat_interpreter;
 
     fn k() -> PolydatKernel {
-        compile_polydat(
+        compile_polydat_interpreter(
             "input cycle: u64\n\
              folded := 42\n\
              cyc_dep := hash(cycle)\n",
         )
-        .expect("compile_polydat")
+        .expect("compile_polydat_interpreter")
     }
 
     #[test]
