@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 use nmbrs_metrics::cadence_reporter::{CadenceReporter, SubscriberId};
 use nmbrs_metrics::snapshot::MetricSet;
+use polydat::Kernel;
 use polydat::ast::Value;
 use polydat::kernel::{PolydatKernel, PolydatProgram};
 
@@ -92,7 +93,10 @@ impl Default for SettleReading {
 
 /// Per-pulse interpreter of objective settling. See the module docs.
 pub struct SettleInterpreter {
-    kernel: PolydatKernel,
+    /// A standalone kernel on whatever engine the compile chose — it
+    /// takes no part in the scope tree, so it is driven through the
+    /// engine-neutral [`Kernel`] trait.
+    kernel: Box<dyn Kernel>,
     /// Index of the poke input on the settle kernel, if present. Absent
     /// only for a kernel with no inputs — pulses then evaluate the
     /// kernel as-is (no generation advance, so a volatile reader would
@@ -109,8 +113,8 @@ impl SettleInterpreter {
     /// the input poked to advance the generation each pulse;
     /// `value_wire` / `stable_wire` are the `is_stable` multi-output
     /// wire names.
-    pub fn new(kernel: PolydatKernel, source: &str, value_wire: &str, stable_wire: &str) -> Self {
-        let source_input = kernel.program().find_input(source);
+    pub fn new(kernel: Box<dyn Kernel>, source: &str, value_wire: &str, stable_wire: &str) -> Self {
+        let source_input = kernel.input_index(source);
         Self {
             kernel,
             source_input,
@@ -137,8 +141,16 @@ impl SettleInterpreter {
     pub fn pulse(&mut self, poke: f64) -> SettleReading {
         self.pulses += 1;
         if let Some(idx) = self.source_input {
-            self.kernel.state().set_input(idx, Value::F64(poke));
+            // `source` is an `f64` extern, so an `F64` write cannot be
+            // refused; a refusal is a malformed settle kernel.
+            self.kernel
+                .set_input_at(idx, Value::F64(poke))
+                .expect("settle kernel refused its f64 `source` extern");
         }
+        // Every pulse is one `is_stable` sample, a poke equal to the
+        // last one included — which a compiled engine would otherwise
+        // treat as a cycle whose inputs did not move.
+        self.kernel.invalidate_all();
         let stable = self.kernel.pull(&self.stable_wire).as_u64() != 0;
         let value = self.kernel.pull(&self.value_wire).as_f64();
 
@@ -229,7 +241,7 @@ impl PulseEvaluator for SettleEvaluator {
                 .state()
                 .set_input(idx, Value::U64(self.pulses));
         }
-        let obj = objective_to_f64(self.objective.pull(&self.objective_wire));
+        let obj = objective_to_f64(self.objective.pull_ref(&self.objective_wire));
         // SRD-89 — a NaN objective is a windowed metric reading **no data** (an
         // empty `rate(...[W])` lookback — see `nodes::no_data_value`), distinct
         // from a real 0. HOLD on it: do not feed the stability detector (a
@@ -394,7 +406,7 @@ pub fn start_settle(
     let obj_kernel = parent.build_subscope(matter).ok()?;
 
     let is_stable_kernel = polydat::dsl::compile::compile_polydat(&format!(
-        "input source: f64\n(stable_value, stable) := is_stable(source, {SETTLE_MARGIN}, \
+        "extern source: f64\n(stable_value, stable) := is_stable(source, {SETTLE_MARGIN}, \
          {SETTLE_MIN_SAMPLES}, {SETTLE_HORIZON})"
     ))
     .ok()?;
@@ -439,19 +451,19 @@ pub fn start_settle(
 mod tests {
     use super::*;
     use crate::phase_outcome::{Disposition, Validity};
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::dsl::compile::{compile_polydat, compile_polydat_interpreter};
 
     /// The fixed `is_stable` engine fed the per-pulse objective value.
     fn settle_interp() -> SettleInterpreter {
         let kernel = compile_polydat(
-            "input source: f64\n(stable_value, stable) := is_stable(source, 0.05, 4, 8)",
+            "extern source: f64\n(stable_value, stable) := is_stable(source, 0.05, 4, 8)",
         )
         .expect("is_stable kernel compiles");
         SettleInterpreter::new(kernel, "source", "stable_value", "stable")
     }
 
     fn obj_kernel(src: &str) -> PolydatKernel {
-        compile_polydat(src).expect("objective kernel compiles")
+        compile_polydat_interpreter(src).expect("objective kernel compiles")
     }
 
     // A constant objective: settles regardless of the poke.
@@ -566,18 +578,19 @@ mod tests {
         // coordinates) → flagged as un-gateable. `metric_window(...)` is
         // a bounded windowed reader, and a plain objective reads nothing
         // → neither is flagged.
-        let cum = compile_polydat(r#"obj := metric("cycles_total, phase=p", "rate")"#)
+        let cum = compile_polydat_interpreter(r#"obj := metric("cycles_total, phase=p", "rate")"#)
             .expect("metric node compiles");
         assert!(program_reads_session_cumulative_metrics(cum.program()));
 
-        let win = compile_polydat(r#"obj := metric_window("cycles_total, phase=p", "rate")"#)
-            .expect("metric_window node compiles");
+        let win =
+            compile_polydat_interpreter(r#"obj := metric_window("cycles_total, phase=p", "rate")"#)
+                .expect("metric_window node compiles");
         assert!(
             !program_reads_session_cumulative_metrics(win.program()),
             "metric_window is windowed, not session-cumulative"
         );
 
-        let plain = compile_polydat("obj := 5.0").expect("plain objective compiles");
+        let plain = compile_polydat_interpreter("obj := 5.0").expect("plain objective compiles");
         assert!(!program_reads_session_cumulative_metrics(plain.program()));
     }
 }

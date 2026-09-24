@@ -928,8 +928,10 @@ fn probe_node_meta(
     } else {
         format!("{input_decls}out := {func_name}({})", parts.join(", "))
     };
+    // Node metadata is the interpreter's graph, so the probe compiles
+    // onto it.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        polydat::dsl::compile_polydat(&source)
+        polydat::dsl::compile::compile_polydat_interpreter(&source)
     }));
     match result {
         Ok(Ok(kernel)) => {

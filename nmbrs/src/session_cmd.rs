@@ -143,15 +143,15 @@ fn eval_name_template(template: &str) -> Result<String, String> {
     // user's text can't break out of the surrounding quotes.
     let escaped = template.replace('\\', "\\\\").replace('"', "\\\"");
     let source = format!("{fields}out := \"{escaped}\"");
-    let kernel = polydat::dsl::compile::compile_polydat(&source)
+    let mut kernel = polydat::dsl::compile::compile_polydat(&source)
         .map_err(|e| format!("session name template '{template}': {e}"))?;
-    match kernel.get_constant("out") {
-        Some(polydat::ast::Value::Str(s)) => Ok(s.to_string()),
-        Some(other) => Err(format!(
-            "session name template '{template}' must produce a string, got {other:?}"
-        )),
-        None => Err(format!(
+    match kernel.pull("out") {
+        polydat::ast::Value::Str(s) => Ok(s.to_string()),
+        polydat::ast::Value::None => Err(format!(
             "session name template '{template}' produced no value"
+        )),
+        other => Err(format!(
+            "session name template '{template}' must produce a string, got {other:?}"
         )),
     }
 }
