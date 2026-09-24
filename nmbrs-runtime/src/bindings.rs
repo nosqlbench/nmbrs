@@ -153,8 +153,10 @@ pub fn probe_compile_level(func_name: &str) -> polydat::ast::CompileLevel {
 
     // Probe compile level via catch_unwind — fallback is Phase1.
     // Does not replace the global panic hook (not thread-safe).
+    // The compile level is a property of the interpreter's node graph,
+    // so the probe reads it off the interpreter's program.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        polydat::dsl::compile_polydat(&source)
+        polydat::dsl::compile::compile_polydat_interpreter(&source)
     }));
 
     match result {
@@ -263,8 +265,29 @@ pub fn compile_from_scope(
         strict,
         context: context.to_string(),
         cursor_limit,
+        ..Default::default()
     };
-    polydat::dsl::compile::compile_polydat_with_options(&source, &options, None)
+    compile_scope_kernel(&source, &options)
+}
+
+/// Compile Polydat source into a scope kernel — a node of nmbrs's scope
+/// tree.
+///
+/// The tree builds each child from its parent with the interpreter
+/// kernel's subscope API (`for_iteration`, `build_subscope`, `lookup`,
+/// `propagate_inputs_into`), which polydat keeps on the concrete
+/// [`PolydatKernel`] rather than the engine-neutral `Kernel` trait, so
+/// every scope kernel is compiled onto the interpreter here, in one
+/// place. `options.engine` still decides how much of each graph fuses
+/// into native cones. A kernel that stands outside the tree compiles
+/// through `compile_polydat_kernel_with_options` and is driven as a
+/// `Box<dyn Kernel>` on the default engine instead.
+pub fn compile_scope_kernel(
+    source: &str,
+    options: &polydat::dsl::compile::CompileOptions,
+) -> Result<PolydatKernel, String> {
+    polydat::dsl::compile::compile_polydat_interpreter_with_options(source, options, None)
+        .map_err(|e| e.to_string())
 }
 
 /// Prepend pragma directives matching the chain's effective
@@ -484,7 +507,7 @@ pub fn compile_bindings_with_opts(
             strict,
             ..Default::default()
         };
-        return polydat::dsl::compile::compile_polydat_with_options(&source, &options, None);
+        return compile_scope_kernel(&source, &options);
     }
 
     // Legacy mode: translate semicolon-chain bindings into Polydat source
@@ -580,7 +603,7 @@ pub fn compile_bindings_with_opts(
         strict,
         ..Default::default()
     };
-    polydat::dsl::compile::compile_polydat_with_options(&polydat_source, &options, None)
+    compile_scope_kernel(&polydat_source, &options)
 }
 
 // ---------------------------------------------------------------------------

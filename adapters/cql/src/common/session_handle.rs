@@ -371,13 +371,13 @@ fn eval_batch_field_expr(
     expr: &str,
     label: &str,
 ) -> Result<Value, String> {
-    use polydat::dsl::compile::compile_polydat;
+    use polydat::Kernel as _;
     // `extern cql_session_key: str` makes the key a named `str` input the
     // subscope can inject by value; the nodes are inventory-registered so the
     // expression's `cql_session(...)` / `cql_server_batch_limit(...)` resolve.
     let output = format!("__nmbrs_{label}");
     let source = format!("extern cql_session_key: str\n{output} := {expr}\n");
-    let program = compile_polydat(&source)
+    let program = nmbrs_runtime::bindings::compile_scope_kernel(&source, &Default::default())
         .map_err(|e| format!("{label} '{expr}': {e}"))?
         .program()
         .clone();
@@ -394,7 +394,7 @@ fn eval_batch_field_expr(
     let mut child = parent
         .build_subscope(matter)
         .map_err(|e| format!("{label} '{expr}': {e:?}"))?;
-    Ok(child.pull(&output).clone())
+    Ok(child.pull(&output))
 }
 
 /// Extract the raw contents of every double-quoted string literal in a GK

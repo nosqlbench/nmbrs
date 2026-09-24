@@ -49,7 +49,6 @@
 
 use std::collections::HashMap;
 
-use polydat::dsl::compile::compile_polydat;
 use polydat::kernel::PolydatKernel;
 
 /// Build the workload-params kernel from a params map. The
@@ -65,7 +64,7 @@ pub fn build_workload_params_kernel(
     params: &HashMap<String, String>,
 ) -> Result<PolydatKernel, String> {
     let source = render_workload_params_source(params);
-    compile_polydat(&source)
+    crate::bindings::compile_scope_kernel(&source, &Default::default())
         .map_err(|e| format!("workload params kernel: {e}\n--- generated source ---\n{source}"))
 }
 

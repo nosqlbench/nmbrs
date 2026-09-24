@@ -318,7 +318,7 @@ pub fn compile_continue_if(
         strict,
         ..Default::default()
     };
-    polydat::dsl::compile::compile_polydat_with_options(&source, &options, None)
+    crate::bindings::compile_scope_kernel(&source, &options)
         .map(Arc::new)
         .map_err(|e| format!("continue_if predicate `{when}`: {e}"))
 }
