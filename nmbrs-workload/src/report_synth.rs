@@ -293,13 +293,17 @@ fn describe_comprehension(c: &polydat::iteration::comprehension::Comprehension) 
             child,
             strategy,
             truncation,
-        } => match truncation {
-            Some(n) => format!(
-                "{} ordered {strategy:?} take {n}",
-                describe_comprehension(child)
-            ),
-            None => format!("{} ordered {strategy:?}", describe_comprehension(child)),
-        },
+            seed,
+        } => {
+            let mut text = format!("{} ordered {strategy:?}", describe_comprehension(child));
+            if let Some(n) = truncation {
+                text.push_str(&format!(" take {n}"));
+            }
+            if let Some(s) = seed {
+                text.push_str(&format!(" seed {s}"));
+            }
+            text
+        }
     }
 }
 

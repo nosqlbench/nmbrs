@@ -5268,7 +5268,7 @@ fn collect_iter_var_names(
     for phase in workload.phases.values() {
         if let Some(text) = phase.for_each.as_deref()
             && let Ok(comp) =
-                polydat::iteration::comprehension::spec::parse_comprehension_text(text)
+                polydat::iteration::comprehension::spec::parse_comprehension_algebra(text)
         {
             for name in comp.coordinate_names() {
                 out.insert(name.to_string());

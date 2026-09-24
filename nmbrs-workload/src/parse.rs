@@ -11,9 +11,8 @@ use crate::model::{
     Workload, WorkloadPhase,
 };
 use crate::template::expand_templates;
-use polydat::iteration::comprehension::spec::{
-    ComprehensionSpec, ForSpec, parse_clause, parse_clause_list,
-};
+use polydat::iteration::comprehension::Comprehension;
+use polydat::iteration::comprehension::spec::{ComprehensionSpec, ForSpec, parse_inline};
 use serde_json::Value as JVal;
 use std::collections::HashMap;
 
@@ -1352,31 +1351,54 @@ fn parse_combination_specs(val: &JVal) -> Vec<(String, String)> {
             .iter()
             .filter_map(|item| {
                 let s = item.as_str()?;
-                match parse_clause(s) {
-                    Ok(c) => Some((c.var().to_string(), c.expr().to_string())),
-                    Err(e) => {
-                        eprintln!("warning: for_combinations: {e}");
-                        None
-                    }
-                }
+                clause_pairs_of(s)
             })
+            .flatten()
             .collect(),
         // Inline form: "profile in expr, k in expr"
         // Split on commas that are NOT inside parentheses (respects
         // function calls like `matching_profiles('{dataset}', '{prefix}')`).
-        JVal::String(s) => match parse_clause_list(s) {
-            Ok(clauses) => clauses
-                .into_iter()
-                .map(|c| (c.var().to_string(), c.expr().to_string()))
-                .collect(),
-            Err(e) => {
-                eprintln!("warning: for_combinations: {e}");
-                Vec::new()
-            }
-        },
+        JVal::String(s) => clause_pairs_of(s).unwrap_or_default(),
         _ => {
             eprintln!("warning: for_combinations value must be a map, list, or string");
             Vec::new()
+        }
+    }
+}
+
+/// Parse clause text (`"var in expr"`, or a comma-separated list of
+/// them) through polydat's spec entry and read the `(var, expr)` pairs
+/// back off the algebra, warning and yielding `None` on a parse error.
+fn clause_pairs_of(text: &str) -> Option<Vec<(String, String)>> {
+    match parse_inline(text) {
+        Ok(comp) => {
+            let mut pairs = Vec::new();
+            collect_clause_pairs(&comp, &mut pairs);
+            Some(pairs)
+        }
+        Err(e) => {
+            eprintln!("warning: for_combinations: {e}");
+            None
+        }
+    }
+}
+
+/// Every leaf clause of `c`, in order, as `(var, source text)`.
+fn collect_clause_pairs(c: &Comprehension, out: &mut Vec<(String, String)>) {
+    match c {
+        Comprehension::Clause { name, source } => match source.to_text() {
+            Some(text) => out.push((name.clone(), text)),
+            None => eprintln!("warning: for_combinations: clause '{name}' has no text form"),
+        },
+        Comprehension::Cartesian { children }
+        | Comprehension::Zip { children, .. }
+        | Comprehension::Union { children } => {
+            for child in children {
+                collect_clause_pairs(child, out);
+            }
+        }
+        Comprehension::Filter { child, .. } | Comprehension::Order { child, .. } => {
+            collect_clause_pairs(child, out);
         }
     }
 }

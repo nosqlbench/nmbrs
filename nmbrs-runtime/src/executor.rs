@@ -2424,36 +2424,37 @@ fn runtime_iterate(
     parent_coords: &[ScopeCoord],
     comprehension: &polydat::iteration::comprehension::Comprehension,
 ) -> Result<Vec<IterationStep>, String> {
-    use polydat::iteration::comprehension::runtime::{EmptyClause, evaluate_for_iteration};
+    use polydat::iteration::comprehension::evaluate_for_iteration_reported;
     use polydat::kernel::{PolydatKernel, ScopeCoord};
 
-    let strict = ctx.strict;
-    let quiet = ctx.quiet();
-    let on_empty = |empty: EmptyClause<'_>| -> Result<(), String> {
-        let label = match empty.spec_expr {
-            Some(spec) => format!("for_each clause '{var} in {spec}'", var = empty.var),
-            None => format!("for_each clause '{var}'", var = empty.var),
+    // The evaluator reads names through `Lookup` — the parent kernel
+    // is the scope; the canonical program is only needed below, to
+    // materialise each tuple's per-iteration kernel.
+    let evaluated = evaluate_for_iteration_reported(comprehension, parent.as_ref())
+        .map_err(|e| e.to_string())?;
+
+    // Empty-clause policy: polydat reports what each leaf clause
+    // yielded and leaves the decision here. Only a clause that was
+    // reached and produced nothing is named — one never evaluated
+    // (`evaluations == 0`) is empty because an outer clause was, and
+    // naming it would bury the cause.
+    for clause in &evaluated.clauses {
+        if clause.evaluations == 0 || clause.values > 0 {
+            continue;
+        }
+        let label = match &clause.source {
+            Some(spec) => format!("for_each clause '{var} in {spec}'", var = clause.var),
+            None => format!("for_each clause '{var}'", var = clause.var),
         };
         let msg = format!("{label}: produced no values");
-        if strict {
+        if ctx.strict {
             return Err(format!("strict: {msg}"));
         }
-        if !quiet {
+        if !ctx.quiet() {
             crate::diag!(crate::observer::LogLevel::Warn, "warning: {msg}");
         }
-        Ok(())
-    };
-
-    // polydat 0.3: the evaluator reads names through `Lookup` — the
-    // parent kernel is the scope; the canonical program is only
-    // needed below, to materialise each tuple's per-iteration kernel.
-    let tuples = evaluate_for_iteration(
-        comprehension,
-        parent.as_ref(),
-        &ctx.workload_params,
-        on_empty,
-    )
-    .map_err(|e| e.to_string())?;
+    }
+    let tuples = evaluated.tuples;
 
     // Materialise each tuple into an IterationStep: per-iter
     // kernel via PolydatKernel::for_iteration, coord path extended
