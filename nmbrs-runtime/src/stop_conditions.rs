@@ -342,7 +342,7 @@ pub fn eval_continue_if(
     let mut kernel = PolydatKernel::for_iteration(gate_canonical, parent, bindings);
     let pulled = Arc::get_mut(&mut kernel)
         .ok_or("continue_if: freshly built gate kernel unexpectedly shared")?
-        .pull("__continue_if");
+        .pull_ref("__continue_if");
     Ok(match pulled {
         Value::Bool(b) => *b,
         other => other.as_u64() != 0,

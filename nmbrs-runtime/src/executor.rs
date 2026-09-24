@@ -22,6 +22,8 @@ use nmbrs_metrics::cadence_reporter::CadenceReporter;
 use nmbrs_metrics::component::{self, Component, ComponentState};
 use nmbrs_metrics::labels::Labels;
 use nmbrs_workload::model::{ScenarioNode, WorkloadPhase};
+
+use polydat::Kernel as _;
 use polydat::kernel::{ScopeCoord, format_scope_coordinate_path};
 
 /// SRD-83 follow-up — resolve a stop condition's action scope from its
@@ -3604,7 +3606,7 @@ fn read_objective_at_completion(
                     .ok()?,
             )
             .ok()?;
-        Some(k.pull(objective).clone())
+        Some(k.pull(objective))
     }));
     match result {
         Ok(Some(Value::F64(f))) => Some(f),
@@ -4408,9 +4410,9 @@ async fn run_phase_inner(
             };
             let truthy = match gate_kernel.pull(cond_name) {
                 polydat::ast::Value::None => false,
-                polydat::ast::Value::U64(v) => *v != 0,
-                polydat::ast::Value::F64(v) => *v != 0.0,
-                polydat::ast::Value::Bool(v) => *v,
+                polydat::ast::Value::U64(v) => v != 0,
+                polydat::ast::Value::F64(v) => v != 0.0,
+                polydat::ast::Value::Bool(v) => v,
                 polydat::ast::Value::Str(s) => !s.is_empty(),
                 _ => true,
             };
@@ -4740,9 +4742,8 @@ async fn run_phase_inner(
             // I/O are responsible for parking the worker themselves
             // (see `polydat`'s `run_blocking_io`); the activation
             // boundary stays a plain eval.
-            let pull_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                kernel.pull(init_name).clone()
-            }));
+            let pull_result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.pull(init_name)));
             match pull_result {
                 Ok(v) if !matches!(v, polydat::ast::Value::None) => {}
                 Ok(_) => {
@@ -4804,9 +4805,8 @@ async fn run_phase_inner(
             if kernel.get_constant(final_name).is_some() {
                 continue;
             }
-            let pull_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                kernel.pull(final_name).clone()
-            }));
+            let pull_result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| kernel.pull(final_name)));
             match pull_result {
                 Ok(v) if !matches!(v, polydat::ast::Value::None) => {}
                 Ok(_) => {
@@ -4936,8 +4936,8 @@ async fn run_phase_inner(
             .collect();
         for (name, outputs, limit, cursor_kind, partition_output) in cursor_specs {
             if let Some((start_out, end_out)) = outputs {
-                let start = kernel.pull(&start_out).as_u64();
-                let end = kernel.pull(&end_out).as_u64();
+                let start = kernel.pull_ref(&start_out).as_u64();
+                let end = kernel.pull_ref(&end_out).as_u64();
                 let extent = end.saturating_sub(start);
                 let final_extent = limit.map(|l| extent.min(l)).unwrap_or(extent);
                 runtime_extents.insert(name.clone(), final_extent);
@@ -4947,7 +4947,7 @@ async fn run_phase_inner(
             // fly), or any Partition / PartitionSpec / PartitionList
             // value flowing through Value::Ext.
             if let Some(out) = &partition_output {
-                let value = kernel.pull(out).clone();
+                let value = kernel.pull(out);
                 let cursor_extent = runtime_extents.get(&name).copied().unwrap_or_else(|| {
                     kernel
                         .program()
@@ -5036,9 +5036,9 @@ async fn run_phase_inner(
                     min_ms_output,
                     delta_output,
                 } => {
-                    runtime_min_ms.insert(name.clone(), kernel.pull(min_ms_output).as_u64());
+                    runtime_min_ms.insert(name.clone(), kernel.pull_ref(min_ms_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
                     }
                 }
                 ExtendingPasses {
@@ -5046,18 +5046,19 @@ async fn run_phase_inner(
                     delta_output,
                 } => {
                     runtime_min_passes
-                        .insert(name.clone(), kernel.pull(min_passes_output).as_u64());
+                        .insert(name.clone(), kernel.pull_ref(min_passes_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
                     }
                 }
                 ExtendingCount {
                     min_count_output,
                     delta_output,
                 } => {
-                    runtime_min_count.insert(name.clone(), kernel.pull(min_count_output).as_u64());
+                    runtime_min_count
+                        .insert(name.clone(), kernel.pull_ref(min_count_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
                     }
                 }
                 ExtendingElapsedAndPasses {
@@ -5070,11 +5071,11 @@ async fn run_phase_inner(
                     min_passes_output,
                     delta_output,
                 } => {
-                    runtime_min_ms.insert(name.clone(), kernel.pull(min_ms_output).as_u64());
+                    runtime_min_ms.insert(name.clone(), kernel.pull_ref(min_ms_output).as_u64());
                     runtime_min_passes
-                        .insert(name.clone(), kernel.pull(min_passes_output).as_u64());
+                        .insert(name.clone(), kernel.pull_ref(min_passes_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
                     }
                 }
             }
@@ -7276,7 +7277,7 @@ fn emit_phase_metrics(
     )> = Vec::new();
     'metrics: for (name, spec) in entries {
         let binding = crate::scope::synthesize_metric_binding_name(name);
-        let value = k.pull(&binding).clone();
+        let value = k.pull(&binding);
         let Some(raw) = to_f64(&value) else {
             crate::diag!(
                 crate::observer::LogLevel::Warn,
@@ -7314,7 +7315,7 @@ fn emit_phase_metrics(
             let mut c = nmbrs_metrics::labels::Labels::default();
             for dim in spec.cell.keys() {
                 let wire = crate::scope::synthesize_cell_binding_name(name, dim);
-                let v = k.pull(&wire).clone();
+                let v = k.pull(&wire);
                 let Value::Str(text) = &v else {
                     crate::diag!(
                         crate::observer::LogLevel::Warn,

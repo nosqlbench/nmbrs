@@ -523,10 +523,10 @@ pub fn plot_graph(req: PlotRequest) -> PlotResult {
                 for name in &output_names {
                     let v = kernel.pull(name);
                     let f = match v {
-                        polydat::ast::Value::U64(n) => *n as f64,
-                        polydat::ast::Value::F64(n) => *n,
+                        polydat::ast::Value::U64(n) => n as f64,
+                        polydat::ast::Value::F64(n) => n,
                         polydat::ast::Value::Bool(b) => {
-                            if *b {
+                            if b {
                                 1.0
                             } else {
                                 0.0

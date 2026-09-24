@@ -586,7 +586,7 @@ impl FiberBuilder {
                         // path trips over it.
                         if let Err(payload) =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                op_kernel.pull(init_name);
+                                op_kernel.pull_ref(init_name);
                             }))
                         {
                             let msg = payload
@@ -978,7 +978,7 @@ impl FiberBuilder {
             return;
         };
         for name in &names {
-            let _ = kernel.pull(name);
+            let _ = kernel.pull_ref(name);
         }
     }
 

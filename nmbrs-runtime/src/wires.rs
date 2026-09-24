@@ -73,6 +73,11 @@ pub enum WriteOutcome {
     /// corrupting downstream reads; the `reason` field carries
     /// the polydat-side diagnostic for surfacing to the operator.
     TypeMismatch { reason: String },
+    /// The slot is a coordinate. Coordinates advance with the cycle
+    /// (`set_inputs`), never by a named write, so the kernel refuses
+    /// the write to keep the coordinate prefix in step with the cycle
+    /// a pull is about to read. `reason` is polydat's diagnostic.
+    Coordinate { reason: String },
 }
 
 /// Cycle-time read surface a dispenser uses to resolve names from
@@ -249,7 +254,7 @@ impl<'a> WireSource for CycleWires<'a> {
         // old `resolve_output(name).is_some()` + `pull(name)` hashed the name
         // twice per read (pull re-resolves internally). One hash now.
         if let Some(output_idx) = k.program().output_index(name) {
-            let v = k.pull_by_index(output_idx).clone();
+            let v = k.pull_ref_at(output_idx).clone();
             if nmbrs_dirty_debug_enabled() && name == "query" {
                 let s = v.to_display_string();
                 let head: String = s.chars().take(64).collect();
@@ -304,6 +309,9 @@ impl<'a> WireSource for CycleWires<'a> {
             Err(e @ WriteError::TypeMismatch { .. }) => WriteOutcome::TypeMismatch {
                 reason: e.to_string(),
             },
+            Err(e @ WriteError::CoordinateSlot { .. }) => WriteOutcome::Coordinate {
+                reason: e.to_string(),
+            },
         }
     }
 
@@ -334,6 +342,9 @@ impl<'a> WireSource for CycleWires<'a> {
             Ok(()) => WriteOutcome::Stored,
             Err(WriteError::UnknownWire { .. }) => WriteOutcome::NoSlot,
             Err(e @ WriteError::TypeMismatch { .. }) => WriteOutcome::TypeMismatch {
+                reason: e.to_string(),
+            },
+            Err(e @ WriteError::CoordinateSlot { .. }) => WriteOutcome::Coordinate {
                 reason: e.to_string(),
             },
         }
