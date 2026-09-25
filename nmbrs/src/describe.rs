@@ -960,43 +960,9 @@ fn probe_node_meta(
 }
 
 fn port_type_label(t: polydat::ast::PortType) -> &'static str {
-    use polydat::ast::PortType;
-    match t {
-        PortType::U64 => "u64",
-        PortType::F64 => "f64",
-        PortType::U32 => "u32",
-        PortType::I32 => "i32",
-        PortType::I64 => "i64",
-        PortType::F32 => "f32",
-        PortType::U8 => "u8",
-        PortType::I8 => "i8",
-        PortType::U16 => "u16",
-        PortType::I16 => "i16",
-        PortType::F16 => "f16",
-        PortType::U128 => "u128",
-        PortType::I128 => "i128",
-        PortType::Reg128 => "reg128",
-        PortType::RegI8x16 => "reg<i8x16>",
-        PortType::RegI16x8 => "reg<i16x8>",
-        PortType::RegI32x4 => "reg<i32x4>",
-        PortType::RegI64x2 => "reg<i64x2>",
-        PortType::RegF16x8 => "reg<f16x8>",
-        PortType::RegF32x4 => "reg<f32x4>",
-        PortType::RegF64x2 => "reg<f64x2>",
-        PortType::Bool => "bool",
-        PortType::Str => "str",
-        PortType::Bytes => "bytes",
-        PortType::Json => "json",
-        PortType::Ext => "ext",
-        PortType::Handle => "handle",
-        PortType::VecF32 => "vec<f32>",
-        PortType::VecI32 => "vec<i32>",
-        PortType::VecF64 => "vec<f64>",
-        PortType::VecI64 => "vec<i64>",
-        PortType::VecF16 => "vec<f16>",
-        PortType::VecI16 => "vec<i16>",
-        PortType::VecI8 => "vec<i8>",
-    }
+    // The canonical keyword, the spelling a workload writes, so a label
+    // copied from `describe` compiles and a type polydat adds is named.
+    t.to_keyword()
 }
 
 fn slot_type_label(slot: polydat::ast::SlotType) -> &'static str {
