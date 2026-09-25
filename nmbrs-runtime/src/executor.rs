@@ -4525,8 +4525,21 @@ async fn run_phase_inner(
             .and_then(|idx| ctx.scope_tree.nodes[idx].cached_kernel.get())
             .map(|k| k.as_ref())
             .unwrap_or(parent_kernel);
-        if let Err(e) = crate::scope::validate_placeholders_via_kernel(&ops, validation_kernel)
-            .map_err(|e| format!("phase '{phase_name}': {e}"))
+        // The scopes around the phase whose bindings the phase scope
+        // includes as local matter: the current parent (a per-iteration
+        // kernel may not be in the tree) and every installed ancestor.
+        let ancestors = ctx
+            .scope_tree
+            .phase_node_by_name(phase_name)
+            .map(|idx| ctx.scope_tree.ancestor_kernels(idx))
+            .unwrap_or_default();
+        let enclosing: Vec<&polydat::kernel::PolydatProgram> =
+            std::iter::once(parent_kernel.program().as_ref())
+                .chain(ancestors.iter().map(|k| k.program().as_ref()))
+                .collect();
+        if let Err(e) =
+            crate::scope::validate_placeholders_via_kernel(&ops, validation_kernel, &enclosing)
+                .map_err(|e| format!("phase '{phase_name}': {e}"))
         {
             return crate::phase_outcome::Outcome::failed().with_reason(e);
         }

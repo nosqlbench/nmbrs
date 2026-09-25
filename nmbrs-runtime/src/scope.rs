@@ -3036,11 +3036,31 @@ pub fn build_scope(
 /// substitute_bind_points_with_state` against `main_kernel`).
 /// Mutation of the workload model is no longer load-bearing —
 /// only the diagnostic surface is.
+///
+/// `enclosing` are the programs of the scopes around the phase — the
+/// current parent and every installed ancestor. A name one of them
+/// BINDS (a per-cycle workload or scenario binding, not a folded
+/// constant) resolves nowhere now, yet the phase scope pulls its
+/// binding in as local matter (`local_inclusion_chain`, SRD-13f case
+/// 3), so it is per-cycle here exactly like a phase-declared one.
 pub fn validate_placeholders_via_kernel(
     ops: &[ParsedOp],
     kernel: &polydat::kernel::PolydatKernel,
+    enclosing: &[&polydat::kernel::PolydatProgram],
 ) -> Result<(), String> {
-    let per_cycle_names = collect_phase_binding_lhs_names(ops);
+    let mut per_cycle_names = collect_phase_binding_lhs_names(ops);
+    let nothing_excluded = HashSet::new();
+    for name in collect_op_placeholder_names(ops) {
+        if !per_cycle_names.contains(&name)
+            && enclosing.iter().any(|program| {
+                !program
+                    .local_inclusion_chain(&name, &nothing_excluded)
+                    .is_empty()
+            })
+        {
+            per_cycle_names.push(name);
+        }
+    }
 
     let mut errors: Vec<String> = Vec::new();
     let in_scope = || -> Vec<String> {
@@ -3192,6 +3212,30 @@ pub fn resolve_placeholders_in_op_params(
 /// strip becomes a known name; the substitution path uses this
 /// set to distinguish "per-cycle wire — leave for the dispenser"
 /// from "typo or missing cascade — error."
+/// Every `{name}` placeholder the ops' fields and params reference.
+fn collect_op_placeholder_names(ops: &[ParsedOp]) -> Vec<String> {
+    fn walk(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(s) => {
+                for name in nmbrs_workload::bindpoints::referenced_bindings(s) {
+                    if !out.contains(&name) {
+                        out.push(name);
+                    }
+                }
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
+            serde_json::Value::Object(map) => map.values().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for op in ops {
+        op.op.values().for_each(|v| walk(v, &mut out));
+        op.params.values().for_each(|v| walk(v, &mut out));
+    }
+    out
+}
+
 fn collect_phase_binding_lhs_names(ops: &[ParsedOp]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for op in ops {

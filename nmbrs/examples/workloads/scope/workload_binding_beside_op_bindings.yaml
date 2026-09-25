@@ -1,0 +1,29 @@
+#!/usr/bin/env nmbrs
+# workload_binding_beside_op_bindings.yaml — a workload-level per-cycle
+# binding read by one op while a sibling op declares bindings of its own.
+#
+# `pet` is a workload binding: it varies per cycle, so it is no constant
+# the parent scope can answer up front. The phase scope pulls its binding
+# in as local matter, and `show` reads it. `tally` declares its own
+# `bindings:`, which makes the phase validate every placeholder before it
+# runs — and a workload binding is a valid answer there, exactly as a
+# phase- or op-declared one is.
+
+bindings: |
+  pet := mod(hash(cycle), 1000)
+
+phases:
+  main:
+    cycles: 2
+    ops:
+      show:
+        stmt: "pet={pet}"
+      tally:
+        bindings: |
+          doubled := mul(mod(hash(cycle), 1000), 2)
+        stmt: "doubled={doubled}"
+
+#@ run adapter=stdout
+#@ expect pet=\d+
+#@ expect doubled=\d+
+#@ expect 1 completed, 0 failed
