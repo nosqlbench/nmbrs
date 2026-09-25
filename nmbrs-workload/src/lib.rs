@@ -88,6 +88,7 @@ pub mod inline;
 pub mod magnitude;
 pub mod metric_format;
 pub mod model;
+pub mod op_templates;
 pub mod parse;
 pub mod polydat_matter;
 pub mod report;

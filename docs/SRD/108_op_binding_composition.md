@@ -187,6 +187,76 @@ model-equivalent to it — same scenario trees, phase scaffolding,
 op bodies, and effective params, modulo only the pair's `connect`
 phase (SRD-109 session establishment).
 
+## Part C — op templates (`op_templates:` / `uses:`)
+
+Part B binds in one direction: the blueprint owns the phases and
+declares slots at `<phase>.<op>` coordinates, and the implementation
+fills them. Some protocol matter wants the other direction: a
+**library of request shapes** that knows no phases, reused by any
+number of workloads that own their own. An OpenAPI spec is the
+motivating case — its operations are fixed request shapes, and a
+workload decides which to run, how often, and with what values.
+
+A document declares reusable op bodies under `op_templates:`, each an
+ordinary op body carrying a typed `abstract:` interface of the wires
+it `needs`:
+
+```yaml
+# petstore_ops.yaml (a library; see openapi-ops, SRD-109)
+params:
+  base_url: "http://localhost:8080/v1"
+op_templates:
+  getPetById:
+    abstract:
+      needs:
+        pet_id: u64
+    method: GET
+    uri: "{base_url}/pets/{pet_id}"
+```
+
+A workload `extends:` the library and instantiates a template in any
+op with `uses:`, qualifying its needs with ordinary bindings:
+
+```yaml
+extends: ./petstore_ops.yaml
+phases:
+  read:
+    cycles: 10000
+    ops:
+      fetch:
+        uses: getPetById
+        bindings: |
+          pet_id := mod(hash(cycle), 1000)
+```
+
+Semantics (all load time):
+
+- Resolution is a document rewrite on the `extends:`-merged document,
+  before ops are parsed: the op becomes the template's body with the
+  op's own keys folded in, and `op_templates:` leaves the document.
+  Everything downstream — synthesis, validation, the SRD-107 config
+  digest — sees an ordinary op.
+- A key both the template and the op declare is a load error (the
+  request shape is fixed; qualify it, or declare a new template),
+  except `params` (the op re-defaults) and `tags` (merged, the op's
+  winning) — the same rules as Part B's binder.
+- The instantiated op keeps the template's interface as a **bound**
+  interface. Every `needs` wire must be supplied — by the op's, the
+  phase's, the workload's, or the scenario tree's bindings, a
+  declared workload param, or the phase's `for_each` variables — or
+  loading fails naming the op, the template, the need, and its type.
+  An op's own `params:` are activity settings, not wires, and supply
+  nothing. The types are then proved at pre-map synthesis by the
+  same `verify_op_interface` pass as Part B's slots.
+- An unknown template name is a load error listing the known ones.
+  `extends:` merges `op_templates:` per name, so a child can add or
+  replace individual templates.
+- A library runs nothing by itself: templates are not ops.
+
+Coverage: `nmbrs-workload/src/op_templates.rs` unit tests, and the
+examples-verified library/workload pair in
+`nmbrs/examples/workloads/openapi/`.
+
 ### Provenance interaction (SRD-106/107)
 
 Binding happens before the workload model reaches provenance, so

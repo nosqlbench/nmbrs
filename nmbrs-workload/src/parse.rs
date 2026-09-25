@@ -31,22 +31,33 @@ pub fn parse_workload(
     let expanded = expand_templates(yaml_source, params);
 
     // Stage 2: Parse YAML into generic Value
-    let doc: JVal =
+    let mut doc: JVal =
         serde_yaml::from_str(&expanded).map_err(|e| format!("YAML parse error: {e}"))?;
-
-    let obj = doc.as_object().ok_or("workload must be a YAML mapping")?;
 
     // SRD-72: `extends:` requires a resolution context. The
     // text-only entry point has no including-file directory, so
     // a top-level `extends:` here is unresolvable. Direct the
     // caller to `parse_workload_from_path` instead.
-    if obj.contains_key("extends") {
+    if doc.get("extends").is_some() {
         return Err(
             "workload declares `extends:` but parse_workload was called \
              without a file path; use parse_workload_from_path instead"
                 .to_string(),
         );
     }
+
+    // Stage 2.5: op templates. Every op that `uses:` a template becomes
+    // the template's body with its own keys folded in, and
+    // `op_templates:` leaves the document, so every later stage sees
+    // ordinary ops (see `crate::op_templates`). After the `extends:`
+    // check: a library's templates reach a workload only through the
+    // merged document.
+    let instantiated = crate::op_templates::instantiate(
+        doc.as_object_mut()
+            .ok_or("workload must be a YAML mapping")?,
+    )?;
+
+    let obj = doc.as_object().ok_or("workload must be a YAML mapping")?;
 
     // Stage 3: Extract top-level fields
     let description = obj
@@ -154,6 +165,21 @@ pub fn parse_workload(
     // Stage 7: Resolve workload parameters
     // Priority: CLI params > workload defaults > env vars
     let yaml_params = extract_string_map(obj.get("params"));
+
+    // Stage 7.5: ops instantiated from op templates carry the
+    // template's interface as a BOUND interface; every `needs` wire
+    // must be supplied here, and synthesis type-checks them.
+    {
+        let declared: Vec<String> = yaml_params.keys().cloned().collect();
+        crate::op_templates::bind_and_check(
+            &instantiated,
+            &mut phases,
+            &mut all_ops,
+            &declared,
+            &doc_bindings,
+            &scenarios,
+        )?;
+    }
     let mut resolved_params = HashMap::new();
     for (key, default_value) in &yaml_params {
         let resolved = if let Some(cli_value) = params.get(key) {

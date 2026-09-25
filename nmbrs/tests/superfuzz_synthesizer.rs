@@ -108,6 +108,11 @@ const NOT_YET_SYNTHESIZED: &[(&str, &str)] = &[
     ("op:measure", "specialized measurement config"),
     ("op:abstract", "needs blueprint/implements pair synthesis"),
     (
+        "op:uses",
+        "needs an op_templates library to instantiate; covered by the \
+         op_templates unit tests and the openapi example pair",
+    ),
+    (
         "op:evaluations",
         "needs ground-truth wires over testkit bodies",
     ),

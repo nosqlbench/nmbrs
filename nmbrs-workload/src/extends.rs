@@ -314,6 +314,7 @@ fn merge(parent: JVal, child: JVal) -> JVal {
             ("scenarios", Some(p)) => merge_per_name(p, child_val.clone()),
             ("phases", Some(p)) => merge_per_name(p, child_val.clone()),
             ("blocks", Some(p)) => merge_per_name(p, child_val.clone()),
+            ("op_templates", Some(p)) => merge_per_name(p, child_val.clone()),
 
             ("ops", Some(p)) => merge_ops(p, child_val.clone()),
 

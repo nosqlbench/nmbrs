@@ -463,6 +463,11 @@ pub static OP_MODEL_ELEMENTS: &[ElementSpec] = &[
         "SRD-108 typed interface slot (blueprint side)",
     ),
     el(
+        "uses",
+        &[Form::Str],
+        "instantiate the named `op_templates:` definition",
+    ),
+    el(
         "daemon",
         &[Form::Bool, Form::U64],
         "op-level daemon fiber (N = max concurrent)",
@@ -958,6 +963,11 @@ pub static WORKLOAD_ELEMENTS: &[ElementSpec] = &[
         "blocks",
         &[Form::FreeMap],
         "named op blocks for tag selection",
+    ),
+    el(
+        "op_templates",
+        &[Form::NamedMap(&OP)],
+        "reusable op definitions an op instantiates with `uses:`",
     ),
     el("tags", &[Form::FreeMap], "document tags"),
     el(
