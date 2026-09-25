@@ -3762,6 +3762,10 @@ async fn run_do_loop(
             loop_kernel
                 .state()
                 .set_input(idx, polydat::ast::Value::U64(counter_value));
+            // A const that reads the counter is fixed at init; recompute
+            // it for this iteration before the condition reads it.
+            polydat::Kernel::init(&mut loop_kernel)
+                .map_err(|e| format!("do-loop '{condition}': {e}"))?;
         }
 
         // Evaluate the condition against the persistent kernel.
@@ -4702,6 +4706,32 @@ async fn run_phase_inner(
             .program()
             .clone()
         };
+        // The fiber engine's image of the phase program, which every
+        // fiber's main kernel runs (`crate::fiber_engine`): built once per
+        // phase node from the same source and options, beside its cached
+        // program.
+        let phase_image = {
+            let image = || {
+                crate::bindings::compile_from_scope_image(
+                    &phase_program,
+                    &scope,
+                    ctx.workload_dir.as_deref(),
+                    ctx.polydat_lib_paths.clone(),
+                    ctx.strict,
+                    &polydat_context,
+                    cursor_limit,
+                    &phase_pragmas,
+                )
+            };
+            match phase_idx {
+                Some(idx) => ctx.scope_tree.nodes[idx]
+                    .fiber_images
+                    .phase
+                    .get_or_init(image)
+                    .clone(),
+                None => image(),
+            }
+        };
 
         // Wire inherited values + iter-var values from the
         // parent scope's per-branch kernel via standard GK
@@ -4852,6 +4882,7 @@ async fn run_phase_inner(
                 Ok(v) => v,
                 Err(e) => return crate::phase_outcome::Outcome::failed().with_reason(e),
             };
+            let overridden = !chosen.is_empty();
             for (ov, _dialect) in chosen {
                 use crate::wires::HostWriteError;
                 use polydat::kernel::WriteError;
@@ -4903,6 +4934,12 @@ async fn run_phase_inner(
                         ));
                     }
                 }
+            }
+            // A const that reads an overridden param is fixed at init;
+            // recompute the consts from the overridden values.
+            if overridden && let Err(e) = polydat::Kernel::init(&mut kernel) {
+                return crate::phase_outcome::Outcome::failed()
+                    .with_reason(format!("{polydat_context}: phase-scoped overrides: {e}"));
             }
         }
 
@@ -5040,6 +5077,12 @@ async fn run_phase_inner(
                         ));
                     }
                 }
+                // The cursor slots are inputs the program's consts may
+                // read; recompute them from the narrowed partition.
+                if let Err(e) = polydat::Kernel::init(&mut kernel) {
+                    return crate::phase_outcome::Outcome::failed()
+                        .with_reason(format!("cursor '{name}': {e}"));
+                }
             }
             use polydat::iteration::source::CursorKind::*;
             // Each branch pulls only the outputs its policy needs.
@@ -5124,12 +5167,15 @@ async fn run_phase_inner(
         // regression, 2026-08-06).
         let activation_scope = Arc::new(kernel.cell_scope_snapshot());
         let op_builder = {
-            let mut b = OpBuilder::new(kernel);
+            let mut b = OpBuilder::new(kernel).with_fiber_image(phase_image);
             if let Some(phase_idx) = ctx.scope_tree.phase_node_by_name(phase_name) {
                 let map = ctx.scope_tree.op_template_programs_for_phase(phase_idx);
                 if !map.is_empty() {
                     b = b.with_op_template_programs(map);
                 }
+                b = b.with_op_template_modules(
+                    ctx.scope_tree.op_template_modules_for_phase(phase_idx),
+                );
             }
             Arc::new(b)
         };
@@ -6600,13 +6646,28 @@ async fn run_phase_inner(
             .scope_tree
             .phase_node_by_name(phase_name)
             .and_then(|idx| ctx.scope_tree.nodes[idx].cached_kernel.get().cloned())?;
-        crate::optimize::settle::start_settle(
+        match crate::optimize::settle::start_settle(
             &parent,
             &phase_kernel,
             &obj,
             &ctx.cadence_reporter,
             activity.stop_flag.clone(),
-        )
+        ) {
+            Ok(handle) => Some(handle),
+            // Nothing to settle: the one-shot post-completion read is the
+            // objective.
+            Err(
+                crate::optimize::settle::SettleSkip::NotWindowed
+                | crate::optimize::settle::SettleSkip::CadenceDisabled,
+            ) => None,
+            Err(e @ crate::optimize::settle::SettleSkip::Failed(_)) => {
+                crate::diag!(
+                    crate::observer::LogLevel::Warn,
+                    "phase '{phase_name}': objective '{obj}' is read once at completion: {e}"
+                );
+                None
+            }
+        }
     });
 
     // SRD-86 §4 Control-class actuation — when `dispatch_optimization`'s Control
@@ -7278,6 +7339,8 @@ fn emit_phase_metrics(
     // hand; a program without the input is the normal case and no-ops.
     if let Some(idx) = k.program().find_input("phase_start") {
         k.state().set_input(idx, Value::U64(phase_start_epoch_ms));
+        polydat::Kernel::init(&mut k)
+            .map_err(|e| format!("phase '{phase_name}': metric-pull subscope: {e}"))?;
     }
 
     // Pull every metric value first (no component lock held), then

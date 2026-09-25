@@ -255,6 +255,57 @@ pub fn compile_from_scope(
     cursor_limit: Option<u64>,
     pragmas: &polydat::dsl::pragmas::PragmaSet,
 ) -> Result<PolydatKernel, String> {
+    let (source, options) = scope_source_and_options(
+        scope,
+        source_dir,
+        polydat_lib_paths,
+        strict,
+        context,
+        cursor_limit,
+        pragmas,
+    );
+    compile_scope_kernel(&source, &options)
+}
+
+/// The fiber engine's image of the program [`compile_from_scope`]
+/// compiled from the same arguments, which must be `program`: the same
+/// source and options on [`crate::fiber_engine::fiber_engine`]. `None`,
+/// with a warning, when that image cannot stand in for `program`.
+// reason: the same argument list as `compile_from_scope`, plus the
+// program the image stands in for.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_from_scope_image(
+    program: &polydat::kernel::PolydatProgram,
+    scope: &crate::scope::BindingScope,
+    source_dir: Option<&std::path::Path>,
+    polydat_lib_paths: Vec<std::path::PathBuf>,
+    strict: bool,
+    context: &str,
+    cursor_limit: Option<u64>,
+    pragmas: &polydat::dsl::pragmas::PragmaSet,
+) -> Option<std::sync::Arc<dyn polydat::KernelProgram>> {
+    let (source, options) = scope_source_and_options(
+        scope,
+        source_dir,
+        polydat_lib_paths,
+        strict,
+        context,
+        cursor_limit,
+        pragmas,
+    );
+    crate::fiber_engine::source_image(program, &source, &options, context)
+}
+
+/// The Polydat source and compile options a scope compiles from.
+fn scope_source_and_options(
+    scope: &crate::scope::BindingScope,
+    source_dir: Option<&std::path::Path>,
+    polydat_lib_paths: Vec<std::path::PathBuf>,
+    strict: bool,
+    context: &str,
+    cursor_limit: Option<u64>,
+    pragmas: &polydat::dsl::pragmas::PragmaSet,
+) -> (String, polydat::dsl::compile::CompileOptions) {
     let body = scope.emit();
     let required = scope.required_outputs();
     let source = prepend_effective_pragmas(pragmas, &body);
@@ -267,7 +318,7 @@ pub fn compile_from_scope(
         cursor_limit,
         ..Default::default()
     };
-    compile_scope_kernel(&source, &options)
+    (source, options)
 }
 
 /// Compile Polydat source into a scope kernel — a node of nmbrs's scope
@@ -319,6 +370,25 @@ pub(crate) fn prepend_effective_pragmas(
     out
 }
 
+/// The session clock's origin, in epoch milliseconds, declared on the
+/// workload root (see [`build_workload_root_kernel`]).
+pub const SESSION_START: &str = "session_start";
+
+/// Whether `workload` names the session clock's origin anywhere — a
+/// binding, an op field, a scenario — as an identifier, not merely as
+/// part of a longer one (`session_start_millis` does not count).
+pub fn workload_names_session_start(workload: &nmbrs_workload::model::Workload) -> bool {
+    let Ok(text) = serde_json::to_string(workload) else {
+        return false;
+    };
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    text.match_indices(SESSION_START).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + SESSION_START.len()..].chars().next();
+        !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+    })
+}
+
 /// Build the workload-root [`PolydatKernel`] as a subscope of the
 /// workload-params kernel.
 ///
@@ -358,6 +428,7 @@ pub fn build_workload_root_kernel(
     cursor_limit: Option<u64>,
     workload_params: &std::collections::HashMap<String, String>,
     workload_level_polydat: Option<&str>,
+    session_clock: bool,
 ) -> Result<PolydatKernel, String> {
     // Build the workload-root scope. workload_params get
     // injected as `const` bindings so descendants resolve them
@@ -382,6 +453,24 @@ pub fn build_workload_root_kernel(
     {
         scope.ingest_polydat_source(extra, crate::scope::BindingOrigin::Inherited);
     }
+    // The session clock's origin, for a workload that names it: a const
+    // over a volatile reading, captured once when the workload root
+    // initializes. It has no inputs, so scope synthesis inlines that one
+    // captured value into every descendant that names it, and
+    // session-elapsed time — `current_epoch_millis() - session_start` —
+    // reads one origin in every scope, fiber, and engine. Only a
+    // workload that names it gets it: the capture reads the clock, which
+    // strict mode refuses unless acknowledged. A workload param or
+    // binding of the same name is the author's own origin and wins.
+    let session_clock = session_clock
+        && !workload_params.contains_key(SESSION_START)
+        && !scope.defined_names().contains(SESSION_START);
+    if session_clock {
+        scope.ingest_polydat_source(
+            &format!("const {SESSION_START} := current_epoch_millis()\n"),
+            crate::scope::BindingOrigin::Inherited,
+        );
+    }
     scope.validate().map_err(|e| format!("{context}: {e}"))?;
 
     // DCE-keepalive list: caller's config refs plus every
@@ -397,6 +486,9 @@ pub fn build_workload_root_kernel(
         if !scope_required.contains(name) {
             scope_required.push(name.clone());
         }
+    }
+    if session_clock && !scope_required.iter().any(|n| n == SESSION_START) {
+        scope_required.push(SESSION_START.to_string());
     }
     let mut param_names: Vec<&String> = workload_params.keys().collect();
     param_names.sort();

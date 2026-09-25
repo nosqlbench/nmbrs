@@ -4,8 +4,9 @@
 //! Per-fiber Polydat Kernel construction.
 //!
 //! `OpBuilder` owns the activity's source kernel and seeds each
-//! per-fiber [`FiberBuilder`] with a typed subscope plus any
-//! captured init-binding values and named scope overrides. The
+//! per-fiber [`FiberBuilder`] with a kernel bound under it, on the
+//! fiber engine where it has an image ([`crate::fiber_engine`]), plus
+//! the named scope overrides. The
 //! adapter-facing cycle-time bind-point resolution path
 //! historically lived here too, but SRD-68 Push 5 retired it in
 //! favour of the generic [`crate::wires::WireSource`] surface;
@@ -17,10 +18,12 @@
 
 use std::sync::{Arc, OnceLock};
 
+use crate::fiber_engine::OpTemplateModule;
 use nmbrs_workload::bindpoints::{self, BindPoint, BindQualifier};
 use nmbrs_workload::model::ParsedOp;
+use polydat::Kernel;
 use polydat::ast::Value;
-use polydat::kernel::{PolydatKernel, PolydatProgram, PolydatState};
+use polydat::kernel::{KernelProgram, PolydatKernel, PolydatProgram};
 
 /// Cached `NMBRS_DIRTY_DEBUG` flag — per-cycle `std::env::var`
 /// reads measured at ~30% of single-fiber CPU; the OnceLock
@@ -33,44 +36,26 @@ fn nmbrs_dirty_debug_enabled() -> bool {
 
 /// Shared op builder that distributes per-fiber builders.
 ///
-/// Holds the `Arc<PolydatProgram>` (immutable, shared). Each executor
-/// fiber calls `create_fiber_builder()` to get its own `FiberBuilder`
-/// with private `PolydatState` — no locks, no contention on the hot path.
+/// Holds the activity's source kernel (immutable, shared). Each
+/// executor fiber calls `create_fiber_builder()` to get its own
+/// `FiberBuilder` with private kernels — no locks, no contention on
+/// the hot path.
 pub struct OpBuilder {
-    /// Values to inject into every new FiberBuilder's state at creation.
-    /// Used for scope composition: outer scope constants are set as
-    /// initial values for inner scope extern inputs.
-    /// Name-keyed scope values (per SRD-13c). Stored by name
-    /// rather than `(input_idx, value)` because each kernel —
-    /// the fiber main kernel, every per-op-template kernel —
-    /// owns its own input layout, and an index captured against
+    /// Name-keyed scope values (per SRD-13c), written into every new
+    /// fiber's kernels. Stored by name rather than `(input_idx, value)`
+    /// because each kernel — the fiber main kernel, every per-op-template
+    /// kernel — owns its own input layout, and an index captured against
     /// the source kernel doesn't translate. The previous
-    /// `Vec<(usize, Value)>` shape silently mis-routed writes
-    /// across kernels (e.g. `table` value landing in the
-    /// `profile` slot of an op-template kernel whose extern
-    /// declaration order differed from the phase scope).
+    /// `Vec<(usize, Value)>` shape silently mis-routed writes across
+    /// kernels (e.g. `table` value landing in the `profile` slot of an
+    /// op-template kernel whose extern declaration order differed from
+    /// the phase scope).
     scope_values: Vec<(String, Value)>,
-    /// Pre-evaluated init binding values to seed into every new
-    /// FiberBuilder's state — `(node_idx, port_idx, value)`. Captured
-    /// from the activation kernel after [SRD 11](../../docs/SRD/11_polydat_evaluation.md)
-    /// §"Init Binding Contract" Plan B has run. With this seeding,
-    /// the binding's eval function fires exactly once per scope
-    /// activation (on the activation kernel), not once per fiber.
-    init_overrides: Vec<(usize, usize, Value)>,
-    /// The source kernel — the activity's own kernel that
-    /// each per-fiber `FiberBuilder` materializes a subscope
-    /// of via [`PolydatKernel::materialize_subscope`]. Owning the
-    /// kernel (not just its program) carries the activity's
-    /// full cell state — own input-slot cells plus transit
-    /// cells inherited from ancestors — to every fiber's main
-    /// kernel via the typed subscope protocol.
-    ///
-    /// Routes per-fiber kernel construction through the only
-    /// two sanctioned paths: root (`compile_polydat`) or
-    /// parent-supervised subscope (`materialize_subscope`).
-    /// The earlier `instance_program(program)` path is
-    /// removed — it produced parentless kernels that lost
-    /// the cell handles workload-root → fiber needs.
+    /// The source kernel — the activity's own kernel that each
+    /// per-fiber `FiberBuilder` binds its main kernel under. Owning the
+    /// kernel (not just its program) carries the activity's full cell
+    /// state — own input-slot cells plus transit cells inherited from
+    /// ancestors — to every fiber's main kernel.
     source_kernel: Arc<PolydatKernel>,
     /// SRD-13d Phase 9 — per-op-template kernel programs keyed
     /// by op name. Populated by [`Self::with_op_template_programs`]
@@ -80,20 +65,23 @@ pub struct OpBuilder {
     /// and build their `ScopeFixture` against it; flattened
     /// op-templates fall through to the activity-wide `program`.
     op_template_programs: std::collections::HashMap<String, Arc<PolydatProgram>>,
+    /// The fiber engine's image of the source kernel's program, which
+    /// every fiber's main kernel runs; `None` keeps fibers on the
+    /// interpreter.
+    fiber_image: Option<Arc<dyn KernelProgram>>,
+    /// Op-template modules whose fiber-engine image agrees with their
+    /// program, keyed by that program's identity (`Arc::as_ptr`): a
+    /// dispenser's canonical kernel names its program, and each fiber
+    /// instantiates the per-op kernel from the matching module.
+    op_modules: Arc<std::collections::HashMap<usize, Arc<OpTemplateModule>>>,
 }
 
 impl OpBuilder {
     /// Create an OpBuilder from a kernel.
+    ///
     /// If the kernel has scope values (set via `materialize_wiring_from_outer`
     /// or directly via `kernel.state().set_input`), they are
-    /// captured and propagated into every fiber's state.
-    ///
-    /// Init binding values that have been pulled on the kernel's
-    /// state (typically by the scope-init pass right after
-    /// `materialize_wiring_from_outer`) are likewise captured as
-    /// [`Self::init_overrides`] and propagated to every fiber, so
-    /// init eval fires once per activation rather than once per
-    /// fiber.
+    /// captured and propagated into every fiber's kernels.
     pub fn new(kernel: impl Into<Arc<PolydatKernel>>) -> Self {
         let kernel: Arc<PolydatKernel> = kernel.into();
         // Scope values seed PLAIN slots only. A CELL-BOUND slot's value
@@ -102,7 +90,7 @@ impl OpBuilder {
         // re-application (fiber seeding, the stanza-boundary
         // `reset_captures`) would `set_input` that stale snapshot
         // THROUGH the cell, clobbering later writes for every kernel
-        // sharing it. Same exclusion `reset_inputs_from` documents:
+        // sharing it. Same exclusion `reset_inputs` documents:
         // cells are cross-kernel shared state with their own
         // lifecycle.
         let scope_values: Vec<(String, Value)> = kernel
@@ -112,16 +100,16 @@ impl OpBuilder {
                 kernel
                     .program()
                     .find_input(name)
-                    .map(|idx| kernel.state_ref().shared_cell(idx).is_none())
+                    .map(|idx| !Kernel::input_is_cell_bound(kernel.as_ref(), idx))
                     .unwrap_or(true)
             })
             .collect();
-        let init_overrides = collect_init_overrides(&kernel);
         Self {
             scope_values,
-            init_overrides,
             source_kernel: kernel,
             op_template_programs: std::collections::HashMap::new(),
+            fiber_image: None,
+            op_modules: Arc::new(std::collections::HashMap::new()),
         }
     }
 
@@ -135,6 +123,33 @@ impl OpBuilder {
         programs: std::collections::HashMap<String, Arc<PolydatProgram>>,
     ) -> Self {
         self.op_template_programs = programs;
+        self
+    }
+
+    /// Run every fiber's main kernel on `image`, the fiber engine's
+    /// image of the source kernel's program ([`crate::fiber_engine`]).
+    pub fn with_fiber_image(mut self, image: Option<Arc<dyn KernelProgram>>) -> Self {
+        self.fiber_image = image;
+        self
+    }
+
+    /// Instantiate per-op kernels from `modules`, the op-template scope
+    /// modules of this phase. A module whose fiber-engine image
+    /// disagrees with its program is left out, and its per-op kernels
+    /// stay on the interpreter.
+    pub fn with_op_template_modules(
+        mut self,
+        modules: impl IntoIterator<Item = (String, Arc<OpTemplateModule>)>,
+    ) -> Self {
+        let usable = modules
+            .into_iter()
+            .filter(|(name, module)| {
+                crate::fiber_engine::module_image(module, &format!("op template '{name}'"))
+                    .is_some()
+            })
+            .map(|(_, module)| (Arc::as_ptr(module.program()) as usize, module))
+            .collect();
+        self.op_modules = Arc::new(usable);
         self
     }
 
@@ -170,9 +185,7 @@ impl OpBuilder {
     /// Build the canonical op-template kernel for `op_name` —
     /// the Polydat context the dispenser owns and that per-fiber
     /// instances are materialised from (SRD-68 invariants I-3,
-    /// I-4). Equivalent in shape to today's per-fiber
-    /// `op_template_kernels[op_name]` but built once at dispenser
-    /// construction time, lifted out of the per-fiber HashMap.
+    /// I-4). Built once at dispenser construction time.
     ///
     /// When `op_name` has a registered op-template program (phase
     /// `bindings:`, op-level `bindings:`, `result:` block — the
@@ -200,89 +213,36 @@ impl OpBuilder {
     }
 
     /// Create a per-fiber builder. No locks, no sharing — the fiber
-    /// owns its state exclusively. Scope values (per-iteration
+    /// owns its kernels exclusively. Scope values (per-iteration
     /// inputs from `for_each` / `for_combinations` / outer scope
-    /// constants) are injected into the state's extern inputs and
+    /// constants) are written into the main kernel's inputs and
     /// remembered on the builder so `reset_captures` (called at
     /// stanza boundaries) can re-apply them — otherwise the
     /// blanket "reset all non-coord inputs" pass would clobber
     /// the iteration's bound values.
-    ///
-    /// Init binding values captured by the scope-init pass are
-    /// seeded into the fiber's node buffers and the corresponding
-    /// nodes are marked clean. This is the runtime mechanism
-    /// behind the init-binding contract: each fiber's first pull
-    /// of an init binding reads the pre-evaluated value directly
-    /// instead of running the binding's eval.
     pub fn create_fiber_builder(&self) -> FiberBuilder {
-        // The fiber's main kernel is a typed subscope of the
-        // activity's source kernel — built via the only
-        // sanctioned subscope construction path. Cells, transit
-        // cells, and value-copy bindings flow in automatically;
-        // the fiber observes the same cell handles as the
-        // workload-root through the chain.
-        let mut fb = FiberBuilder::new(&self.source_kernel);
-        // Install scope_values + precompute each value's input
-        // index against `main_kernel`. The cached indices feed
-        // the per-cycle `reset_captures` path (replacing the
-        // linear `find_input` scan that used to dominate the
-        // single-fiber dryrun=cycle profile at ~11% self time).
-        fb.set_scope_values(self.scope_values.clone());
-        // Apply scope values to the main kernel through the
-        // typed Dataflow surface so type-mismatched scope values
-        // fail loud rather than silently corrupting downstream
-        // reads. Walks the pre-resolved index list — no second
-        // `find_input` call.
-        for ((name, value), idx_opt) in fb.scope_values.iter().zip(fb.scope_value_main_idx.iter()) {
-            if let Some(idx) = idx_opt {
-                crate::wires::write_input(&mut fb.main_kernel, *idx, name, value.clone())
-                    .unwrap_or_else(|e| {
-                        panic!("scope value '{name}' failed typed write at scope-init: {e}")
-                    });
-            }
-        }
-        for (node_idx, port_idx, value) in &self.init_overrides {
-            fb.state()
-                .seed_node_buffer(*node_idx, *port_idx, value.clone());
-        }
+        // The fiber's main kernel is bound under the activity's source
+        // kernel: cells, transit cells, and value-copy bindings flow in
+        // automatically, and the scope-init constants materialize, so
+        // the fiber observes the same cell handles as the workload-root
+        // through the chain.
+        //
+        // Scope values are bound with it, as iteration bindings, so the
+        // main kernel's consts initialize from them (a const is fixed at
+        // init). The indices cached here feed the per-cycle
+        // `reset_captures` re-application.
+        let mut fb = FiberBuilder::with_scope(
+            &self.source_kernel,
+            self.fiber_image.clone(),
+            self.scope_values.clone(),
+        );
+        fb.op_modules = self.op_modules.clone();
         // SRD-68: per-fiber op-template kernels are populated by
         // `attach_dispenser_kernels`, which runs right after this
-        // function returns (see executor cycle dispatch). The
-        // legacy `op_template_kernels` HashMap and its name-keyed
-        // population have retired; per-fiber instances now live in
-        // `per_op_kernels: Vec<Option<PolydatKernel>>` indexed parallel
-        // to the dispenser registry, with each adapter's
-        // `OpDispenser::canonical_kernel()` providing the per-op
-        // canonical that gets `build_subscope`-instanced per fiber.
+        // function returns (see executor cycle dispatch), each from
+        // the firing dispenser's `OpDispenser::canonical_kernel()`.
         fb
     }
-}
-
-/// Read each init-output's pulled value off the kernel's state,
-/// returning `(node_idx, port_idx, value)` triples suitable for
-/// seeding fiber states. `Value::None` entries are skipped — the
-/// scope-init pass should have errored on those before getting
-/// here, but defensively we don't propagate them either way.
-fn collect_init_overrides(kernel: &PolydatKernel) -> Vec<(usize, usize, Value)> {
-    let program = kernel.program();
-    let init_outputs = program.const_outputs();
-    if init_outputs.is_empty() {
-        return Vec::new();
-    }
-    let mut out = Vec::with_capacity(init_outputs.len());
-    let state = kernel.state_ref();
-    for name in init_outputs {
-        let Some(&(node_idx, port_idx)) = program.output_map_lookup(name) else {
-            continue;
-        };
-        match state.node_buffer(node_idx, port_idx) {
-            Some(v) if !matches!(v, Value::None) => {
-                out.push((node_idx, port_idx, v.clone()));
-            }
-            _ => {} // None / out-of-range — Plan B should have caught it
-        }
-    }
-    out
 }
 
 /// The input a scope value is written to on `program`, or `None` when
@@ -295,66 +255,96 @@ fn scope_value_index(program: &PolydatProgram, name: &str) -> Option<usize> {
     (program.input_kind(idx) != Some(polydat::kernel::InputKind::Coordinate)).then_some(idx)
 }
 
-/// Per-fiber op builder. Owns its own PolydatState.
+/// The scope values a kernel of `program` takes, as the `iter_bindings`
+/// its binder writes before the kernel's consts are initialized: each
+/// value converted to its slot's declared type, skipping the values
+/// `program` has no (non-coordinate) input for.
+///
+/// # Panics
+/// On a scope value its slot's type cannot take, converted or not: a
+/// fail-loud condition, since it would otherwise corrupt every read.
+fn scope_bindings(
+    program: &PolydatProgram,
+    scope_values: &[(String, Value)],
+) -> Vec<(String, Value)> {
+    scope_values
+        .iter()
+        .filter(|(name, _)| scope_value_index(program, name).is_some())
+        .map(|(name, value)| {
+            let value = match program.input_port_type(name) {
+                Some(port) => polydat::convert::to_port(value.clone(), port).unwrap_or_else(|e| {
+                    panic!("scope value '{name}' failed typed write at scope-init: {e}")
+                }),
+                None => value.clone(),
+            };
+            (name.clone(), value)
+        })
+        .collect()
+}
+
+/// Per-fiber op builder. Owns its own kernels.
 /// No locks, no synchronization, no contention.
 ///
 /// Created via `OpBuilder::create_fiber_builder()` at fiber startup.
 ///
-/// When capture extraction is implemented, captured values will
-/// write directly to Polydat volatile/sticky ports on the state,
-/// bypassing any intermediate storage.
+/// Every kernel here may be on any engine: the main kernel and the
+/// per-op kernels run on the fiber engine where an image is available
+/// ([`crate::fiber_engine`]) and on the interpreter otherwise. Each is
+/// paired with the interpreter program it runs or was imaged from,
+/// which shares its input and output indices: names resolve on the
+/// program once, and the kernel is driven by index.
 pub struct FiberBuilder {
     /// The fiber's main kernel — typically the activity-wide
-    /// (workload / phase) program. State lives inside the
-    /// kernel; access via [`Self::state`] and
-    /// [`Self::state_ref`].
-    main_kernel: PolydatKernel,
+    /// (workload / phase) program.
+    main_kernel: Box<dyn Kernel>,
+    /// The interpreter program [`Self::main_kernel`] runs or was
+    /// imaged from.
+    main_program: Arc<PolydatProgram>,
     /// Scope-bound input values (per-iteration extern bindings)
-    /// that should persist across stanza-level
-    /// `reset_inputs_from` resets. Empty for a builder created
-    /// via plain [`FiberBuilder::new`]; populated by
+    /// that should persist across stanza-level `reset_inputs`
+    /// resets. Empty for a builder created via plain
+    /// [`FiberBuilder::new`]; populated by
     /// [`OpBuilder::create_fiber_builder`].
     scope_values: Vec<(String, Value)>,
     /// SRD-68 invariant I-4 — per-fiber kernel instances, indexed
     /// parallel to the activity's dispenser registry. Each entry
-    /// is a `build_subscope` materialisation of the corresponding
-    /// dispenser's canonical kernel (the kernel the dispenser owns
-    /// per SRD-68 I-3); `None` for dispensers that don't expose
+    /// is the corresponding dispenser's canonical program bound under
+    /// [`Self::main_kernel`]; `None` for dispensers that don't expose
     /// a canonical kernel (adapters with no Polydat needs, or wrappers
     /// that delegate). Populated by
     /// [`Self::attach_dispenser_kernels`] right after fiber spawn,
     /// before any cycles run; read at cycle dispatch to populate
     /// `ExecCtx::wires` for the firing dispenser.
-    per_op_kernels: Vec<Option<PolydatKernel>>,
-    /// Per-op-kernel side-effecting output names (parallels
+    per_op_kernels: Vec<Option<Box<dyn Kernel>>>,
+    /// The interpreter program each per-op kernel runs or was imaged
+    /// from, parallel to [`Self::per_op_kernels`].
+    per_op_programs: Vec<Option<Arc<PolydatProgram>>>,
+    /// Per-op-kernel side-effecting output indices (parallels
     /// [`Self::per_op_kernels`]). The subset of each op-template
     /// kernel's outputs whose cone contains a `Purity::SideChannel`
     /// node — the only outputs the per-cycle "fire side effects" pass
     /// pulls. Computed once at [`Self::attach_dispenser_kernels`] so
     /// volatile metric-reader outputs (the objective bindings) are NOT
     /// re-evaluated every cycle just to fire a non-existent effect.
-    per_op_side_effecting: Vec<Vec<String>>,
+    per_op_side_effecting: Vec<Vec<usize>>,
     /// Pre-resolved input indices for each entry in
     /// [`Self::scope_values`] against [`Self::main_kernel`].
     /// `None` slots are scope values the main program doesn't
-    /// declare (silently skipped at write time — matches the
-    /// historical name-based-skip semantics).
-    ///
-    /// Eliminates the `PolydatProgram::find_input` linear scan that
-    /// fired per scope-value per cycle in `reset_captures`.
-    /// Populated once at [`Self::new`] (initially empty since
-    /// scope_values is empty) and refreshed by
-    /// [`Self::set_scope_values`] when the OpBuilder seeds them.
+    /// declare, or declares as a coordinate (silently skipped at
+    /// write time — matches the historical name-based-skip semantics).
     scope_value_main_idx: Vec<Option<usize>>,
     /// Per-op-kernel mirror of [`Self::scope_value_main_idx`].
     /// Outer Vec parallels [`Self::per_op_kernels`]; inner Vec
     /// parallels [`Self::scope_values`]. `None` outer slots
-    /// match per_op_kernels' `None` entries (no canonical kernel
-    /// for that dispenser). Built inside
-    /// [`Self::attach_dispenser_kernels`] after each subscope is
-    /// constructed so the per-cycle reset path becomes pure
-    /// indexed `set_input`.
+    /// match per_op_kernels' `None` entries.
     scope_value_per_op_idx: Vec<Option<Vec<Option<usize>>>>,
+    /// Whether some per-op kernel runs a program other than the main
+    /// kernel's, and so reads the main kernel's outputs through its
+    /// broadcast cells (see [`Self::set_source_item`]).
+    needs_broadcast: bool,
+    /// The op-template modules per-op kernels are instantiated from,
+    /// keyed by program identity (see [`OpBuilder::with_op_template_modules`]).
+    op_modules: Arc<std::collections::HashMap<usize, Arc<OpTemplateModule>>>,
 }
 
 /// Validate that all bind points in op templates can be resolved.
@@ -440,61 +430,68 @@ pub fn validate_bind_points(
 }
 
 impl FiberBuilder {
-    /// Create a new fiber builder as a typed subscope of the
-    /// activity's source kernel.
-    ///
-    /// The fiber's main kernel is built via
-    /// [`PolydatKernel::materialize_subscope`] — the typed parent →
-    /// child construction path. Per-fiber state is fresh; cell
-    /// handles are Arc-shared with the parent so writes
-    /// propagate to the workload-root through the cascade.
+    /// Create a new fiber builder whose main kernel is the parent's own
+    /// program bound under the parent, on the interpreter.
     pub fn new(parent: &PolydatKernel) -> Self {
-        let main_kernel = parent
-            .build_subscope(
-                polydat::kernel::subcontext::PolydatMatter::builder()
-                    .program(parent.program().clone())
-                    .build()
-                    .unwrap(),
-            )
-            .expect("program-form subscope is infallible");
-        Self {
-            main_kernel,
-            scope_values: Vec::new(),
-            per_op_kernels: Vec::new(),
-            per_op_side_effecting: Vec::new(),
-            scope_value_main_idx: Vec::new(),
-            scope_value_per_op_idx: Vec::new(),
-        }
+        Self::with_image(parent, None)
     }
 
-    /// Install the scope-value list and precompute each value's
-    /// input index against `main_kernel`. Indices are reused on
-    /// the per-cycle [`Self::reset_captures`] path so the
-    /// historical per-scope-value `find_input` linear scan is
-    /// retired.
-    ///
-    /// Called once by [`OpBuilder::create_fiber_builder`] right
-    /// after the fiber's main kernel is built — `scope_values`
-    /// is otherwise immutable for the fiber lifetime.
-    fn set_scope_values(&mut self, scope_values: Vec<(String, Value)>) {
-        let program = self.main_kernel.program();
-        self.scope_value_main_idx = scope_values
+    /// Create a new fiber builder whose main kernel runs `image` — the
+    /// fiber engine's image of `parent`'s program — bound under
+    /// `parent`; the interpreter program itself when `image` is `None`.
+    /// Per-fiber state is fresh; cell handles are Arc-shared with the
+    /// parent so writes propagate to the workload-root through the
+    /// cascade.
+    pub fn with_image(parent: &PolydatKernel, image: Option<Arc<dyn KernelProgram>>) -> Self {
+        Self::with_scope(parent, image, Vec::new())
+    }
+
+    /// [`Self::with_image`], binding `scope_values` into the main kernel
+    /// as it is built, before its consts initialize, and remembering
+    /// them for the stanza-boundary [`Self::reset_captures`].
+    pub fn with_scope(
+        parent: &PolydatKernel,
+        image: Option<Arc<dyn KernelProgram>>,
+        scope_values: Vec<(String, Value)>,
+    ) -> Self {
+        let main_program = parent.program().clone();
+        let image: Arc<dyn KernelProgram> = image.unwrap_or_else(|| main_program.clone());
+        let bindings = scope_bindings(&main_program, &scope_values);
+        let main_kernel = polydat::kernel::bind_under(parent, image, &bindings)
+            .unwrap_or_else(|e| panic!("a fiber's main kernel failed to bind: {e}"));
+        let scope_value_main_idx = scope_values
             .iter()
-            .map(|(name, _)| scope_value_index(program, name))
+            .map(|(name, _)| scope_value_index(&main_program, name))
             .collect();
-        self.scope_values = scope_values;
+        Self {
+            main_kernel,
+            main_program,
+            scope_values,
+            per_op_kernels: Vec::new(),
+            per_op_programs: Vec::new(),
+            per_op_side_effecting: Vec::new(),
+            scope_value_main_idx,
+            scope_value_per_op_idx: Vec::new(),
+            needs_broadcast: false,
+            op_modules: Arc::new(std::collections::HashMap::new()),
+        }
     }
 
     /// SRD-68 Push 3 — populate this fiber's per-op kernel slots
     /// from the activity's dispenser registry. Walks each
     /// dispenser, calls `dispenser.canonical_kernel()` to get the
-    /// dispenser-owned canonical kernel (when present), and
-    /// materialises a per-fiber subscope kernel via
-    /// `build_subscope`. Slot positions match the dispenser
-    /// registry's order so cycle-time dispatch can index by
-    /// `template_idx`. Dispensers that return `None` (no GK
-    /// needs) get a `None` slot — `ExecCtx::wires` falls back to
-    /// the `NullWireSource` baseline for those cycles.
+    /// dispenser-owned canonical kernel (when present), and binds a
+    /// per-fiber kernel of its program under this fiber's main kernel.
+    /// Slot positions match the dispenser registry's order so
+    /// cycle-time dispatch can index by `template_idx`. Dispensers
+    /// that return `None` (no GK needs) get a `None` slot —
+    /// `ExecCtx::wires` falls back to the `NullWireSource` baseline
+    /// for those cycles.
+    ///
+    /// A per-op kernel is instantiated from its op-template module on
+    /// the fiber engine when the fiber has one for the canonical's
+    /// program, carrying the module's `result:` write-throughs; any
+    /// other canonical program runs on the interpreter.
     ///
     /// Called once per fiber, right after spawn, before any cycles
     /// run. Idempotent: re-attaching with the same registry is
@@ -506,171 +503,165 @@ impl FiberBuilder {
     ) {
         let scope_values = self.scope_values.clone();
         // SRD-13f Stage 1: per-op kernels descend from
-        // `fiber.main_kernel` (this fiber's per-fiber scope
-        // kernel for the current phase), NOT from the
-        // dispenser's shared `canonical_kernel`. The dispenser's
-        // canonical_kernel becomes a *program source* — we
-        // extract its program shape and build the per-op
-        // kernel as a per-fiber subscope of main_kernel. This
-        // collapses what used to be two parallel kernel
-        // lineages (`source_kernel → fiber.main_kernel` and
-        // `source_kernel → canonical → per_op`) into one
-        // consistent per-fiber chain:
+        // `fiber.main_kernel` (this fiber's per-fiber scope kernel for
+        // the current phase), NOT from the dispenser's shared
+        // `canonical_kernel`. The dispenser's canonical_kernel becomes
+        // a *program source*, so there is one consistent per-fiber
+        // chain:
         //     fiber.main_kernel → per_op_kernel
         // Computed outputs on main_kernel are reachable from
         // per_op_kernel via the standard scope-chain mechanism;
         // per-fiber state (cycle, scope values) propagates
         // correctly without external refresh.
-        //
-        // Borrow split: `self.main_kernel` is borrowed mut
-        // through the closure; we capture an immutable borrow
-        // of `self.main_kernel` separately and iterate
-        // dispensers in a way that doesn't conflict.
-        let dispenser_programs: Vec<Option<std::sync::Arc<polydat::kernel::PolydatProgram>>> =
-            dispensers
-                .iter()
-                .map(|d| d.canonical_kernel().map(|k| k.program().clone()))
-                .collect();
-        // Build both the per-op kernels AND the parallel index
-        // cache in one walk. The per-op index cache feeds
-        // `reset_captures` so the per-cycle stanza-boundary
-        // restore is pure indexed `set_input` — no per-call
-        // `find_input` linear scan, no name hashing.
-        let mut per_op_kernels: Vec<Option<PolydatKernel>> =
+        let dispenser_programs: Vec<Option<Arc<PolydatProgram>>> = dispensers
+            .iter()
+            .map(|d| d.canonical_kernel().map(|k| k.program().clone()))
+            .collect();
+        let mut per_op_kernels: Vec<Option<Box<dyn Kernel>>> =
             Vec::with_capacity(dispenser_programs.len());
         let mut per_op_idx: Vec<Option<Vec<Option<usize>>>> =
             Vec::with_capacity(dispenser_programs.len());
-        let mut per_op_side_effecting: Vec<Vec<String>> =
+        let mut per_op_side_effecting: Vec<Vec<usize>> =
             Vec::with_capacity(dispenser_programs.len());
-        for maybe_program in dispenser_programs {
-            match maybe_program {
-                None => {
-                    per_op_kernels.push(None);
-                    per_op_idx.push(None);
-                    per_op_side_effecting.push(Vec::new());
-                }
-                Some(program) => {
-                    let mut op_kernel = self
-                        .main_kernel
-                        .build_subscope(
-                            polydat::kernel::subcontext::PolydatMatter::builder()
-                                .program(program)
-                                .build()
-                                .expect("program-form matter is infallible"),
-                        )
-                        .expect("program-form subscope from fiber.main_kernel is infallible");
-                    // Pre-resolve every scope value's input index
-                    // against this op-template kernel's program.
-                    let idx_vec: Vec<Option<usize>> = scope_values
-                        .iter()
-                        .map(|(name, _)| scope_value_index(op_kernel.program(), name))
-                        .collect();
-                    for ((name, value), idx_opt) in scope_values.iter().zip(idx_vec.iter()) {
-                        if let Some(idx) = idx_opt {
-                            crate::wires::write_input(&mut op_kernel, *idx, name, value.clone())
-                                .unwrap_or_else(|e| {
-                                    panic!(
-                                        "scope value '{name}' failed typed write at op-template init: {e}"
-                                    )
-                                });
-                        }
-                    }
-                    let const_outputs: Vec<String> = op_kernel
-                        .program()
-                        .const_outputs()
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect();
-                    for init_name in &const_outputs {
-                        // Const warmup is best-effort: a const
-                        // whose freeze fails here stays dirty
-                        // and re-evals (or fails visibly) at
-                        // its first per-cycle use. But the
-                        // failure is never discarded silently —
-                        // the enriched payload goes to the
-                        // session log so a broken const is
-                        // diagnosable before the per-cycle
-                        // path trips over it.
-                        if let Err(payload) =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                op_kernel.pull_ref(init_name);
-                            }))
-                        {
-                            let msg = payload
-                                .downcast_ref::<&'static str>()
-                                .map(|s| (*s).to_string())
-                                .or_else(|| payload.downcast_ref::<String>().cloned())
-                                .unwrap_or_else(|| "<non-string panic payload>".into());
-                            crate::diag!(
-                                crate::observer::LogLevel::Warn,
-                                "const warmup pull '{init_name}' panicked during \
-                                 op-template kernel init (deferring to first \
-                                 per-cycle use): {msg}"
-                            );
-                        }
-                    }
-                    let side_effecting = op_kernel.program().outputs_with_side_effects();
-                    per_op_kernels.push(Some(op_kernel));
-                    per_op_idx.push(Some(idx_vec));
-                    per_op_side_effecting.push(side_effecting);
+        for maybe_program in &dispenser_programs {
+            let Some(program) = maybe_program else {
+                per_op_kernels.push(None);
+                per_op_idx.push(None);
+                per_op_side_effecting.push(Vec::new());
+                continue;
+            };
+            // Scope values are bound with the kernel, before its consts
+            // initialize; the indices are cached for `reset_captures`.
+            let bindings = scope_bindings(program, &scope_values);
+            let mut op_kernel = match self.op_modules.get(&(Arc::as_ptr(program) as usize)) {
+                Some(module) => module
+                    .instantiate_under(
+                        self.main_kernel.as_ref(),
+                        crate::fiber_engine::fiber_engine(),
+                        &bindings,
+                    )
+                    .unwrap_or_else(|e| panic!("per-op kernel failed to instantiate: {e}")),
+                None => polydat::kernel::bind_under(
+                    self.main_kernel.as_ref(),
+                    program.clone() as Arc<dyn KernelProgram>,
+                    &bindings,
+                )
+                .unwrap_or_else(|e| panic!("per-op kernel failed to bind: {e}")),
+            };
+            let idx_vec: Vec<Option<usize>> = scope_values
+                .iter()
+                .map(|(name, _)| scope_value_index(program, name))
+                .collect();
+            for init_name in program.const_outputs() {
+                let Some(idx) = program.output_index(init_name) else {
+                    continue;
+                };
+                // Const warmup is best-effort: a const whose freeze
+                // fails here stays dirty and re-evals (or fails
+                // visibly) at its first per-cycle use. But the failure
+                // is never discarded silently — the enriched payload
+                // goes to the session log so a broken const is
+                // diagnosable before the per-cycle path trips over it.
+                if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    op_kernel.pull_at(idx);
+                })) {
+                    let msg = payload
+                        .downcast_ref::<&'static str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "<non-string panic payload>".into());
+                    crate::diag!(
+                        crate::observer::LogLevel::Warn,
+                        "const warmup pull '{init_name}' panicked during \
+                         op-template kernel init (deferring to first \
+                         per-cycle use): {msg}"
+                    );
                 }
             }
+            let side_effecting = program
+                .outputs_with_side_effects()
+                .iter()
+                .filter_map(|name| program.output_index(name))
+                .collect();
+            per_op_kernels.push(Some(op_kernel));
+            per_op_idx.push(Some(idx_vec));
+            per_op_side_effecting.push(side_effecting);
         }
+        // SRD-13f Push D: the main kernel publishes its outputs through
+        // broadcast cells only when a per-op kernel has a *different*
+        // program from it. When the per-op kernel reuses the main
+        // program (the flattened-op-template path — no per-op matter),
+        // evaluating outputs on main is both redundant (the descendant
+        // evaluates the same wires locally) and harmful (side-effecting
+        // nodes like `testkit_throw_at` fire outside the per-op cascade
+        // surface, losing the panic-to-error pipeline). A per-op kernel
+        // with its own program carries `extern <name>` slots for
+        // cross-scope wires it doesn't replicate locally; those slots
+        // need main to compute and broadcast the values through the
+        // cell.
+        self.needs_broadcast = dispenser_programs
+            .iter()
+            .flatten()
+            .any(|p| !Arc::ptr_eq(p, &self.main_program));
         self.per_op_kernels = per_op_kernels;
+        self.per_op_programs = dispenser_programs;
         self.per_op_side_effecting = per_op_side_effecting;
         self.scope_value_per_op_idx = per_op_idx;
+    }
+
+    /// The cycle-time wire surface for the firing dispenser at
+    /// `template_idx`: its per-fiber kernel, or this fiber's main
+    /// kernel when the dispenser exposes no canonical kernel (the
+    /// flattened path).
+    pub fn cycle_wires(&mut self, template_idx: usize) -> crate::wires::CycleWires<'_> {
+        let program = self
+            .per_op_programs
+            .get(template_idx)
+            .and_then(|p| p.clone());
+        match (
+            self.per_op_kernels
+                .get_mut(template_idx)
+                .and_then(|s| s.as_mut()),
+            program,
+        ) {
+            (Some(kernel), Some(program)) => {
+                crate::wires::CycleWires::over(kernel.as_mut(), program)
+            }
+            _ => {
+                crate::wires::CycleWires::over(self.main_kernel.as_mut(), self.main_program.clone())
+            }
+        }
+    }
+
+    /// The cycle-time wire surface over this fiber's main kernel.
+    pub fn main_wires(&mut self) -> crate::wires::CycleWires<'_> {
+        crate::wires::CycleWires::over(self.main_kernel.as_mut(), self.main_program.clone())
     }
 
     /// Get the per-fiber kernel for the firing dispenser at
     /// `template_idx`. Returns `None` when the dispenser exposes
     /// no canonical kernel (adapters with no Polydat needs); callers
     /// fall back to the `NullWireSource` baseline.
-    pub fn per_op_kernel(&self, template_idx: usize) -> Option<&PolydatKernel> {
+    pub fn per_op_kernel(&self, template_idx: usize) -> Option<&dyn Kernel> {
         self.per_op_kernels
             .get(template_idx)
-            .and_then(|s| s.as_ref())
+            .and_then(|s| s.as_deref())
     }
 
-    /// Mutable accessor for the per-fiber kernel slot — used by
-    /// cycle dispatch to wrap the kernel in [`crate::wires::CycleWires`]
-    /// for `&mut`-requiring output pulls. Returns `None` when no
-    /// canonical kernel was attached for this slot.
-    pub fn per_op_kernel_mut(&mut self, template_idx: usize) -> Option<&mut PolydatKernel> {
-        self.per_op_kernels
-            .get_mut(template_idx)
-            .and_then(|s| s.as_mut())
+    /// This fiber's main kernel.
+    pub fn main_kernel(&self) -> &dyn Kernel {
+        self.main_kernel.as_ref()
     }
 
-    /// Mutable accessor for this fiber's main kernel — used by
-    /// cycle dispatch when the firing dispenser exposes no
-    /// canonical op-template kernel (the flattened path). The
-    /// per-op kernel path uses [`Self::per_op_kernel_mut`]
-    /// instead.
-    pub fn main_kernel_mut(&mut self) -> &mut PolydatKernel {
-        &mut self.main_kernel
-    }
-
-    /// Borrow this fiber's main Polydat program.
+    /// The interpreter program this fiber's main kernel runs or was
+    /// imaged from.
     pub fn program(&self) -> &Arc<PolydatProgram> {
-        self.main_kernel.program()
-    }
-
-    /// Mutable access to the fiber's main `PolydatState`. The state
-    /// lives inside `main_kernel`; this accessor preserves the
-    /// pre-restructure call shape for sites that wrote
-    /// `fiber.state.…` directly.
-    pub fn state(&mut self) -> &mut PolydatState {
-        self.main_kernel.state()
-    }
-
-    /// Borrowed (`&`) accessor for the main state.
-    pub fn state_ref(&self) -> &PolydatState {
-        self.main_kernel.state_ref()
+        &self.main_program
     }
 
     /// Set coordinates and begin a new evaluation scope.
     ///
-    /// Bounded by [`PolydatProgram::coord_count`]: the slice is
+    /// Bounded by each kernel's coordinate count: the slice is
     /// truncated to the program's declared coordinate count
     /// before being written. A phase kernel with no
     /// coordinates (e.g. all bindings are invariant within the
@@ -684,201 +675,166 @@ impl FiberBuilder {
     /// (cascaded from parent) so per-cycle propagation is a
     /// per-kernel `set_inputs`, not a chain walk.
     pub fn set_inputs(&mut self, coords: &[u64]) {
-        let main_n = coords.len().min(self.main_kernel.program().coord_count());
+        let main_n = coords.len().min(self.main_kernel.coord_count());
         if main_n > 0 {
-            self.main_kernel.state().set_inputs(&coords[..main_n]);
+            self.main_kernel.set_inputs(&coords[..main_n]);
         }
-        // SRD-68 per-fiber kernels: same per-cycle propagation.
-        // Each per-op kernel declares its own coord_count (the
-        // ones it auto-externs from the parent's coord names —
-        // typically just `cycle`). Skip slots without a kernel
-        // (adapter exposed no canonical_kernel).
         for kernel in self.per_op_kernels.iter_mut().flatten() {
-            let n = coords.len().min(kernel.program().coord_count());
+            let n = coords.len().min(kernel.coord_count());
             if n > 0 {
-                kernel.state().set_inputs(&coords[..n]);
+                kernel.set_inputs(&coords[..n]);
             }
         }
     }
 
-    /// Feed a source item into the Polydat state.
+    /// Feed a source item into the fiber's kernels.
     ///
     /// Sets the ordinal as the coordinate input and injects field
-    /// projections into the appropriate state slots (e.g.
-    /// `base__ordinal`, `base__vector`).
-    ///
-    /// The ordinal write is bounded by [`PolydatProgram::coord_count`]
-    /// — phases whose programs declare no coordinates (only
-    /// externs and stanza-invariant bindings) skip the write
-    /// rather than clobbering an extern slot. Field
-    /// projections always write by name, so they're safe
-    /// regardless of coord_count.
+    /// projections into the appropriate input slots (e.g.
+    /// `base__ordinal`, `base__vector`). The ordinal write is
+    /// skipped by kernels whose programs declare no coordinates
+    /// (only externs and stanza-invariant bindings) rather than
+    /// clobbering an extern slot. Field projections always write by
+    /// name, so they're safe regardless of coordinate count.
     ///
     /// SRD-13d Phase 9: ordinal + fields propagate to every
     /// op-template kernel that declares matching slots.
     pub fn set_source_item(&mut self, item: &polydat::iteration::source::SourceItem) {
-        if self.main_kernel.program().coord_count() > 0 {
-            self.main_kernel.state().set_inputs(&[item.ordinal]);
+        if self.main_kernel.coord_count() > 0 {
+            self.main_kernel.set_inputs(&[item.ordinal]);
         }
         // Source items carry typed values from their upstream
         // DataSource; one the slot's type cannot take, converted or
         // not, means the source produced an incompatible value, which
         // is a fail-loud condition.
         for (name, value) in &item.fields {
-            if let Some(idx) = self.main_kernel.program().find_input(name) {
-                crate::wires::write_input(&mut self.main_kernel, idx, name, value.clone())
+            if let Some(idx) = self.main_program.find_input(name) {
+                crate::wires::write_input(self.main_kernel.as_mut(), idx, name, value.clone())
                     .unwrap_or_else(|e| {
                         panic!("source item field '{name}' failed typed write: {e}")
                     });
             }
         }
-        // Cell-bound cross-fiber visibility is now substrate-
-        // owned via the per-cell revision counter + per-scope
-        // intent-dirty vector + per-fiber `last_seen` (see
-        // polydat/docs/design/cross_fiber_invalidation.md):
-        // ancestor writes through a `SharedCell` bump the
-        // cell's revision and set its intent bit, and our
-        // `eval_node` walker re-checks both before serving a
-        // memoized result. No host-side refresh call needed.
-        // SRD-68 per-fiber kernels: same per-cycle propagation.
-        for kernel in self.per_op_kernels.iter_mut().flatten() {
-            if kernel.program().coord_count() > 0 {
-                kernel.state().set_inputs(&[item.ordinal]);
+        // Cell-bound cross-fiber visibility is substrate-owned via the
+        // per-cell revision counter + per-scope intent-dirty vector
+        // (polydat/docs/design/cross_fiber_invalidation.md): ancestor
+        // writes through a `SharedCell` bump the cell's revision and
+        // set its intent bit, and the evaluator re-checks both before
+        // serving a memoized result. No host-side refresh call needed.
+        for (kernel, program) in self
+            .per_op_kernels
+            .iter_mut()
+            .zip(self.per_op_programs.iter())
+        {
+            let (Some(kernel), Some(program)) = (kernel, program) else {
+                continue;
+            };
+            if kernel.coord_count() > 0 {
+                kernel.set_inputs(&[item.ordinal]);
             }
             for (name, value) in &item.fields {
-                if let Some(idx) = kernel.program().find_input(name) {
-                    kernel.state().set_input(idx, value.clone());
+                if let Some(idx) = program.find_input(name) {
+                    crate::wires::write_input(kernel.as_mut(), idx, name, value.clone())
+                        .unwrap_or_else(|e| {
+                            panic!("source item field '{name}' failed typed write: {e}")
+                        });
                 }
             }
         }
-        // SRD-13f Push D: only advance_broadcasts when a
-        // descendant per-op kernel has a *different* program
-        // from main_kernel. When the per-op kernel reuses
-        // main_kernel's program (the flattened-op-template
-        // path — no per-op matter), evaluating outputs here is
-        // both redundant (the descendant evaluates the same
-        // wires locally) and harmful (side-effecting nodes
-        // like `testkit_throw_at` fire outside the per-op cascade
-        // surface, losing the panic-to-error pipeline).
-        // When the per-op kernel has its own program, it
-        // carries `extern <name>` slots for cross-scope wires
-        // it doesn't replicate locally; those slots need
-        // main_kernel to compute and broadcast the values
-        // through the cell, so the descendant's read picks up
-        // the current value via the cell-aware input path.
-        let main_program_ptr = std::sync::Arc::as_ptr(self.main_kernel.program());
-        let needs_broadcast = self.per_op_kernels.iter().any(|slot| {
-            slot.as_ref()
-                .is_some_and(|k| std::sync::Arc::as_ptr(k.program()) != main_program_ptr)
-        });
-        if needs_broadcast {
-            self.main_kernel.advance_broadcasts();
+        if self.needs_broadcast {
+            self.main_kernel.publish_broadcasts();
         }
     }
 
     /// Reset capture inputs to defaults. Called at stanza
     /// boundaries to prevent capture leakage across stanzas.
-    /// Coordinates are not reset. Scope-bound iter-var inputs
-    /// (set by [`OpBuilder::create_fiber_builder`]) are
-    /// re-applied after the reset so the iteration's bound
+    /// Coordinates and cell-bound slots are not reset. Scope-bound
+    /// iter-var inputs (set by [`OpBuilder::create_fiber_builder`])
+    /// are re-applied after the reset so the iteration's bound
     /// values survive the boundary.
     pub fn reset_captures(&mut self) {
-        let coord_count = self.main_kernel.program().coord_count();
-        self.main_kernel.state().reset_inputs_from(coord_count);
-        // Re-apply scope values via cached indices — the per-cycle
-        // hot path was previously dominated by `find_input`
-        // linear scans here. Indices were resolved once at
-        // `set_scope_values` time.
-        for ((_name, value), idx_opt) in self
+        self.main_kernel.reset_inputs();
+        for ((name, value), idx_opt) in self
             .scope_values
             .iter()
             .zip(self.scope_value_main_idx.iter())
         {
             if let Some(idx) = idx_opt {
-                self.main_kernel.state().set_input(*idx, value.clone());
+                crate::wires::write_input(self.main_kernel.as_mut(), *idx, name, value.clone())
+                    .unwrap_or_else(|e| panic!("scope value '{name}' failed typed write: {e}"));
             }
         }
-        // SRD-68 per-fiber kernels: each one's coord count comes
-        // from its own program. Re-apply scope values via the
-        // pre-resolved per-op index cache populated at
-        // `attach_dispenser_kernels` time.
         for (slot, idx_slot) in self
             .per_op_kernels
             .iter_mut()
             .zip(self.scope_value_per_op_idx.iter())
         {
             if let (Some(kernel), Some(idx_vec)) = (slot, idx_slot) {
-                let n = kernel.program().coord_count();
-                kernel.state().reset_inputs_from(n);
-                for ((_name, value), idx_opt) in self.scope_values.iter().zip(idx_vec.iter()) {
+                kernel.reset_inputs();
+                for ((name, value), idx_opt) in self.scope_values.iter().zip(idx_vec.iter()) {
                     if let Some(idx) = idx_opt {
-                        kernel.state().set_input(*idx, value.clone());
+                        crate::wires::write_input(kernel.as_mut(), *idx, name, value.clone())
+                            .unwrap_or_else(|e| {
+                                panic!("scope value '{name}' failed typed write: {e}")
+                            });
                     }
                 }
             }
         }
     }
 
-    /// Invalidate all state: reset all inputs and mark all nodes dirty.
-    /// Provides "clean slate" semantics.
+    /// Invalidate all state: every step, a side channel included,
+    /// runs again when next pulled. Provides "clean slate" semantics.
     pub fn invalidate_all(&mut self) {
-        self.main_kernel.state().invalidate_all();
+        self.main_kernel.invalidate_all();
         for kernel in self.per_op_kernels.iter_mut().flatten() {
-            kernel.state().invalidate_all();
+            kernel.invalidate_all();
         }
     }
 
-    /// Store a captured value directly into Polydat state.
-    ///
-    /// Writes to the named port in PolydatState. Returns `true` if the
-    /// port was found and the value stored, `false` if no port with
-    /// this name exists in the program (value is dropped).
+    /// Store a captured value into the main kernel's input slot `name`.
+    /// Returns `true` when the slot exists and took the value, `false`
+    /// when the program has no such input or the value could not be
+    /// converted to its type (value dropped).
     pub fn capture(&mut self, name: &str, value: Value) -> bool {
-        if let Some(idx) = self.main_kernel.program().find_input(name) {
-            self.main_kernel.state().set_input(idx, value);
-            true
-        } else {
-            false
+        match self.main_program.find_input(name) {
+            Some(idx) => {
+                crate::wires::write_input(self.main_kernel.as_mut(), idx, name, value).is_ok()
+            }
+            None => false,
         }
     }
 
-    /// SRD-67 Phase 5 — write a value into a specific op-template
-    /// kernel's input slot by name. No-op when (a) the op didn't
-    /// materialise a kernel (flattened op-template), or (b) the
-    /// kernel doesn't declare an input slot for `name` (the
-    /// closure-binding economy dropped it because the source
-    /// doesn't reference it).
-    ///
-    /// Used by the activity loop's post-`execute` step to feed
-    /// SRD-66 result-binding inputs (`body` / `count` / `ok` and
-    /// any captures) into the op-template kernel before
-    /// [`Self::commit_op_template_write_throughs`] fans the
-    /// computed values up through parent `shared` cells.
     /// SRD-68 Push 5d: position-indexed write into the per-fiber
     /// op-template kernel slot. Used by the cycle dispatch's
     /// post-execute capture flow to feed result-binding inputs
     /// (`body` / `count` / `ok` and any captures) into the kernel
     /// before [`Self::commit_op_template_write_throughs_for_idx`]
     /// fans the computed values up through parent `shared` cells.
+    ///
+    /// No-op returning `false` when (a) the op didn't materialise a
+    /// kernel (flattened op-template), or (b) the kernel doesn't
+    /// declare an input slot for `name` (the closure-binding economy
+    /// dropped it because the source doesn't reference it), or (c)
+    /// the value could not be converted to the slot's type.
     pub fn write_op_template_input_for_idx(
         &mut self,
         template_idx: usize,
         name: &str,
         value: Value,
     ) -> bool {
-        let Some(kernel) = self
-            .per_op_kernels
-            .get_mut(template_idx)
-            .and_then(|s| s.as_mut())
-        else {
+        let (Some(Some(kernel)), Some(Some(program))) = (
+            self.per_op_kernels.get_mut(template_idx),
+            self.per_op_programs.get(template_idx),
+        ) else {
             if nmbrs_dirty_debug_enabled() && name == "body" {
                 eprintln!("DIRTY: write body template={template_idx} NO_KERNEL");
             }
             return false;
         };
-        let Some(idx) = kernel.program().find_input(name) else {
+        let Some(idx) = program.find_input(name) else {
             if nmbrs_dirty_debug_enabled() && name == "body" {
-                let inputs = kernel.program().input_names();
+                let inputs = program.input_names();
                 eprintln!(
                     "DIRTY: write body template={template_idx} NO_SLOT in_count={} names={:?}",
                     inputs.len(),
@@ -888,24 +844,17 @@ impl FiberBuilder {
             return false;
         };
         if nmbrs_dirty_debug_enabled() && name == "body" {
-            let input_count = kernel.program().input_names().len();
             let display = value.to_display_string();
             let head: String = display.chars().take(48).collect();
             eprintln!(
-                "DIRTY: write body template={template_idx} idx={idx} in_count={input_count} \
-                 head=\"{head}\""
+                "DIRTY: write body template={template_idx} idx={idx} in_count={} \
+                 head=\"{head}\"",
+                program.input_names().len()
             );
         }
-        kernel.state().set_input(idx, value);
-        true
+        crate::wires::write_input(kernel.as_mut(), idx, name, value).is_ok()
     }
 
-    /// SRD-67 Phase 5 — invoke the op-template kernel's Rule 2
-    /// write-through commit, propagating each result-binding LHS
-    /// value to the parent's `SharedCell` (and from there to any
-    /// sibling phase that imports the same name). No-op when the
-    /// op's kernel carries no write-throughs (the typical case
-    /// for ops without `result:`).
     /// SRD-68 Push 5d: position-indexed Rule 2 write-through commit.
     /// Pulls every `__write_<X>` and stores its value through the
     /// cell-bound input slot for `<X>`, propagating each result-
@@ -913,6 +862,7 @@ impl FiberBuilder {
     /// there to any sibling phase that imports the same name).
     /// No-op when the kernel carries no write-throughs (typical
     /// for ops without `result:`).
+    ///
     /// Errors when a write-through violates cell type stability
     /// (scope_model.md §"Type stability") — surfaced by the fiber
     /// loop as a phase-stopping workload bug (it is deterministic:
@@ -967,26 +917,18 @@ impl FiberBuilder {
     /// cycle*. Such values are evaluated only when actually consumed.
     /// No-op when the kernel has no side-effecting outputs.
     pub fn pull_all_op_template_outputs_for_idx(&mut self, template_idx: usize) {
-        let Some(names) = self.per_op_side_effecting.get(template_idx) else {
+        let (Some(indices), Some(Some(kernel))) = (
+            self.per_op_side_effecting.get(template_idx),
+            self.per_op_kernels.get_mut(template_idx),
+        ) else {
             return;
         };
-        if names.is_empty() {
-            return;
-        }
-        let names = names.clone();
-        let Some(kernel) = self
-            .per_op_kernels
-            .get_mut(template_idx)
-            .and_then(|s| s.as_mut())
-        else {
-            return;
-        };
-        for name in &names {
-            let _ = kernel.pull_ref(name);
+        for &idx in indices {
+            let _ = kernel.pull_at(idx);
         }
     }
 
-    /// Materialize a [`PullPlan`] against this fiber's main PolydatState.
+    /// Materialize a [`PullPlan`] against this fiber's main kernel.
     /// O(plan_len) on the hot path, no name hashing — the plan
     /// holds pre-resolved indices.
     ///
@@ -1002,33 +944,39 @@ impl FiberBuilder {
         &mut self,
         plan: &crate::fixture::PullPlan,
     ) -> crate::fixture::ResolvedPulls {
-        plan.resolve(self.main_kernel.state())
+        plan.resolve(self.main_kernel.as_mut())
     }
 
-    /// SRD-68 Push 5d resolve path — picks the right `PolydatState`
-    /// for the dispenser at `template_idx` and resolves the
-    /// plan against it. When a per-fiber op-template kernel was
-    /// instanced for that position (every adapter exposes
-    /// `canonical_kernel()` so this is the typical case), its
-    /// state is used; otherwise the plan resolves against the
-    /// fiber's main kernel state (the flattened op-template path).
+    /// SRD-68 Push 5d resolve path — picks the right kernel for the
+    /// dispenser at `template_idx` and resolves the plan against it.
+    /// When a per-fiber op-template kernel was instanced for that
+    /// position (every adapter exposes `canonical_kernel()` so this is
+    /// the typical case), it is used; otherwise the plan resolves
+    /// against the fiber's main kernel (the flattened op-template path).
+    /// Either way the plan is checked against the interpreter program
+    /// the kernel was imaged from, whose indices it holds.
     pub fn resolve_pulls_for_idx(
         &mut self,
         template_idx: usize,
         plan: &crate::fixture::PullPlan,
     ) -> crate::fixture::ResolvedPulls {
-        match self
-            .per_op_kernels
-            .get_mut(template_idx)
-            .and_then(|s| s.as_mut())
-        {
-            Some(kernel) => {
-                plan.check_program_match(kernel.program(), template_idx);
-                plan.resolve(kernel.state())
+        let program = self
+            .per_op_programs
+            .get(template_idx)
+            .and_then(|p| p.clone());
+        match (
+            self.per_op_kernels
+                .get_mut(template_idx)
+                .and_then(|s| s.as_mut()),
+            program,
+        ) {
+            (Some(kernel), Some(program)) => {
+                plan.check_program_match(&program, template_idx);
+                plan.resolve(kernel.as_mut())
             }
-            None => {
-                plan.check_program_match(self.main_kernel.program(), template_idx);
-                plan.resolve(self.main_kernel.state())
+            _ => {
+                plan.check_program_match(&self.main_program, template_idx);
+                plan.resolve(self.main_kernel.as_mut())
             }
         }
     }
@@ -1132,24 +1080,24 @@ mod tests {
         // pointing to the shared canonical kernel.
         assert!(
             !std::ptr::eq(
-                per_op_a as *const PolydatKernel,
-                canonical_kernel.as_ref() as *const PolydatKernel
+                per_op_a as *const dyn Kernel as *const (),
+                canonical_kernel.as_ref() as *const PolydatKernel as *const ()
             ),
             "per_op_a must be a distinct per-fiber instance, \
              not the shared canonical",
         );
         assert!(
             !std::ptr::eq(
-                per_op_b as *const PolydatKernel,
-                canonical_kernel.as_ref() as *const PolydatKernel
+                per_op_b as *const dyn Kernel as *const (),
+                canonical_kernel.as_ref() as *const PolydatKernel as *const ()
             ),
             "per_op_b must be a distinct per-fiber instance, \
              not the shared canonical",
         );
         assert!(
             !std::ptr::eq(
-                per_op_a as *const PolydatKernel,
-                per_op_b as *const PolydatKernel
+                per_op_a as *const dyn Kernel as *const (),
+                per_op_b as *const dyn Kernel as *const ()
             ),
             "fiber A and fiber B must each have their own \
              per-op kernel instance",
@@ -1218,13 +1166,15 @@ mod tests {
         let builder = OpBuilder::new(kernel);
 
         // Spawn many fibers, each pulls the init binding. None
-        // should trigger an eval — the init_overrides path seeds
-        // the buffer, and the post-fold leaf-const path returns
-        // the constant directly.
+        // should trigger an eval — the post-fold leaf-const path
+        // returns the constant directly.
         for _ in 0..32 {
             let mut fiber = builder.create_fiber_builder();
             fiber.set_inputs(&[0]);
-            let pulled = fiber.state().pull(&builder.program(), "ticks").clone();
+            let pulled = {
+                use crate::wires::WireSource as _;
+                fiber.main_wires().get("ticks").expect("ticks resolves")
+            };
             assert_eq!(pulled, Value::U64(42));
         }
         let after_fibers = calls.load(Ordering::Relaxed);
@@ -1239,5 +1189,115 @@ mod tests {
             after_fibers <= 1,
             "expected at most one eval across compile fold + activation pull, got {after_fibers}"
         );
+    }
+
+    /// The fiber engine carries the per-cycle kernels: a fiber's main
+    /// kernel runs the phase program's image, and a per-op kernel is
+    /// instantiated from its op-template module, both off the
+    /// interpreter — and every value they compute is the interpreter's.
+    #[test]
+    fn fiber_kernels_run_on_the_fiber_engine_with_interpreter_values() {
+        use crate::adapter::OpDispenser;
+        use crate::wires::WireSource as _;
+        use polydat::kernel::subcontext::{BodyFragment, PolydatMatter, SubcontextBuilder};
+
+        let phase_src = "input cycle: u64
+h := mod(hash(cycle), 1000)
+";
+        let options = polydat::dsl::compile::CompileOptions::default();
+        let phase = crate::bindings::compile_scope_kernel(phase_src, &options).expect("phase");
+        let image = crate::fiber_engine::source_image(phase.program(), phase_src, &options, "test")
+            .expect("the phase image agrees with its program");
+        let phase = Arc::new(phase);
+
+        let mut op = SubcontextBuilder::under(phase.as_ref());
+        op.body(BodyFragment::PolydatSource(
+            "extern h: u64
+scaled := h * 3 + 1
+"
+            .into(),
+        ));
+        let module = Arc::new(op.finalize().expect("op-template module"));
+        let canonical = Arc::new(
+            phase
+                .build_subscope(
+                    PolydatMatter::builder()
+                        .program(module.program().clone())
+                        .build()
+                        .expect("program matter"),
+                )
+                .expect("canonical per-op kernel"),
+        );
+
+        struct Probe(Arc<PolydatKernel>);
+        impl OpDispenser for Probe {
+            fn canonical_kernel(&self) -> Option<&Arc<PolydatKernel>> {
+                Some(&self.0)
+            }
+            fn execute<'a>(
+                &'a self,
+                _cycle: u64,
+                _ctx: &'a crate::fixture::ExecCtx<'a>,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                crate::adapter::OpResult,
+                                crate::adapter::ExecutionError,
+                            >,
+                        > + Send
+                        + 'a,
+                >,
+            > {
+                Box::pin(async move { Ok(crate::adapter::OpResult::default()) })
+            }
+        }
+        let dispensers: Vec<Arc<dyn OpDispenser>> = vec![Arc::new(Probe(canonical))];
+
+        let native = OpBuilder::new(phase.clone())
+            .with_fiber_image(Some(image))
+            .with_op_template_modules([("op".to_string(), module)]);
+        let interpreted = OpBuilder::new(phase);
+        let mut fiber = native.create_fiber_builder();
+        fiber.attach_dispenser_kernels(&dispensers);
+        let mut reference = interpreted.create_fiber_builder();
+        reference.attach_dispenser_kernels(&dispensers);
+
+        let on_interpreter = |k: &dyn Kernel| matches!(k.engine(), polydat::Engine::Interpreter(_));
+        assert!(
+            !on_interpreter(fiber.main_kernel()),
+            "main kernel on {}",
+            fiber.main_kernel().engine()
+        );
+        let per_op = fiber.per_op_kernel(0).expect("per-op kernel attached");
+        assert!(
+            !on_interpreter(per_op),
+            "per-op kernel on {}",
+            per_op.engine()
+        );
+        assert!(on_interpreter(reference.main_kernel()));
+        assert!(on_interpreter(
+            reference.per_op_kernel(0).expect("reference per-op")
+        ));
+
+        for cycle in [0, 1, 7, 1_000_003] {
+            fiber.set_inputs(&[cycle]);
+            reference.set_inputs(&[cycle]);
+            fiber.set_source_item(&polydat::iteration::source::SourceItem {
+                ordinal: cycle,
+                fields: Vec::new(),
+            });
+            reference.set_source_item(&polydat::iteration::source::SourceItem {
+                ordinal: cycle,
+                fields: Vec::new(),
+            });
+            for name in ["h", "scaled"] {
+                assert_eq!(
+                    fiber.cycle_wires(0).get(name),
+                    reference.cycle_wires(0).get(name),
+                    "'{name}' at cycle {cycle}"
+                );
+            }
+        }
     }
 }

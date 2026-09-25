@@ -81,6 +81,7 @@ pub(crate) mod error_policy;
 pub mod exec_events;
 pub mod execution_context;
 pub(crate) mod executor;
+pub mod fiber_engine;
 pub(crate) mod fiber_pool;
 pub mod fixture;
 /// Lifecycle event vocabulary: the kind-tag [`lifecycle::EventType`]

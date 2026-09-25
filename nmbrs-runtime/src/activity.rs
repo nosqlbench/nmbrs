@@ -3987,10 +3987,7 @@ async fn daemon_dispatch(
     // are visible here because the daemon dispatches at its op-walk
     // position, after the writer op completed.
     let pulls = fiber.resolve_pulls_for_idx(template_idx, &pull_plans[template_idx]);
-    let cycle_wires = match fiber.per_op_kernel_mut(template_idx) {
-        Some(p) => crate::wires::CycleWires::new(p),
-        None => crate::wires::CycleWires::new(fiber.main_kernel_mut()),
-    };
+    let cycle_wires = fiber.cycle_wires(template_idx);
     let ctx = crate::fixture::ExecCtx::with_wires(&fields, &pulls, &cycle_wires);
 
     activity.metrics.ops_started.fetch_add(1, Ordering::Relaxed);
@@ -4274,7 +4271,7 @@ async fn executor_task(
                     // additionally withholds trust in the predicate until
                     // every declared metric selector resolves.)
                     let satisfied = requires_ok && {
-                        let wires = crate::wires::CycleWires::new(fiber.main_kernel_mut());
+                        let wires = fiber.main_wires();
                         match crate::wrappers::condition::holds(
                             &wires,
                             crate::wrappers::condition::UNTIL_BINDING,
@@ -4615,10 +4612,7 @@ async fn executor_task(
             // `set_inputs` for other parent outputs). The local
             // read API resolves every name; the wires layer never
             // composes chains externally.
-            let cycle_wires = match fiber.per_op_kernel_mut(template_idx) {
-                Some(p) => crate::wires::CycleWires::new(p),
-                None => crate::wires::CycleWires::new(fiber.main_kernel_mut()),
-            };
+            let cycle_wires = fiber.cycle_wires(template_idx);
             let mut exec_ctx = crate::fixture::ExecCtx::with_wires(&fields, &pulls, &cycle_wires);
             // Hand the op the ACTUAL reserved sub-run length so a batch op
             // inserts exactly `[base, base + run_len)` — the full run, or

@@ -78,6 +78,11 @@ pub enum WriteOutcome {
     /// the write to keep the coordinate prefix in step with the cycle
     /// a pull is about to read. `reason` is polydat's diagnostic.
     Coordinate { reason: String },
+    /// The slot holds a `const`'s captured value, which only kernel
+    /// initialization writes: a const changes when the inputs it reads
+    /// change and the kernel is re-initialized, never by a write to its
+    /// own slot. `reason` is polydat's diagnostic.
+    Const { reason: String },
 }
 
 /// Why a [`write_input`] did not land.
@@ -111,6 +116,7 @@ impl From<HostWriteError> for WriteOutcome {
             HostWriteError::Write(WriteError::CoordinateSlot { .. }) => {
                 WriteOutcome::Coordinate { reason }
             }
+            HostWriteError::Write(WriteError::ConstSlot { .. }) => WriteOutcome::Const { reason },
             HostWriteError::Write(WriteError::TypeMismatch { .. })
             | HostWriteError::Convert { .. } => WriteOutcome::TypeMismatch { reason },
         }
@@ -287,23 +293,52 @@ impl WireSource for PolydatKernel {
 ///
 /// `None` when the name doesn't appear on this kernel — callers
 /// surface as an unresolved-bindpoint error per SRD-68 I-1.
+///
+/// The kernel may be on any engine. Names resolve on `program`, the
+/// interpreter program the kernel runs or was imaged from, whose
+/// indices it shares (`fiber_engine::agrees`); the kernel is then
+/// driven by index, so a compiled kernel pays no name lookup.
+///
+/// One value per name per cycle: an output read is kept for the life of
+/// these wires — one cycle's dispatch — so an op that references a
+/// `volatile` binding twice renders one reading, although polydat
+/// re-evaluates a volatile step on every pull. A write, a reset, or an
+/// advance forgets every kept reading, so a read after one sees the
+/// kernel as it is now.
 pub struct CycleWires<'a> {
-    kernel: std::sync::Mutex<&'a mut PolydatKernel>,
+    kernel: std::sync::Mutex<&'a mut dyn polydat::Kernel>,
+    program: std::sync::Arc<polydat::kernel::PolydatProgram>,
+    readings: std::sync::Mutex<std::collections::HashMap<usize, Value>>,
 }
 
 impl<'a> CycleWires<'a> {
-    /// Wrap a per-fiber kernel handle for cycle-time reads. The
-    /// caller — typically the executor's cycle dispatch — holds
-    /// the only outstanding borrow on the kernel for the duration
-    /// of this cycle. Reads through `WireSource::get` resolve
-    /// every visible name through this kernel's local read API;
-    /// SRD-13f's construction-time wiring + per-cycle refresh
-    /// keeps the local view consistent with the owning scope's
-    /// kernel without external chain composition.
+    /// Wrap an interpreter kernel handle for cycle-time reads. The
+    /// caller holds the only outstanding borrow on the kernel for the
+    /// duration of this cycle.
     pub fn new(kernel: &'a mut PolydatKernel) -> Self {
+        let program = kernel.program().clone();
+        Self::over(kernel, program)
+    }
+
+    /// Wrap a kernel of any engine whose inputs and outputs are
+    /// `program`'s, in the same order.
+    pub fn over(
+        kernel: &'a mut dyn polydat::Kernel,
+        program: std::sync::Arc<polydat::kernel::PolydatProgram>,
+    ) -> Self {
         Self {
             kernel: std::sync::Mutex::new(kernel),
+            program,
+            readings: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Forget every reading kept this cycle: the kernel's inputs moved.
+    fn forget_readings(&self) {
+        self.readings
+            .lock()
+            .expect("CycleWires readings poisoned")
+            .clear();
     }
 }
 
@@ -312,15 +347,16 @@ impl<'a> WireSource for CycleWires<'a> {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         // Output pull first: a name declared by the program's
         // bindings is an output; the pull memoizes through the
-        // eval cone. Fall through to lookup for inputs and
-        // scope-init constants. No external chain composition —
+        // eval cone. Fall through to the scope lookup for inputs
+        // and scope-init constants. No external chain composition —
         // construction-time wiring set up every visible wire
         // (SRD-13f).
-        // Resolve the name to an output INDEX ONCE, then pull by index — the
-        // old `resolve_output(name).is_some()` + `pull(name)` hashed the name
-        // twice per read (pull re-resolves internally). One hash now.
-        if let Some(output_idx) = k.program().output_index(name) {
-            let v = k.pull_ref_at(output_idx).clone();
+        if let Some(output_idx) = self.program.output_index(name) {
+            let mut readings = self.readings.lock().expect("CycleWires readings poisoned");
+            let v = readings
+                .entry(output_idx)
+                .or_insert_with(|| k.pull_at(output_idx))
+                .clone();
             if nmbrs_dirty_debug_enabled() && name == "query" {
                 let s = v.to_display_string();
                 let head: String = s.chars().take(64).collect();
@@ -328,7 +364,10 @@ impl<'a> WireSource for CycleWires<'a> {
             }
             return Some(v);
         }
-        let v = k.lookup(name);
+        let v = {
+            use polydat::kernel::interp::Lookup as _;
+            polydat::kernel::interp::KernelLookup::new(&**k).lookup(name)
+        };
         if nmbrs_dirty_debug_enabled() && name == "query" {
             let head = v
                 .as_ref()
@@ -340,33 +379,32 @@ impl<'a> WireSource for CycleWires<'a> {
     }
 
     fn names(&self) -> Box<dyn Iterator<Item = String> + '_> {
-        let k = self.kernel.lock().expect("CycleWires mutex poisoned");
-        let program = k.program();
-        let outputs: Vec<String> = program
+        let outputs: Vec<String> = self
+            .program
             .output_names()
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let inputs_only: Vec<String> = program
+        let inputs_only: Vec<String> = self
+            .program
             .input_names()
-            .iter()
+            .into_iter()
             .filter(|n| !outputs.contains(n))
-            .cloned()
             .collect();
         Box::new(outputs.into_iter().chain(inputs_only))
     }
 
     fn reset(&self, name: &str) -> WriteOutcome {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
-        let Some(idx) = k.program().find_input(name) else {
+        self.forget_readings();
+        let Some(idx) = self.program.find_input(name) else {
             return WriteOutcome::NoSlot;
         };
         // The declared default is by construction the slot's own
         // type, so this write cannot mismatch; the typed boundary
         // is still used rather than poking state directly.
-        let default = match k.program().input_default_by_idx(idx) {
-            Some(d) => d.clone(),
-            None => return WriteOutcome::NoSlot,
+        let Some(default) = k.input_default_at(idx) else {
+            return WriteOutcome::NoSlot;
         };
         match write_input(&mut **k, idx, name, default) {
             Ok(()) => WriteOutcome::Stored,
@@ -376,26 +414,21 @@ impl<'a> WireSource for CycleWires<'a> {
 
     fn write(&self, name: &str, value: Value) -> WriteOutcome {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
+        self.forget_readings();
+        let found = self.program.find_input(name);
         if std::env::var("NMBRS_DEBUG_WIRES")
             .map(|v| v == "1")
             .unwrap_or(false)
         {
-            let cells: Vec<String> = k
-                .shared_cells_in_scope()
-                .iter()
-                .map(|c| c.name.clone())
-                .collect();
-            let slot_cell = k
-                .program()
-                .find_input(name)
-                .map(|idx| k.state_ref().shared_cell(idx).is_some());
+            let cells: Vec<String> = k.cells_in_scope().iter().map(|c| c.name.clone()).collect();
+            let slot_cell = found.map(|idx| k.input_is_cell_bound(idx));
             eprintln!(
                 "WIRES.write name={name} value={value:?} slot_cell_bound={slot_cell:?} cells_in_scope={cells:?}"
             );
         }
         // Result and capture values arrive typed by the adapter, not
         // by the slot, so they go through the converting write.
-        let Some(idx) = k.program().find_input(name) else {
+        let Some(idx) = found else {
             return WriteOutcome::NoSlot;
         };
         match write_input(&mut **k, idx, name, value) {
@@ -406,8 +439,9 @@ impl<'a> WireSource for CycleWires<'a> {
 
     fn advance(&self, coord: u64) {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
-        if k.program().coord_count() > 0 {
-            k.state().set_inputs(&[coord]);
+        self.forget_readings();
+        if k.coord_count() > 0 {
+            k.set_inputs(&[coord]);
         }
     }
 }

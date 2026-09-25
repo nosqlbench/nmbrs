@@ -218,9 +218,15 @@ keeping the model honest:
 - If a function reads session-static state (env, file content
   captured at session-init), make sure the value is captured
   in `new()` and the eval just emits the captured value. That
-  matches how `env`, `env_or`, `tmp_dir`, `session_start_millis`
-  all work today — they're "non-deterministic" structurally
-  but session-stable in practice.
+  matches how `env`, `env_or`, and `tmp_dir` all work today —
+  they're "non-deterministic" structurally but session-stable in
+  practice.
+- A reading taken once for a scope's life is a `const` over a
+  volatile expression. The session clock is the standing example:
+  the workload root declares `const session_start :=
+  current_epoch_millis()`, every scope that names `session_start`
+  inherits that one captured value, and session-elapsed time is
+  `current_epoch_millis() - session_start`.
 
 **Workload authors** (anyone writing Polydat source consumed by a
 phase):

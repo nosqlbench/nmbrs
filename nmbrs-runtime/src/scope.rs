@@ -1493,6 +1493,44 @@ pub fn build_op_template_scope_kernel(
     kernel_opt: polydat::kernel::KernelOptLevel,
     context: &str,
 ) -> Result<polydat::kernel::PolydatKernel, String> {
+    build_op_template_scope_module(
+        op,
+        parent_manifest,
+        parent_kernel,
+        workload_params,
+        polydat_lib_paths,
+        workload_dir,
+        strict,
+        kernel_opt,
+        context,
+    )
+    .map(|(kernel, _)| kernel)
+}
+
+/// [`build_op_template_scope_kernel`], keeping the scope module the
+/// kernel was instantiated from. Fibers instantiate their per-op
+/// kernels from the module on the fiber engine
+/// ([`crate::fiber_engine`]); the module carries the settings and the
+/// `result:` write-throughs every engine's image needs.
+// reason: same argument list as `build_op_template_scope_kernel`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_op_template_scope_module(
+    op: &nmbrs_workload::model::ParsedOp,
+    parent_manifest: &[crate::runner::ManifestEntry],
+    parent_kernel: &polydat::kernel::PolydatKernel,
+    workload_params: &HashMap<String, String>,
+    polydat_lib_paths: Vec<std::path::PathBuf>,
+    workload_dir: Option<&std::path::Path>,
+    strict: bool,
+    kernel_opt: polydat::kernel::KernelOptLevel,
+    context: &str,
+) -> Result<
+    (
+        polydat::kernel::PolydatKernel,
+        crate::fiber_engine::OpTemplateModule,
+    ),
+    String,
+> {
     use nmbrs_workload::model::BindingsDef;
 
     let manifest_by_name: HashMap<&str, &crate::runner::ManifestEntry> = parent_manifest
@@ -2001,20 +2039,44 @@ pub fn build_op_template_scope_kernel(
             manifest_by_name.contains_key("xval")
         );
     }
-    let mut matter_builder = polydat::kernel::subcontext::PolydatMatter::builder()
-        .label(context)
-        .source(source)
-        .inherited_outputs(inherited_names)
-        .options(compile_options);
+    // The source form of `build_subscope`, spelled out so the finalized
+    // module is kept: the interpreter kernel is materialized from the
+    // module's program exactly as `build_subscope` does, and the module
+    // stays available for the fiber engine's per-op images.
+    use polydat::kernel::subcontext::{
+        BodyFragment, ContractViolation, PolydatMatter, SourceContext, SubcontextBuilder,
+    };
+    let synthesis_error =
+        |e: ContractViolation| format!("{context}: op-template scope synthesis: {e}");
+    let mut builder = SubcontextBuilder::under(parent_kernel);
+    builder
+        .context(SourceContext::new(context.to_string()))
+        .mark_inherited_outputs(inherited_names)
+        .with_compile_options(compile_options)
+        .body(BodyFragment::PolydatSource(source));
     if let Some(rb) = result_source {
-        matter_builder = matter_builder.result_bindings(rb);
+        builder.add_result_bindings(&rb).map_err(synthesis_error)?;
     }
-    let matter = matter_builder
-        .build()
-        .map_err(|e| format!("{context}: op-template scope synthesis: {e}"))?;
+    let module = builder.finalize().map_err(synthesis_error)?;
     let mut kernel = parent_kernel
-        .build_subscope(matter)
-        .map_err(|e| format!("{context}: op-template scope synthesis: {e}"))?;
+        .build_subscope(
+            PolydatMatter::builder()
+                .program(module.program().clone())
+                .build()
+                .map_err(|e| format!("{context}: op-template scope synthesis: {e}"))?,
+        )
+        .map_err(synthesis_error)?;
+    // Strict mode escalates a scope-init const that fell through to
+    // `None` (composition_substrate.md L2.f), as `build_subscope` does.
+    if strict {
+        let bindings = kernel.find_l2f_violations();
+        if !bindings.is_empty() {
+            return Err(synthesis_error(ContractViolation::StrictNonePropagation {
+                bindings,
+                site: SourceContext::new(context.to_string()),
+            }));
+        }
+    }
     parent_kernel.propagate_inputs_into(&mut kernel);
 
     // SRD-108 Part B — the interface's TYPE PROOF, at the same
@@ -2024,7 +2086,7 @@ pub fn build_op_template_scope_kernel(
     if let Some(iface) = op.abstract_interface.as_ref() {
         verify_op_interface(iface, kernel.program().as_ref(), context)?;
     }
-    Ok(kernel)
+    Ok((kernel, module))
 }
 
 /// SRD-108 Part B — verify a bound slot's interface against its

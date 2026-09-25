@@ -97,11 +97,14 @@ pub struct SettleInterpreter {
     /// takes no part in the scope tree, so it is driven through the
     /// engine-neutral [`Kernel`] trait.
     kernel: Box<dyn Kernel>,
-    /// Index of the poke input on the settle kernel, if present. Absent
-    /// only for a kernel with no inputs — pulses then evaluate the
-    /// kernel as-is (no generation advance, so a volatile reader would
-    /// not re-read; such a kernel is only meaningful in tests).
-    source_input: Option<usize>,
+    /// Index of the kernel's `samples: vec_f64` input, the window
+    /// `is_stable` judges.
+    samples_input: usize,
+    /// The most recent samples, oldest first, at most `horizon` of them.
+    /// `is_stable` is a pure function of its window, so the interpreter
+    /// owns the history.
+    window: std::collections::VecDeque<f64>,
+    horizon: usize,
     value_wire: String,
     stable_wire: String,
     register: Arc<ArcSwap<SettleReading>>,
@@ -109,15 +112,28 @@ pub struct SettleInterpreter {
 }
 
 impl SettleInterpreter {
-    /// Build an interpreter over a compiled settle kernel. `source` is
-    /// the input poked to advance the generation each pulse;
-    /// `value_wire` / `stable_wire` are the `is_stable` multi-output
-    /// wire names.
-    pub fn new(kernel: Box<dyn Kernel>, source: &str, value_wire: &str, stable_wire: &str) -> Self {
-        let source_input = kernel.input_index(source);
+    /// Build an interpreter over a compiled settle kernel. `samples` is
+    /// its `vec_f64` window input; `value_wire` / `stable_wire` are the
+    /// `is_stable` multi-output wire names; `horizon` is how many recent
+    /// samples the window holds.
+    ///
+    /// # Panics
+    /// When the kernel has no `samples` input: a malformed settle kernel.
+    pub fn new(
+        kernel: Box<dyn Kernel>,
+        samples: &str,
+        value_wire: &str,
+        stable_wire: &str,
+        horizon: usize,
+    ) -> Self {
+        let samples_input = kernel
+            .input_index(samples)
+            .unwrap_or_else(|| panic!("settle kernel has no `{samples}` input"));
         Self {
             kernel,
-            source_input,
+            samples_input,
+            window: std::collections::VecDeque::with_capacity(horizon),
+            horizon,
             value_wire: value_wire.to_string(),
             stable_wire: stable_wire.to_string(),
             register: Arc::new(ArcSwap::from_pointee(SettleReading::default())),
@@ -132,25 +148,25 @@ impl SettleInterpreter {
         self.register.clone()
     }
 
-    /// Deliver one cadence pulse. Advances the kernel generation (so the
-    /// embedded volatile objective re-reads), evaluates `is_stable`
-    /// exactly once, publishes the stabilized value, and returns the
-    /// reading. `poke` is written to the source input only to force the
-    /// generation advance — its value is not part of the computation
-    /// when the objective is embedded in the kernel.
-    pub fn pulse(&mut self, poke: f64) -> SettleReading {
+    /// Deliver one cadence pulse: append `sample` to the window (dropping
+    /// the oldest past `horizon`), write the window to the kernel, read
+    /// `is_stable`'s verdict on it, publish the stabilized value, and
+    /// return the reading.
+    pub fn pulse(&mut self, sample: f64) -> SettleReading {
         self.pulses += 1;
-        if let Some(idx) = self.source_input {
-            // `source` is an `f64` extern, so an `F64` write cannot be
-            // refused; a refusal is a malformed settle kernel.
-            self.kernel
-                .set_input_at(idx, Value::F64(poke))
-                .expect("settle kernel refused its f64 `source` extern");
+        if self.window.len() == self.horizon {
+            self.window.pop_front();
         }
-        // Every pulse is one `is_stable` sample, a poke equal to the
-        // last one included — which a compiled engine would otherwise
-        // treat as a cycle whose inputs did not move.
-        self.kernel.invalidate_all();
+        self.window.push_back(sample);
+        let window: Vec<f64> = self.window.iter().copied().collect();
+        // `samples` is a `vec_f64` extern, so a `VecF64` write cannot be
+        // refused; a refusal is a malformed settle kernel.
+        self.kernel
+            .set_input_at(
+                self.samples_input,
+                Value::VecF64(polydat::ast::SliceArc::from_vec(window)),
+            )
+            .expect("settle kernel refused its vec_f64 `samples` extern");
         let stable = self.kernel.pull(&self.stable_wire).as_u64() != 0;
         let value = self.kernel.pull(&self.value_wire).as_f64();
 
@@ -170,9 +186,9 @@ impl SettleInterpreter {
 /// `read_objective_at_completion` pulls) and a fixed `is_stable`
 /// engine. Each cadence pulse:
 ///
-/// 1. pokes the objective kernel's generation-advance input (typically
-///    `cycle`), which dirties every non-deterministic node so the
-///    volatile objective reader re-reads the latest published window;
+/// 1. positions the objective kernel at the pulse's ordinal on its
+///    coordinate input (typically `cycle`); a volatile objective reader
+///    re-reads the latest published window on every pull regardless;
 /// 2. pulls the objective wire — the fresh windowed objective value;
 /// 3. feeds it to [`SettleInterpreter`] (`is_stable`).
 ///
@@ -199,10 +215,9 @@ pub struct SettleEvaluator {
 
 impl SettleEvaluator {
     /// `objective` is the phase's objective kernel (node X clone);
-    /// `objective_wire` the objective output; `poke_input` the input
-    /// poked each pulse to force the volatile reader to re-read
-    /// (typically `cycle`); `interp` the `is_stable` engine fed the
-    /// objective value.
+    /// `objective_wire` the objective output; `poke_input` the coordinate
+    /// input positioned at each pulse's ordinal (typically `cycle`);
+    /// `interp` the `is_stable` engine fed the objective value.
     pub fn new(
         objective: PolydatKernel,
         objective_wire: &str,
@@ -234,8 +249,9 @@ impl PulseEvaluator for SettleEvaluator {
     fn evaluate(&mut self, _window: &MetricSet) -> Option<Outcome> {
         let start = *self.started.get_or_insert_with(Instant::now);
         self.pulses += 1;
-        // Advance the objective kernel's generation so its volatile
-        // reader re-reads the latest published window, then read it.
+        // Position the objective kernel at this pulse, then read it; a
+        // volatile reader in its cone re-reads the latest published
+        // window on every pull.
         if let Some(idx) = self.poke {
             self.objective
                 .state()
@@ -363,23 +379,48 @@ pub struct SettleHandle {
     pub outcome: StopOutcomeCell,
 }
 
+/// Why [`start_settle`] started no detector.
+#[derive(Debug)]
+pub enum SettleSkip {
+    /// The objective reads no live metric: its one-shot read at phase
+    /// completion is the value, and there is nothing to settle.
+    NotWindowed,
+    /// The metrics cadence is disabled, so no pulse would ever arrive.
+    CadenceDisabled,
+    /// The detector could not be built.
+    Failed(String),
+}
+
+impl std::fmt::Display for SettleSkip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SettleSkip::NotWindowed => write!(f, "it reads no live windowed metric"),
+            SettleSkip::CadenceDisabled => write!(f, "the metrics cadence is disabled"),
+            SettleSkip::Failed(reason) => {
+                write!(f, "the settle detector failed to start: {reason}")
+            }
+        }
+    }
+}
+
 /// Start a cadence-fed settle detector for `objective` on the running
 /// phase **iff** the objective reads live metrics. Builds the objective
 /// kernel as node X's program rebound to `parent` (carrying the
 /// coordinate — mirrors `read_objective_at_completion`), wraps it in a
 /// [`PhaseStopEvaluator`], and subscribes it to the smallest cadence.
-/// Returns `None` for a non-volatile objective (the one-shot read path
-/// is correct there) or if the metrics cadence is disabled.
+/// Starts nothing for a non-volatile objective (the one-shot read path
+/// is correct there) or when the metrics cadence is disabled, and says
+/// which; a detector that cannot be built is [`SettleSkip::Failed`].
 pub fn start_settle(
     parent: &Arc<PolydatKernel>,
     phase_kernel: &Arc<PolydatKernel>,
     objective: &str,
     reporter: &Arc<CadenceReporter>,
     stop_flag: Arc<AtomicBool>,
-) -> Option<SettleHandle> {
+) -> Result<SettleHandle, SettleSkip> {
     let program = phase_kernel.program();
     if !program_reads_live_metrics(program) {
-        return None;
+        return Err(SettleSkip::NotWindowed);
     }
     // A session-cumulative `metric(...)` objective has no bounded window
     // for the gate to scope, so it cannot isolate per-coordinate — warn
@@ -396,21 +437,30 @@ pub fn start_settle(
     }
     let cadence = reporter.declared_cadences().smallest();
     if cadence.is_zero() {
-        return None;
+        return Err(SettleSkip::CadenceDisabled);
     }
 
+    let failed = |what: &str, e: &dyn std::fmt::Display| SettleSkip::Failed(format!("{what}: {e}"));
     let matter = polydat::kernel::subcontext::PolydatMatter::builder()
         .program(program.clone())
         .build()
-        .ok()?;
-    let obj_kernel = parent.build_subscope(matter).ok()?;
+        .map_err(|e| failed("objective kernel matter", &e))?;
+    let obj_kernel = parent
+        .build_subscope(matter)
+        .map_err(|e| failed("objective kernel", &e))?;
 
     let is_stable_kernel = polydat::dsl::compile::compile_polydat(&format!(
-        "extern source: f64\n(stable_value, stable) := is_stable(source, {SETTLE_MARGIN}, \
-         {SETTLE_MIN_SAMPLES}, {SETTLE_HORIZON})"
+        "extern samples: vec_f64\n(stable_value, stable) := is_stable(samples, {SETTLE_MARGIN}, \
+         {SETTLE_MIN_SAMPLES})"
     ))
-    .ok()?;
-    let interp = SettleInterpreter::new(is_stable_kernel, "source", "stable_value", "stable");
+    .map_err(|e| failed("is_stable kernel", &e))?;
+    let interp = SettleInterpreter::new(
+        is_stable_kernel,
+        "samples",
+        "stable_value",
+        "stable",
+        SETTLE_HORIZON as usize,
+    );
     // Viability gate = the stability horizon's worth of cadence intervals, in
     // WALL-CLOCK. With the usual `window = SETTLE_HORIZON × cadence` sizing this
     // is the rollup window — long enough for the objective's window to clear the
@@ -439,8 +489,10 @@ pub fn start_settle(
                 as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
         }));
     }
-    let subscriber = reporter.subscribe(cadence, Box::new(pse), opts).ok()?;
-    Some(SettleHandle {
+    let subscriber = reporter
+        .subscribe(cadence, Box::new(pse), opts)
+        .map_err(|e| failed("cadence subscription", &e))?;
+    Ok(SettleHandle {
         subscriber,
         register,
         outcome,
@@ -456,10 +508,10 @@ mod tests {
     /// The fixed `is_stable` engine fed the per-pulse objective value.
     fn settle_interp() -> SettleInterpreter {
         let kernel = compile_polydat(
-            "extern source: f64\n(stable_value, stable) := is_stable(source, 0.05, 4, 8)",
+            "extern samples: vec_f64\n(stable_value, stable) := is_stable(samples, 0.05, 4)",
         )
         .expect("is_stable kernel compiles");
-        SettleInterpreter::new(kernel, "source", "stable_value", "stable")
+        SettleInterpreter::new(kernel, "samples", "stable_value", "stable", 8)
     }
 
     fn obj_kernel(src: &str) -> PolydatKernel {

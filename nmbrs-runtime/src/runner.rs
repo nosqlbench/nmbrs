@@ -2153,6 +2153,9 @@ async fn run_execution(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     drop(declared);
+    // Whether the workload names the session clock's origin, asked of the
+    // whole model before its parts are taken apart below.
+    let session_clock = crate::bindings::workload_names_session_start(&workload);
     let mut phases = workload.phases;
     // Inline-expression rewrite per phase. The
     // `rewrite_inline_exprs` call later in this function (around
@@ -2847,6 +2850,7 @@ async fn run_execution(
                 cursor_limit,
                 &workload_params,
                 workload_level_polydat.as_deref(),
+                session_clock,
             )
             .map_err(|e| format!("outer workload bindings: {e}"))?,
         );
@@ -3459,7 +3463,9 @@ async fn run_execution(
                     // Includes op-level bindings + cascaded
                     // parent externs; materialize_wiring_from_outer chains
                     // values in at runtime.
-                    crate::scope::build_op_template_scope_kernel(
+                    // The scope module stays on the node for the fiber
+                    // engine's per-op images (`crate::fiber_engine`).
+                    crate::scope::build_op_template_scope_module(
                         &op,
                         &parent_manifest,
                         &parent_kernel,
@@ -3470,6 +3476,18 @@ async fn run_execution(
                         kernel_opt,
                         &context,
                     )
+                    .map(|(kernel, module)| {
+                        // Build the image now, beside the interpreter
+                        // program, so its compile cost and any refusal
+                        // land at load rather than at a phase's first
+                        // fiber.
+                        let _ = crate::fiber_engine::module_image(&module, &context);
+                        let _ = scope_tree.nodes[idx]
+                            .fiber_images
+                            .op_module
+                            .set(std::sync::Arc::new(module));
+                        kernel
+                    })
                 }
                 InstallSpec::Bindings { bindings, .. } => {
                     // Single install path for both phase-level

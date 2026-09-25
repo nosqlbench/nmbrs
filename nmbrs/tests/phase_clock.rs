@@ -103,7 +103,7 @@ phases:
         bindings: |
           volatile ps := phase_start_millis()
           volatile pe := phase_elapsed_millis()
-          volatile se := elapsed_millis()
+          volatile se := current_epoch_millis() - session_start
         stmt: "P1 phase_start={ps} phase_elapsed={pe} session_elapsed={se}"
   wait:
     cycles: 1
@@ -120,7 +120,7 @@ phases:
         bindings: |
           volatile ps := phase_start_millis()
           volatile pe := phase_elapsed_millis()
-          volatile se := elapsed_millis()
+          volatile se := current_epoch_millis() - session_start
         stmt: "P2 phase_start={ps} phase_elapsed={pe} session_elapsed={se}"
 "#,
     );

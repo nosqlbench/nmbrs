@@ -175,20 +175,30 @@ pub async fn servo(
             // flag absorbs the settle's own stop verdict so it does NOT end the
             // phase (the servo owns the phase stop, on budget exhaustion).
             let settle_done = Arc::new(AtomicBool::new(false));
-            let Some(handle) = start_settle(
+            let handle = match start_settle(
                 &parent,
                 &phase_kernel,
                 &spec.objective,
                 &reporter,
                 settle_done,
-            ) else {
-                err = Some(format!(
-                    "optimizer objective '{}' is not a windowed metric — a Control-class \
-                     sweep settles the live windowed objective per setting; use \
-                     `metric_window(...)` or `metricsql_scalar(rate(...[W]))`",
-                    spec.objective
-                ));
-                break 'outer;
+            ) {
+                Ok(handle) => handle,
+                Err(super::settle::SettleSkip::NotWindowed) => {
+                    err = Some(format!(
+                        "optimizer objective '{}' is not a windowed metric — a Control-class \
+                         sweep settles the live windowed objective per setting; use \
+                         `metric_window(...)` or `metricsql_scalar(rate(...[W]))`",
+                        spec.objective
+                    ));
+                    break 'outer;
+                }
+                Err(e) => {
+                    err = Some(format!(
+                        "optimizer objective '{}' cannot be settled: {e}",
+                        spec.objective
+                    ));
+                    break 'outer;
+                }
             };
             let value = loop {
                 if phase_done.load(Ordering::Relaxed) {

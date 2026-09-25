@@ -315,8 +315,8 @@ fn empty_fixture_seals_to_empty_plan() {
     let fx = ScopeFixture::new(program.clone());
     let plan = fx.seal();
     assert!(plan.is_empty());
-    let mut state = program.create_state();
-    let pulls = plan.resolve(&mut state);
+    let mut kernel = polydat::KernelProgram::create_kernel(program.clone());
+    let pulls = plan.resolve(kernel.as_mut());
     assert!(pulls.is_empty());
     // Demonstrate that an ExecCtx with empty pulls is still well-formed.
     let fields = ResolvedFields::new(Vec::new(), Vec::new());

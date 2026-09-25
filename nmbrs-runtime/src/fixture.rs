@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use polydat::ast::Value;
-use polydat::kernel::{PolydatKernel, PolydatProgram, PolydatState};
+use polydat::kernel::{PolydatKernel, PolydatProgram};
 
 /// What the kernel reports a registered name resolves to.
 ///
@@ -232,32 +232,32 @@ impl PullPlan {
         &self.program
     }
 
-    /// Materialize every entry against the given PolydatState. Output
-    /// entries go through `state.pull_by_index` (eval cone if
-    /// dirty); input entries go through `state.read_input_value`
-    /// (cell-aware read for shared slots).
+    /// Materialize every entry against `kernel`, a kernel of this
+    /// plan's program on any engine (its indices are the program's).
+    /// Output entries go through `pull_at` (eval cone if not current);
+    /// input entries through `input_value_at` (cell-aware for shared
+    /// slots).
     ///
     /// O(plan_len) on the hot path — no name hashing.
-    pub fn resolve(&self, state: &mut PolydatState) -> ResolvedPulls {
+    pub fn resolve(&self, kernel: &mut dyn polydat::Kernel) -> ResolvedPulls {
         let mut values = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             let v = match entry {
-                PlanEntry::Output { output_idx, .. } => {
-                    state.pull_by_index(&self.program, *output_idx).clone()
+                PlanEntry::Output { output_idx, .. } => kernel.pull_at(*output_idx),
+                PlanEntry::Input { input_idx, .. } => {
+                    kernel.input_value_at(*input_idx).unwrap_or(Value::None)
                 }
-                PlanEntry::Input { input_idx, .. } => state.read_input_value(*input_idx),
             };
             values.push(v);
         }
         ResolvedPulls { values }
     }
 
-    /// Convenience: resolve against a kernel. Equivalent to
-    /// `plan.resolve(kernel.state())`. Provided so test
-    /// scaffolding and other ergonomic call sites don't have to
-    /// dig out the state.
+    /// Convenience: resolve against an interpreter kernel. Provided so
+    /// test scaffolding and other ergonomic call sites don't have to
+    /// name the trait object.
     pub fn resolve_with(&self, kernel: &mut PolydatKernel) -> ResolvedPulls {
-        self.resolve(kernel.state())
+        self.resolve(kernel)
     }
 }
 

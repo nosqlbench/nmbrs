@@ -259,6 +259,10 @@ pub struct ScopeNode {
     /// [`ScopeTree::lookup_name`] and never touch this slot
     /// directly.
     pub cached_kernel: std::sync::OnceLock<std::sync::Arc<polydat::kernel::PolydatKernel>>,
+    /// The fiber engine's images of this scope, beside
+    /// [`Self::cached_kernel`]: a phase's compiled program, an
+    /// op-template's module. See [`crate::fiber_engine`].
+    pub fiber_images: crate::fiber_engine::FiberImages,
     /// SRD-13d §3 scope-elision mark — set once at
     /// pre-walk by [`ScopeTree::mark_scope_elision`] and
     /// read by every consumer (premap, runtime, diagnostics).
@@ -292,6 +296,7 @@ impl Clone for ScopeNode {
             depth: self.depth,
             pragmas: self.pragmas.clone(),
             cached_kernel: std::sync::OnceLock::new(),
+            fiber_images: Default::default(),
             materialised: self.materialised,
             logical_name: self.logical_name.clone(),
         }
@@ -330,6 +335,7 @@ impl ScopeTree {
             depth: 0,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
+            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -343,6 +349,7 @@ impl ScopeTree {
             depth: 1,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
+            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -360,6 +367,7 @@ impl ScopeTree {
             depth: 2,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
+            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -412,6 +420,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -431,6 +440,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -447,6 +457,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -470,6 +481,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -493,6 +505,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -511,6 +524,7 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -585,6 +599,7 @@ impl ScopeTree {
                     depth: phase_depth + 1,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
+                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -790,6 +805,34 @@ impl ScopeTree {
             }
         }
         out
+    }
+
+    /// The op-template scope modules of `phase_idx`'s materialised
+    /// op-template children, keyed by op name: what each fiber
+    /// instantiates its per-op kernels from on the fiber engine
+    /// ([`crate::fiber_engine`]).
+    pub fn op_template_modules_for_phase(
+        &self,
+        phase_idx: ScopeNodeIdx,
+    ) -> Vec<(
+        String,
+        std::sync::Arc<crate::fiber_engine::OpTemplateModule>,
+    )> {
+        self.nodes[phase_idx]
+            .children
+            .iter()
+            .filter_map(|&child_idx| {
+                let child = &self.nodes[child_idx];
+                let ScopeKind::OpTemplate { name } = &child.kind else {
+                    return None;
+                };
+                if child.materialised != Some(true) {
+                    return None;
+                }
+                let module = child.fiber_images.op_module.get()?;
+                Some((name.clone(), module.clone()))
+            })
+            .collect()
     }
 
     /// All phase-leaf indices in depth-first order. Equivalent

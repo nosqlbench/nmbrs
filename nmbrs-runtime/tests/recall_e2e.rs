@@ -172,12 +172,14 @@ fn pulls_with_gt_string(
     plan: &PullPlan,
     gt_csv: &str,
 ) -> ResolvedPulls {
-    let mut state = program.create_state();
+    let mut kernel = polydat::KernelProgram::create_kernel(program.clone());
     let idx = program
         .find_input("ground_truth")
         .expect("ground_truth input");
-    state.set_input(idx, Value::Str(gt_csv.into()));
-    plan.resolve(&mut state)
+    kernel
+        .set_input_at(idx, Value::Str(gt_csv.into()))
+        .expect("ground_truth takes a string");
+    plan.resolve(kernel.as_mut())
 }
 
 /// Build a real `PolydatKernel` with the `ground_truth` input populated.
