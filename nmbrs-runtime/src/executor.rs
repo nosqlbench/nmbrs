@@ -4853,9 +4853,24 @@ async fn run_phase_inner(
                 Err(e) => return crate::phase_outcome::Outcome::failed().with_reason(e),
             };
             for (ov, _dialect) in chosen {
-                use polydat::kernel::{Dataflow, WriteError};
-                match kernel.set_wire(&ov.param, polydat::ast::Value::Str(ov.value.clone().into()))
-                {
+                use crate::wires::HostWriteError;
+                use polydat::kernel::WriteError;
+                // The CLI value is text; the param slot may be any
+                // type (a `u64` param overridden with "100"), so the
+                // write converts it to the slot's declared type.
+                let written = match polydat::Kernel::input_index(&kernel, &ov.param) {
+                    Some(idx) => crate::wires::write_input(
+                        &mut kernel,
+                        idx,
+                        &ov.param,
+                        polydat::ast::Value::Str(ov.value.clone().into()),
+                    ),
+                    None => Err(HostWriteError::Write(WriteError::UnknownWire {
+                        key: ov.param.clone(),
+                        known: Vec::new(),
+                    })),
+                };
+                match written {
                     Ok(()) => {
                         crate::diag!(
                             crate::observer::LogLevel::Info,
@@ -4867,7 +4882,7 @@ async fn run_phase_inner(
                             ov.param
                         );
                     }
-                    Err(WriteError::UnknownWire { .. }) => {
+                    Err(HostWriteError::Write(WriteError::UnknownWire { .. })) => {
                         if ov.pattern.is_exact_literal() {
                             crate::diag!(
                                 crate::observer::LogLevel::Warn,

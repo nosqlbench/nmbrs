@@ -233,11 +233,9 @@ impl OpBuilder {
         // fail loud rather than silently corrupting downstream
         // reads. Walks the pre-resolved index list — no second
         // `find_input` call.
-        use polydat::kernel::Dataflow;
         for ((name, value), idx_opt) in fb.scope_values.iter().zip(fb.scope_value_main_idx.iter()) {
             if let Some(idx) = idx_opt {
-                fb.main_kernel
-                    .set_wire_idx(*idx, value.clone())
+                crate::wires::write_input(&mut fb.main_kernel, *idx, name, value.clone())
                     .unwrap_or_else(|e| {
                         panic!("scope value '{name}' failed typed write at scope-init: {e}")
                     });
@@ -285,6 +283,16 @@ fn collect_init_overrides(kernel: &PolydatKernel) -> Vec<(usize, usize, Value)> 
         }
     }
     out
+}
+
+/// The input a scope value is written to on `program`, or `None` when
+/// the program has no such input or it is a coordinate. A coordinate
+/// (the `cycle` a scope carries among its values) advances with every
+/// cycle through `set_inputs` and is never written by name; the stanza
+/// reset leaves it untouched, so there is nothing to re-apply.
+fn scope_value_index(program: &PolydatProgram, name: &str) -> Option<usize> {
+    let idx = program.find_input(name)?;
+    (program.input_kind(idx) != Some(polydat::kernel::InputKind::Coordinate)).then_some(idx)
 }
 
 /// Per-fiber op builder. Owns its own PolydatState.
@@ -472,7 +480,7 @@ impl FiberBuilder {
         let program = self.main_kernel.program();
         self.scope_value_main_idx = scope_values
             .iter()
-            .map(|(name, _)| program.find_input(name))
+            .map(|(name, _)| scope_value_index(program, name))
             .collect();
         self.scope_values = scope_values;
     }
@@ -555,17 +563,16 @@ impl FiberBuilder {
                     // against this op-template kernel's program.
                     let idx_vec: Vec<Option<usize>> = scope_values
                         .iter()
-                        .map(|(name, _)| op_kernel.program().find_input(name))
+                        .map(|(name, _)| scope_value_index(op_kernel.program(), name))
                         .collect();
-                    {
-                        use polydat::kernel::Dataflow;
-                        for ((name, value), idx_opt) in scope_values.iter().zip(idx_vec.iter()) {
-                            if let Some(idx) = idx_opt {
-                                op_kernel.set_wire_idx(*idx, value.clone())
-                                    .unwrap_or_else(|e| panic!(
+                    for ((name, value), idx_opt) in scope_values.iter().zip(idx_vec.iter()) {
+                        if let Some(idx) = idx_opt {
+                            crate::wires::write_input(&mut op_kernel, *idx, name, value.clone())
+                                .unwrap_or_else(|e| {
+                                    panic!(
                                         "scope value '{name}' failed typed write at op-template init: {e}"
-                                    ));
-                            }
+                                    )
+                                });
                         }
                     }
                     let const_outputs: Vec<String> = op_kernel
@@ -713,16 +720,13 @@ impl FiberBuilder {
         if self.main_kernel.program().coord_count() > 0 {
             self.main_kernel.state().set_inputs(&[item.ordinal]);
         }
-        // Per S4: typed Dataflow surface for source-item field
-        // writes. Source items carry typed values from their
-        // upstream DataSource; a TypeMismatch here means the
-        // source produced a value incompatible with the slot,
-        // which is a fail-loud condition.
-        use polydat::kernel::Dataflow;
+        // Source items carry typed values from their upstream
+        // DataSource; one the slot's type cannot take, converted or
+        // not, means the source produced an incompatible value, which
+        // is a fail-loud condition.
         for (name, value) in &item.fields {
             if let Some(idx) = self.main_kernel.program().find_input(name) {
-                self.main_kernel
-                    .set_wire_idx(idx, value.clone())
+                crate::wires::write_input(&mut self.main_kernel, idx, name, value.clone())
                     .unwrap_or_else(|e| {
                         panic!("source item field '{name}' failed typed write: {e}")
                     });

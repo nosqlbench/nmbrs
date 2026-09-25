@@ -27,7 +27,7 @@
 use std::sync::OnceLock;
 
 use polydat::ast::{PortType, Value};
-use polydat::kernel::PolydatKernel;
+use polydat::kernel::{PolydatKernel, WriteError};
 
 /// Cached `NMBRS_DIRTY_DEBUG` flag. Per-cycle env reads cost ~30%
 /// of CPU on single-fiber benches; the OnceLock makes the gate
@@ -66,18 +66,84 @@ pub enum WriteOutcome {
     Stored,
     /// No input slot named `name` in this kernel's program.
     NoSlot,
-    /// The slot exists but the value's type does not match the
-    /// slot's declared `PortType` and no boundary auto-adapter
-    /// healed the mismatch. Per composition_substrate.md S4 the
-    /// typed-write contract rejects this rather than silently
-    /// corrupting downstream reads; the `reason` field carries
-    /// the polydat-side diagnostic for surfacing to the operator.
+    /// The slot exists but the value is not of the slot's declared
+    /// `PortType` and polydat's conversion catalog has no conversion
+    /// to it (or the conversion failed). The typed-write contract
+    /// rejects this rather than silently corrupting downstream reads;
+    /// the `reason` field carries the polydat-side diagnostic for
+    /// surfacing to the operator.
     TypeMismatch { reason: String },
     /// The slot is a coordinate. Coordinates advance with the cycle
     /// (`set_inputs`), never by a named write, so the kernel refuses
     /// the write to keep the coordinate prefix in step with the cycle
     /// a pull is about to read. `reason` is polydat's diagnostic.
     Coordinate { reason: String },
+}
+
+/// Why a [`write_input`] did not land.
+#[derive(Debug)]
+pub enum HostWriteError {
+    /// The kernel refused the typed write.
+    Write(WriteError),
+    /// The value could not be converted to the slot's declared type.
+    Convert {
+        /// The input written.
+        slot: String,
+        /// polydat's reason.
+        error: polydat::convert::ConvertError,
+    },
+}
+
+impl std::fmt::Display for HostWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostWriteError::Write(e) => write!(f, "{e}"),
+            HostWriteError::Convert { slot, error } => write!(f, "'{slot}': {error}"),
+        }
+    }
+}
+
+impl From<HostWriteError> for WriteOutcome {
+    fn from(e: HostWriteError) -> Self {
+        let reason = e.to_string();
+        match e {
+            HostWriteError::Write(WriteError::UnknownWire { .. }) => WriteOutcome::NoSlot,
+            HostWriteError::Write(WriteError::CoordinateSlot { .. }) => {
+                WriteOutcome::Coordinate { reason }
+            }
+            HostWriteError::Write(WriteError::TypeMismatch { .. })
+            | HostWriteError::Convert { .. } => WriteOutcome::TypeMismatch { reason },
+        }
+    }
+}
+
+/// nmbrs's one rule for writing a host value into a kernel input.
+///
+/// polydat 0.5 never converts at the write, so a value that may not be
+/// of the slot's declared type is converted first through
+/// `polydat::convert::to_port`, the catalog a converter node uses, and
+/// then written with the typed `set_input_at`. A value already of the
+/// slot's type passes through unconverted. `index` is `name`'s position
+/// in the kernel's inputs; the name is taken too so the per-cycle
+/// callers, which already hold it, pay no index-to-name lookup.
+pub fn write_input(
+    kernel: &mut dyn polydat::Kernel,
+    index: usize,
+    name: &str,
+    value: Value,
+) -> Result<(), HostWriteError> {
+    let value = match kernel.input_port_type(name) {
+        Some(port) => {
+            polydat::convert::to_port(value, port).map_err(|error| HostWriteError::Convert {
+                slot: name.to_string(),
+                error,
+            })?
+        }
+        None => value,
+    };
+    kernel
+        .set_input_at(index, value)
+        .map_err(HostWriteError::Write)
 }
 
 /// Cycle-time read surface a dispenser uses to resolve names from
@@ -291,7 +357,6 @@ impl<'a> WireSource for CycleWires<'a> {
     }
 
     fn reset(&self, name: &str) -> WriteOutcome {
-        use polydat::kernel::{Dataflow, WriteError};
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         let Some(idx) = k.program().find_input(name) else {
             return WriteOutcome::NoSlot;
@@ -303,20 +368,13 @@ impl<'a> WireSource for CycleWires<'a> {
             Some(d) => d.clone(),
             None => return WriteOutcome::NoSlot,
         };
-        match k.set_wire_idx(idx, default) {
+        match write_input(&mut **k, idx, name, default) {
             Ok(()) => WriteOutcome::Stored,
-            Err(WriteError::UnknownWire { .. }) => WriteOutcome::NoSlot,
-            Err(e @ WriteError::TypeMismatch { .. }) => WriteOutcome::TypeMismatch {
-                reason: e.to_string(),
-            },
-            Err(e @ WriteError::CoordinateSlot { .. }) => WriteOutcome::Coordinate {
-                reason: e.to_string(),
-            },
+            Err(e) => e.into(),
         }
     }
 
     fn write(&self, name: &str, value: Value) -> WriteOutcome {
-        use polydat::kernel::{Dataflow, WriteError};
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         if std::env::var("NMBRS_DEBUG_WIRES")
             .map(|v| v == "1")
@@ -335,18 +393,14 @@ impl<'a> WireSource for CycleWires<'a> {
                 "WIRES.write name={name} value={value:?} slot_cell_bound={slot_cell:?} cells_in_scope={cells:?}"
             );
         }
-        // Go through the typed Dataflow surface (per S4): the
-        // boundary enforces T1+T2 and routes through the auto-
-        // adapter catalog before rejecting mismatched writes.
-        match k.set_wire(name, value) {
+        // Result and capture values arrive typed by the adapter, not
+        // by the slot, so they go through the converting write.
+        let Some(idx) = k.program().find_input(name) else {
+            return WriteOutcome::NoSlot;
+        };
+        match write_input(&mut **k, idx, name, value) {
             Ok(()) => WriteOutcome::Stored,
-            Err(WriteError::UnknownWire { .. }) => WriteOutcome::NoSlot,
-            Err(e @ WriteError::TypeMismatch { .. }) => WriteOutcome::TypeMismatch {
-                reason: e.to_string(),
-            },
-            Err(e @ WriteError::CoordinateSlot { .. }) => WriteOutcome::Coordinate {
-                reason: e.to_string(),
-            },
+            Err(e) => e.into(),
         }
     }
 

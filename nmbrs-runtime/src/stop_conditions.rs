@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use polydat::ast::Value;
 use polydat::dsl::stub::{ExprStub, GraphMatter, ScopedExpr};
-use polydat::kernel::{Dataflow, PolydatKernel};
+use polydat::kernel::PolydatKernel;
 
 use crate::phase_outcome::Outcome;
 
@@ -183,13 +183,13 @@ impl RuntimeState {
     /// Inject this snapshot into a predicate kernel: for each runtime-
     /// state wire the program declares as an input, write the current
     /// value. Wires the predicate doesn't reference are absent
-    /// (`find_input` → `None`) and skipped; a type-mismatch on a
+    /// (`input_index` → `None`) and skipped; a refused write on a
     /// mis-declared extern is swallowed (the step-2 predicate compile
     /// declares the externs with matching types).
-    pub fn inject_into<D: Dataflow>(&self, ctx: &mut D) {
+    pub fn inject_into(&self, ctx: &mut dyn polydat::Kernel) {
         for (name, value) in self.wires() {
-            if let Some(idx) = ctx.find_input(name) {
-                let _ = ctx.set_wire_idx(idx, value);
+            if let Some(idx) = ctx.input_index(name) {
+                let _ = ctx.set_input_at(idx, value);
             }
         }
     }
