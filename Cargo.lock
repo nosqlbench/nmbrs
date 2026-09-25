@@ -2140,7 +2140,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3715,9 +3715,9 @@ dependencies = [
 
 [[package]]
 name = "polydat"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfe1ede6dbd0521262fe1944c5e105c4489c86ea669f72da2aad3c687183e25b"
+checksum = "14a3fc921a89a40e175fa594483c701c3544d6c7bbaeffbe43b40c674e7bb0a6"
 dependencies = [
  "clap",
  "polydat-core",
@@ -3730,9 +3730,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-core"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2a92a9a2a09809755045302fb1afa93b0dfd094ecf7b7cfa1ed4ba3f66872a7"
+checksum = "365684ae073813d366e4f1b2d62407286211172e1fd5775fcfa456934b854346"
 dependencies = [
  "base64",
  "cranelift-codegen",
@@ -3759,9 +3759,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-derive"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "931d384c385ff2c0d643c0726b2682779555216a75ed1674b4d4c763b515c67b"
+checksum = "701e856d3fb395832adedc0f5a491f944aadcda8784d3fb7ffd85101f3f70fd7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3770,9 +3770,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-grammar"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "405a6a31e472735d4ff03941a95d649ee9276a23be5289c2c69bd00074cb1302"
+checksum = "e690a3188eaab6e0fd78b3f4a870a7369d29b452b7412a841b19e77319622575"
 dependencies = [
  "layout-rs",
  "serde",
@@ -3782,9 +3782,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-nodes"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "903a744d7d7412a1ee8070c797dc95b00520744c167a1b0f5cd60f606969b346"
+checksum = "6b7fb9041e9a51de1bd284f37442d84cfaf2cb5657e86f81a00c58ace17f3f56"
 dependencies = [
  "base64",
  "data-encoding",
@@ -3980,7 +3980,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -4019,7 +4019,7 @@ dependencies = [
  "cfg_aliases 0.2.2",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]

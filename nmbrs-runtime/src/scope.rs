@@ -1912,6 +1912,7 @@ pub fn build_op_template_scope_kernel(
         context_label: Some(context.to_string()),
         cursor_limit: None,
         kernel_opt,
+        ..Default::default()
     };
 
     // SRD-67 Phase 5 — fold the SRD-66 `result:` source through
