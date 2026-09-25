@@ -2140,7 +2140,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3715,9 +3715,9 @@ dependencies = [
 
 [[package]]
 name = "polydat"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd79f69ddd6c4ff1ade02f133a01d5230c265a68823fa1755d91300a8f6f2e99"
+checksum = "49988659dd6af1fc8d0ef8837a8c82cfdae2e5b3f52847ae4628faa08fea10b7"
 dependencies = [
  "clap",
  "polydat-core",
@@ -3730,9 +3730,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-core"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c619ea1edcf013348fd0ea34869bebb591bc96e1ea278a1e86d8304a7c2c9c15"
+checksum = "d0c37b3c5e2d8976b034871fec0a343254a5f6c2305dc7fdd822515cb5752ff1"
 dependencies = [
  "base64",
  "cranelift-codegen",
@@ -3980,7 +3980,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -4019,7 +4019,7 @@ dependencies = [
  "cfg_aliases 0.2.2",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
