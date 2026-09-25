@@ -46,7 +46,8 @@ fn write_workload(label: &str, body: &str) -> PathBuf {
 /// and return (stdout, stderr, success).
 fn run(workload: &Path, extra: &[&str]) -> (String, String, bool) {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-wlshell-{}-{}",
+        "nmbrs-wlshell-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -513,3 +514,5 @@ phases:
         "the walk must halt at the first failed iteration          (live + log-tail replay = at most 2 mentions), saw {tiers}: {stderr}"
     );
 }
+
+mod scratch;

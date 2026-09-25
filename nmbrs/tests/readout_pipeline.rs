@@ -49,7 +49,10 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-readout-pipeline-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(format!(
+            "nmbrs-readout-pipeline-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -152,3 +155,5 @@ async fn workload_readouts_block_drives_terminal_output() {
 
     let _ = stepper.kill();
 }
+
+mod scratch;

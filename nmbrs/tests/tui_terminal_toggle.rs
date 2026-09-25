@@ -88,7 +88,10 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-toggle-test-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(format!(
+            "nmbrs-toggle-test-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -213,3 +216,5 @@ async fn ctrl_t_toggles_into_tui_and_back() {
 
     let _ = stepper.kill();
 }
+
+mod scratch;

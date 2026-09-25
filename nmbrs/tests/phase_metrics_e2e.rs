@@ -56,7 +56,8 @@ fn write_workload(label: &str, body: &str) -> PathBuf {
 /// pins the metrics.db location).
 fn run_with_session(workload: &Path, extra: &[&str]) -> (PathBuf, String, String, bool) {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-phase-metrics-{}-{}",
+        "nmbrs-phase-metrics-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -181,3 +182,5 @@ fn phase_metric_time_to_index_matches_phase_duration() {
          within 75ms; diff={diff}ms; stderr:\n{stderr}"
     );
 }
+
+mod scratch;

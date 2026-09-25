@@ -34,7 +34,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-op-leaf-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-op-leaf-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -150,3 +151,5 @@ async fn readout_visible_op_renders_as_footer_leaf() {
 
     let _ = stepper.kill();
 }
+
+mod scratch;

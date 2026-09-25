@@ -34,7 +34,10 @@ impl SessionDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let parent = std::env::temp_dir().join(format!("nmbrs-cursor-partitions-{pid}-{nanos}"));
+        let parent = std::env::temp_dir().join(format!(
+            "nmbrs-cursor-partitions-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&parent).expect("create session parent");
         Self {
             path: parent.join("session"),
@@ -1868,3 +1871,5 @@ fn cursor_partitions_windowed_fib() {
         ]
     );
 }
+
+mod scratch;

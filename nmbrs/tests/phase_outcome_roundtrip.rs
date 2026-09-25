@@ -50,7 +50,8 @@ fn write_workload(label: &str, body: &str) -> PathBuf {
 /// open the same metrics.db) along with stdout/stderr/exit.
 fn run_with_session(workload: &Path, extra: &[&str]) -> (PathBuf, String, String, bool) {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-outcome-{}-{}",
+        "nmbrs-outcome-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -294,3 +295,5 @@ fn nmbrs_replay_json_dumps_structured_outcome() {
         "JSON dump must contain at least one failed outcome; got:\n{stdout}"
     );
 }
+
+mod scratch;

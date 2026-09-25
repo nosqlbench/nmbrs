@@ -51,7 +51,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-plot-align-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-plot-align-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -329,3 +330,5 @@ async fn scatter_three_lanes_render_aligned() {
     let screen = stepper.screen_as_string().expect("screen");
     assert_plot_aligned(&screen, "plot: ", w, plot_h);
 }
+
+mod scratch;

@@ -27,7 +27,8 @@ impl Sandbox {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-check-cli-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-check-cli-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create sandbox");
         Self { path }
     }
@@ -219,3 +220,5 @@ fn nmbrs_check_dedups_repo_example_against_its_catalog_twin() {
         "the redundant local twin must be deduped out, got:\nstderr:\n{stderr}"
     );
 }
+
+mod scratch;

@@ -38,7 +38,8 @@ fn repo_root() -> PathBuf {
 /// throwaway cwd so sessions and artifacts never land in the repo.
 fn run_check(workload: PathBuf) -> Result<(), Failed> {
     let sandbox = std::env::temp_dir().join(format!(
-        "nmbrs-example-case-{}-{}",
+        "nmbrs-example-case-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -97,3 +98,5 @@ fn main() {
     );
     libtest_mimic::run(&args, trials).exit();
 }
+
+mod scratch;

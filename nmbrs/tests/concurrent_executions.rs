@@ -34,7 +34,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-concurrent-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-concurrent-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -122,3 +123,5 @@ async fn n_executions_share_one_session_with_separable_exec_ids() {
         "every execution should have written metric instances under its exec_id"
     );
 }
+
+mod scratch;

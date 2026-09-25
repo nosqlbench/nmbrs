@@ -26,8 +26,11 @@ impl Sandbox {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("nmbrs-phasecell-{}-{nanos}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "nmbrs-phasecell-{}-{nanos}-{}",
+            std::process::id(),
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&dir).expect("create sandbox");
         Self { dir }
     }
@@ -83,3 +86,5 @@ fn phase_metric_lands_at_its_declared_cell() {
         "cell-placed phase metric must carry its coordinate label; spec: {spec}"
     );
 }
+
+mod scratch;

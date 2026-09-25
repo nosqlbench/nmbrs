@@ -44,7 +44,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-srd92-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-srd92-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -332,3 +333,5 @@ async fn completed_headers_drops_detail_rows_and_leaves() {
          completed_phases:\n{log}"
     );
 }
+
+mod scratch;

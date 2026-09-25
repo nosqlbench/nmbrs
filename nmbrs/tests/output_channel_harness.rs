@@ -43,7 +43,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-outch-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-outch-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -208,3 +209,5 @@ async fn interactive_dashboard_renders_the_run() {
         "dashboard must render the run outcome; screen:\n{screen}"
     );
 }
+
+mod scratch;

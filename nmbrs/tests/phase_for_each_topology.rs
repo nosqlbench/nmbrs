@@ -32,7 +32,10 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-pfe-topology-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(format!(
+            "nmbrs-pfe-topology-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -150,3 +153,5 @@ async fn phase_level_for_each_materializes_distinct_nodes_per_cell() {
         );
     }
 }
+
+mod scratch;

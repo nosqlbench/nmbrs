@@ -57,7 +57,10 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-examples-ip-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(format!(
+            "nmbrs-examples-ip-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -616,3 +619,5 @@ ops: { t: { stmt: \"X\" } }\n\
         "`#@ requires` must surface as a plan-level skip"
     );
 }
+
+mod scratch;

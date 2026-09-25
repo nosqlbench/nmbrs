@@ -36,8 +36,11 @@ fn cli_check_sweep_over_examples_is_green() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let sandbox =
-        std::env::temp_dir().join(format!("nmbrs-checksweep-{}-{nanos}", std::process::id()));
+    let sandbox = std::env::temp_dir().join(format!(
+        "nmbrs-checksweep-{}-{nanos}-{}",
+        std::process::id(),
+        scratch::seq()
+    ));
     std::fs::create_dir_all(&sandbox).expect("create sandbox");
 
     let out = Command::new(env!("CARGO_BIN_EXE_nmbrs"))
@@ -62,3 +65,5 @@ fn cli_check_sweep_over_examples_is_green() {
         "sweep summary missing:\n{combined}"
     );
 }
+
+mod scratch;

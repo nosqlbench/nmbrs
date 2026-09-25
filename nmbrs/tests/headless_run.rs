@@ -30,7 +30,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-headless-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-headless-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -69,3 +70,5 @@ async fn headless_run_executes_a_workload_in_context_and_captures_outcome() {
         outcome.phases
     );
 }
+
+mod scratch;

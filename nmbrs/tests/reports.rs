@@ -43,7 +43,10 @@ impl SessionDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let parent = std::env::temp_dir().join(format!("nmbrs-reports-coverage-{pid}-{nanos}"));
+        let parent = std::env::temp_dir().join(format!(
+            "nmbrs-reports-coverage-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&parent).expect("create session parent");
         Self {
             path: parent.join("session"),
@@ -326,3 +329,5 @@ fn reports_list_surfaces_all_kinds() {
         "detail.md (file item) missing: {stdout}"
     );
 }
+
+mod scratch;

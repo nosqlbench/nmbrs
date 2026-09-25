@@ -20,7 +20,8 @@ fn run_inline(op: &str, cycles: u64) -> (String, String, bool) {
     // Per-invocation `--session-path` so cargo's parallel test
     // execution doesn't race on the default `logs/default_<ts>`.
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-inline-{}-{}",
+        "nmbrs-inline-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -157,7 +158,8 @@ fn json_format() {
     // execution doesn't race on the default `logs/default_<ts>`
     // session directory (see `feedback_tests_no_project_root`).
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-json-format-{}-{}",
+        "nmbrs-json-format-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -191,7 +193,8 @@ fn json_format() {
 #[test]
 fn dry_run_fields() {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-inline-dry-{}-{}",
+        "nmbrs-inline-dry-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -226,7 +229,8 @@ fn deterministic_output() {
 #[test]
 fn empty_op_fails() {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-inline-empty-{}-{}",
+        "nmbrs-inline-empty-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -248,7 +252,8 @@ fn empty_op_fails() {
 #[test]
 fn op_overrides_workload_with_warning() {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-inline-override-{}-{}",
+        "nmbrs-inline-override-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -275,3 +280,5 @@ fn op_overrides_workload_with_warning() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.trim(), "hello 0");
 }
+
+mod scratch;

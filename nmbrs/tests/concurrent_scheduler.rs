@@ -81,7 +81,8 @@ fn run(workload: &std::path::Path, extra: &[&str]) -> (String, String, bool) {
     // Per-invocation session parent so cargo's parallel test
     // execution doesn't collide on `logs/default_<timestamp>`.
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-sched-{}-{}",
+        "nmbrs-sched-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -162,3 +163,5 @@ fn schedule_bounded_two_overlaps_two_siblings() {
         "schedule=2 must dispatch both siblings before either completes.\nsession.log={log}",
     );
 }
+
+mod scratch;

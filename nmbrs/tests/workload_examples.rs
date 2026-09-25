@@ -35,7 +35,10 @@ impl SessionDir {
         // nmbrs's `purge_stale_sessions` (which scans the
         // session-path's parent dir) can't see sibling
         // tests' sessions.
-        let parent = std::env::temp_dir().join(format!("nmbrs-workload-examples-{pid}-{nanos}"));
+        let parent = std::env::temp_dir().join(format!(
+            "nmbrs-workload-examples-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&parent).expect("create session parent");
         let path = parent.join("session");
         Self { path }
@@ -1457,3 +1460,5 @@ phases:
         "single-quoted cursor='0..10%' should narrow to 100 rows; got {count}"
     );
 }
+
+mod scratch;

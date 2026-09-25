@@ -40,7 +40,10 @@ impl SessionDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let parent = std::env::temp_dir().join(format!("nmbrs-stdlib-coverage-{pid}-{nanos}"));
+        let parent = std::env::temp_dir().join(format!(
+            "nmbrs-stdlib-coverage-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&parent).expect("create session parent");
         Self {
             path: parent.join("session"),
@@ -440,3 +443,5 @@ fn stdlib_regex_match_and_replace() {
         "regex_replace did not produce abc###def: {line}"
     );
 }
+
+mod scratch;

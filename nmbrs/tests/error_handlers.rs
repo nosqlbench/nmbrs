@@ -60,7 +60,8 @@ fn write_workload(label: &str, body: &str) -> PathBuf {
 /// test execution doesn't race on `logs/default_<timestamp>`.
 fn run(workload: &std::path::Path, extra: &[&str]) -> (String, String, bool) {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-errh-{}-{}",
+        "nmbrs-errh-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -568,3 +569,5 @@ phases:
         "derived attempt fraction reported in the actuals: {stderr}"
     );
 }
+
+mod scratch;

@@ -37,7 +37,10 @@ impl SessionDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let parent = std::env::temp_dir().join(format!("nmbrs-scope-coverage-{pid}-{nanos}"));
+        let parent = std::env::temp_dir().join(format!(
+            "nmbrs-scope-coverage-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&parent).expect("create session parent");
         Self {
             path: parent.join("session"),
@@ -346,3 +349,5 @@ fn scope_default_runs_full_matrix() {
 //     // grepping can't perform. Gated on a metric-based
 //     // assertion path that compares wall-clock to expected.
 // }
+
+mod scratch;

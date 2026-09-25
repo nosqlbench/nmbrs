@@ -41,7 +41,8 @@ fn write_workload(label: &str, body: &str) -> PathBuf {
 
 fn run(workload: &std::path::Path, extra: &[&str]) -> (String, String, bool) {
     let session_parent = std::env::temp_dir().join(format!(
-        "nmbrs-typestable-{}-{}",
+        "nmbrs-typestable-{}-{}-{}",
+        scratch::seq(),
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -262,3 +263,5 @@ phases:
         "compile-time declaration diagnostic expected: {stderr}"
     );
 }
+
+mod scratch;

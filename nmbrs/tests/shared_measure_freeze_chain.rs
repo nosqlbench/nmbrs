@@ -42,7 +42,10 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-measure-freeze-{pid}-{nanos}"));
+        let path = std::env::temp_dir().join(format!(
+            "nmbrs-measure-freeze-{pid}-{nanos}-{}",
+            scratch::seq()
+        ));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -219,3 +222,5 @@ fn measure_writes_shared_cell_then_const_freezes_it_for_later_phase() {
         "phase B saw the initial literal, not the write-through value.\n{diag}",
     );
 }
+
+mod scratch;

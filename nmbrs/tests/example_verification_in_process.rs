@@ -32,7 +32,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-verify-ip-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-verify-ip-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -114,3 +115,5 @@ async fn concurrent_executions_capture_their_own_output_and_pass_their_checks() 
             .unwrap_or_else(|e| panic!("verify check failed for execution {i}: {e}"));
     }
 }
+
+mod scratch;

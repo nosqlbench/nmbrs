@@ -30,7 +30,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("nmbrs-examples-{pid}-{nanos}"));
+        let path =
+            std::env::temp_dir().join(format!("nmbrs-examples-{pid}-{nanos}-{}", scratch::seq()));
         std::fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
@@ -111,3 +112,5 @@ async fn example_workloads_run_as_concurrent_in_process_executions_in_one_sessio
         "each example execution's metrics must be separable by its own exec_id"
     );
 }
+
+mod scratch;
