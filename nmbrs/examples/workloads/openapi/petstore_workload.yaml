@@ -1,0 +1,53 @@
+#!/usr/bin/env nmbrs
+# petstore_workload.yaml — a concrete workload built on OpenAPI op templates.
+#
+# Three layers:
+#   1. petstore.openapi.json — the API, as the service publishes it.
+#   2. petstore_ops.yaml     — generated from it by `openapi-ops`: one
+#      reusable http request template per operation, each declaring the
+#      fields it needs under `abstract.needs`.
+#   3. this file             — the workload: phases, rates, and data. It
+#      `extends:` the library and instantiates operations with `uses:`,
+#      qualifying every need with its own bindings.
+#
+# The request shape stays the template's (method, uri, body); this file
+# only says how many, how fast, and with what values. Run it against a
+# live service with `adapter=http` (and `base_url=` to point it
+# elsewhere); the checks below render the requests through stdout
+# instead.
+
+extends: ./petstore_ops.yaml
+
+description: Petstore — seed pets, then read them back
+
+phases:
+  seed:
+    cycles: 2
+    ops:
+      add:
+        uses: addPet
+        bindings: |
+          name := format_u64(add(mod(hash(cycle), 9000), 1000), 10)
+          owner_id := add(mod(hash(cycle), 100), 1)
+  read:
+    cycles: 2
+    ops:
+      fetch:
+        uses: getPetById
+        bindings: |
+          pet_id := mod(hash(cycle), 1000)
+      page:
+        uses: listPets
+        bindings: |
+          limit := 25
+
+#@ case renders_the_templated_requests
+#@   run adapter=stdout
+#@   expect \{"name": "\d+", "owner": \{"id": \d+\}\}
+#@   expect http://localhost:8080/v1/pets/\d+
+#@   expect http://localhost:8080/v1/pets\?limit=25
+#@   expect 2 completed, 0 failed
+#@ case base_url_is_a_param
+#@   run adapter=stdout base_url=http://pets.test:9000
+#@   expect http://pets.test:9000/pets/\d+
+#@   expect 2 completed, 0 failed

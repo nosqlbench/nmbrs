@@ -1,0 +1,60 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Petstore", "version": "1.0.0" },
+  "servers": [ { "url": "http://localhost:8080/v1" } ],
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "summary": "List pets, a page at a time",
+        "tags": ["pets"],
+        "parameters": [
+          { "name": "limit", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "tag", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "a page of pets" } }
+      },
+      "post": {
+        "operationId": "addPet",
+        "summary": "Add a pet",
+        "tags": ["pets"],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewPet" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    },
+    "/pets/{pet-id}": {
+      "get": {
+        "operationId": "getPetById",
+        "summary": "Find a pet by id",
+        "tags": ["pets"],
+        "parameters": [
+          { "name": "pet-id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "the pet" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "NewPet": {
+        "type": "object",
+        "required": ["name", "owner"],
+        "properties": {
+          "name": { "type": "string" },
+          "age": { "type": "integer" },
+          "owner": {
+            "type": "object",
+            "required": ["id"],
+            "properties": { "id": { "type": "integer" } }
+          }
+        }
+      }
+    }
+  }
+}

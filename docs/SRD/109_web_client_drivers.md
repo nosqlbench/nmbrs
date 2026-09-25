@@ -164,6 +164,39 @@ select_ann:
   the legacy result-column walk for workloads that predate the
   interface. The blueprint pair migrates to the wire form.
 
+## Part 4 — op libraries from OpenAPI specs (`openapi-ops`)
+
+For a service that publishes an OpenAPI spec, the request shapes need
+not be written by hand. `openapi-ops` (the `nmbrs-adapter-openapi`
+crate's binary) renders a spec as an SRD-108 Part C op-template
+library:
+
+```text
+openapi-ops petstore.openapi.json petstore_ops.yaml [base_url=<url>]
+```
+
+- One `op_templates:` entry per operation, keyed by `operationId`:
+  the literal http request (`method`, `uri` with `{base_url}` and the
+  path parameters, `content_type` and a JSON `body` for a request
+  body), so every request stays operator-visible (C8 stands).
+- `abstract.needs` is what the spec says a request must carry: path
+  parameters, required query parameters, and the request body's
+  required fields (nested objects render as nested JSON, their wires
+  joined with `_`). Optional parameters and fields are listed in a
+  comment beside the template; a workload that wants them declares
+  its own template. Types map `integer → u64`, `number → f64`,
+  `boolean → bool`, everything else → `String`.
+- `base_url` is a param, defaulting to the spec's first server.
+- The library does not choose the adapter — the workload does
+  (`adapter=http` against a live service). An existing output file
+  is never overwritten; regenerate rather than edit.
+
+The result is three layers, each owned by a different party: the
+spec (the service), the generated library (the protocol shapes), and
+the concrete workload that `extends:` it and instantiates operations
+with `uses:` (the test method). See
+`nmbrs/examples/workloads/openapi/`.
+
 ## Resolved-by-design questions
 
 - **Auth flows** (login → token → refresh): expressed as ordinary
