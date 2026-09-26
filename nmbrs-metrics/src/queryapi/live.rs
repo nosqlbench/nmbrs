@@ -29,6 +29,16 @@
 use std::sync::Arc;
 use std::time::SystemTime;
 
+/// A window's Unix-ms stamp against `now_ms`, read once per call. The
+/// elapsed time is rounded **up**: `now_ms` is already floored, and
+/// subtracting a floored elapsed could stamp a window up to 1 ms after
+/// its capture — past a caller's `end_ms` read in that same millisecond,
+/// which would drop the freshest window. Rounding up keeps
+/// `window_ms ≤ capture`.
+fn stamp_ms(now_ms: i64, captured_at: std::time::Instant) -> i64 {
+    now_ms - captured_at.elapsed().as_micros().div_ceil(1000) as i64
+}
+
 use super::{Matcher, MetricAccess, QueryError, Sample, Series, Vector};
 use crate::metrics_query::MetricsQuery;
 use crate::snapshot::MetricValue;
@@ -70,7 +80,7 @@ impl MetricsQueryAccess {
                 .window_view(&component, cadence)
                 .and_then(|v| v.ring.first().cloned())
             {
-                let ms = now_ms - oldest.captured_at().elapsed().as_millis() as i64;
+                let ms = stamp_ms(now_ms, oldest.captured_at());
                 earliest = Some(earliest.map_or(ms, |e: i64| e.min(ms)));
             }
         }
@@ -132,7 +142,7 @@ impl MetricAccess for MetricsQueryAccess {
             windows.dedup_by_key(|w| w.captured_at());
 
             for window in &windows {
-                let window_ms = now_ms - window.captured_at().elapsed().as_millis() as i64;
+                let window_ms = stamp_ms(now_ms, window.captured_at());
                 if window_ms < start_ms || window_ms > end_ms {
                     continue;
                 }
