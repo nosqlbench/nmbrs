@@ -3715,9 +3715,9 @@ dependencies = [
 
 [[package]]
 name = "polydat"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f73fc5095ae36175eb62fda803509074d2f68b20132df9079ed593d406325cfa"
+checksum = "8d076ff65b3f4a079e86938bf21b42787bca03f40c779a557c4476b7eff0a295"
 dependencies = [
  "clap",
  "polydat-core",
@@ -3730,9 +3730,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-core"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0c37b3c5e2d8976b034871fec0a343254a5f6c2305dc7fdd822515cb5752ff1"
+checksum = "a05a48215e0c6f6089d2fad7f4c7435a71cd65d587764a278c9c98f4966c24b0"
 dependencies = [
  "base64",
  "cranelift-codegen",
