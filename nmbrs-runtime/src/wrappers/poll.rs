@@ -1013,6 +1013,12 @@ mod status_publish_tests {
     /// empty body, so the FIRST poll is the terminating one — exactly the
     /// iteration whose measurement used to be dropped.
     fn run_to_done(d: &PollingDispenser, wires: &dyn crate::wires::WireSource) {
+        // The poll abandons on a session stop, and the stop flag is
+        // process-global: hold it clear against sibling tests that set it.
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::session_signals::clear_session_stop_for_test();
         let fields = crate::adapter::ResolvedFields::new(Vec::new(), Vec::new());
         let pulls = crate::fixture::ResolvedPulls::empty();
         let ctx = crate::fixture::ExecCtx::with_wires(&fields, &pulls, wires);
