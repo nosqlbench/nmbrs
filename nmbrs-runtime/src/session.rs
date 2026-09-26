@@ -2369,13 +2369,8 @@ mod tests {
 
     #[test]
     fn forecast_keep_purge_counts_excess() {
-        let parent = std::env::temp_dir().join(format!(
-            "nmbrs-forecast-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-        ));
+        let parent =
+            std::env::temp_dir().join(format!("nmbrs-forecast-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&parent).unwrap();
 
         // 5 dirs present, keep=10 → next run wouldn't purge.
@@ -2429,13 +2424,8 @@ mod tests {
 
     #[test]
     fn purge_keeps_latest_n_sessions() {
-        let parent = std::env::temp_dir().join(format!(
-            "nmbrs-purge-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-        ));
+        let parent =
+            std::env::temp_dir().join(format!("nmbrs-purge-test-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&parent).unwrap();
 
         // Create 5 dirs with staggered mtimes.
@@ -2475,13 +2465,8 @@ mod tests {
 
     #[test]
     fn purge_skips_logs_latest_symlink() {
-        let parent = std::env::temp_dir().join(format!(
-            "nmbrs-purge-symlink-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-        ));
+        let parent =
+            std::env::temp_dir().join(format!("nmbrs-purge-symlink-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&parent).unwrap();
         let active = parent.join("active_session");
         std::fs::create_dir(&active).unwrap();

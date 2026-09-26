@@ -74,13 +74,17 @@ pub fn merge_dbs(inputs: &[PathBuf]) -> Result<PathBuf, String> {
     if inputs.is_empty() {
         return Err("merge_dbs: at least one input db is required".to_string());
     }
+    // Two merges in one process can read the same clock tick; the
+    // sequence keeps their temp files apart.
+    static MERGE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let temp_path = std::env::temp_dir().join(format!(
-        "nmbrs_merged_{}_{}.db",
+        "nmbrs_merged_{}_{}_{}.db",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default(),
+        MERGE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
     ));
     // Step 1: byte-copy the first input.
     std::fs::copy(&inputs[0], &temp_path).map_err(|e| {
@@ -321,11 +325,8 @@ mod tests {
         use nmbrs_metrics::snapshot::MetricSet;
         use std::time::{Duration, Instant};
 
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("nmbrs-merge-test-{n:x}"));
+        let dir =
+            std::env::temp_dir().join(format!("nmbrs-merge-test-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let mut paths = Vec::new();

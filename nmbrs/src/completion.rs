@@ -2668,11 +2668,8 @@ mod walker_tests {
         use nmbrs_metrics::reporters::sqlite::SqliteReporter;
         use nmbrs_metrics::scheduler::Reporter;
 
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("nmbrs-provider-ctx-{n:x}"));
+        let dir =
+            std::env::temp_dir().join(format!("nmbrs-provider-ctx-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("metrics.db");
         {
@@ -2717,11 +2714,7 @@ mod walker_tests {
     #[test]
     fn session_provider_scans_the_runtime_sessions_root() {
         let root = nmbrs_runtime::session::default_sessions_root();
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let name = format!("zz-provider-probe-{n:x}");
+        let name = format!("zz-provider-probe-{}", crate::scratch_suffix());
         std::fs::create_dir_all(root.join(&name)).unwrap();
 
         let got = session_name_provider("zz-provider-probe-", &[]);
@@ -2739,11 +2732,10 @@ mod walker_tests {
         // unconditionally skips, so a tempdir under it would
         // make the walker treat its own root as noise and find
         // nothing.
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let d = std::path::PathBuf::from("/tmp").join(format!("nmbrs-completion-{tag}-{n:x}"));
+        let d = std::path::PathBuf::from("/tmp").join(format!(
+            "nmbrs-completion-{tag}-{}",
+            crate::scratch_suffix()
+        ));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

@@ -3427,14 +3427,8 @@ mod tests {
         let explicit = resolve_db(Some(PathBuf::from("/tmp/x.db")), &[]);
         assert_eq!(explicit, PathBuf::from("/tmp/x.db"));
 
-        let dir = std::env::temp_dir().join(format!(
-            "nmbrs-resolve-db-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("nmbrs-resolve-db-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
         let args = vec![format!("--session={}", dir.display())];
         assert_eq!(

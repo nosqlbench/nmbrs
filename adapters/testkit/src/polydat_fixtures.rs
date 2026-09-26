@@ -294,11 +294,10 @@ mod tests {
     use polydat::dsl::compile::compile_polydat_interpreter;
 
     fn tmpfile(tag: &str) -> String {
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let p = std::env::temp_dir().join(format!("nmbrs-fixture-{tag}-{n:x}.txt"));
+        let p = std::env::temp_dir().join(format!(
+            "nmbrs-fixture-{tag}-{}.txt",
+            crate::scratch_suffix()
+        ));
         let _ = std::fs::remove_file(&p);
         // Forward slashes: the path gets embedded in a polydat
         // string literal below, where a Windows `\` separator

@@ -425,12 +425,8 @@ mod tests {
     }
 
     fn tempdir() -> std::path::PathBuf {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let n = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let d = std::env::temp_dir().join(format!("nmbrs-checkpoint-cmd-{n:x}"));
+        let d =
+            std::env::temp_dir().join(format!("nmbrs-checkpoint-cmd-{}", crate::scratch_suffix()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

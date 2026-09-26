@@ -341,3 +341,18 @@ fn build_bare_workload_args(path: &str, tail: &[String]) -> Vec<String> {
     }
     run_args
 }
+
+/// A scratch-name suffix unique across parallel tests and processes:
+/// parallel tests can read the same clock tick, so the pid and a
+/// per-process sequence keep their directories apart.
+#[cfg(test)]
+pub(crate) fn scratch_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{n:x}-{seq}", std::process::id())
+}

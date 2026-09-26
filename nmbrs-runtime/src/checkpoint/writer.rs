@@ -666,10 +666,7 @@ mod tests {
     fn tempdir() -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!(
             "nmbrs-checkpoint-writer-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
+            crate::scratch_suffix()
         ));
         std::fs::create_dir_all(&d).unwrap();
         d

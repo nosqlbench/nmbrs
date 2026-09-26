@@ -613,11 +613,6 @@ mod tests {
     }
 
     fn rand_suffix() -> String {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let n = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        format!("{n:x}")
+        crate::scratch_suffix()
     }
 }
