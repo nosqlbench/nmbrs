@@ -15,18 +15,44 @@ use std::sync::OnceLock;
 // alongside `use nmbrs_runtime::adapter::{OpDispenser, ResolvedFields, ...}`.
 pub use crate::fixture::ExecCtx;
 
-// Re-export PolydatKernel so adapter `map_op` impls can name the
-// `parent: &PolydatKernel` parameter type without each adapter crate
-// taking a direct polydat dependency. SRD-68 §"Adapter API
-// surface" pins this as the canonical import path for adapters.
-pub use polydat::kernel::PolydatKernel;
+// Re-export the engine-neutral kernel surface so adapter `map_op`
+// impls can name the `parent: Arc<dyn Kernel>` parameter type, and
+// resolve a name the way a scope does (`KernelLookup`), without each
+// adapter crate taking a direct polydat dependency. SRD-68 §"Adapter
+// API surface" pins this as the canonical import path for adapters.
+// The kernels an adapter receives may be on any engine.
+pub use polydat::Kernel;
+pub use polydat::kernel::interp::{KernelLookup, Lookup};
 
 // Re-export the binder API so `binders_for` impls in adapter
 // crates can name `Binder` / `BinderSlot` / `PortType` through
 // the existing `nmbrs_runtime::adapter` import path, no direct
-// polydat dependency required. Same reason as the PolydatKernel
+// polydat dependency required. Same reason as the Kernel
 // re-export above.
 pub use polydat::ast::PortType;
+
+/// Verify typed binders against a kernel of any engine: each slot's
+/// wire resolves as an output of the kernel's program, else as an input
+/// (the coordinate / extern wires an op-template kernel declares). The
+/// engine-neutral form of `polydat::binder::verify_against_kernel`,
+/// which takes an interpreter kernel. Violation messages are joined
+/// with `"; "`.
+pub fn verify_binders(binders: &[Binder], kernel: &dyn Kernel) -> Result<(), String> {
+    let violations = polydat::binder::verify_binders(binders, |name: &str| {
+        kernel
+            .output_type(name)
+            .or_else(|| kernel.input_port_type(name))
+    });
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations
+            .into_iter()
+            .map(|v| v.message)
+            .collect::<Vec<_>>()
+            .join("; "))
+    }
+}
 pub use polydat::binder::{Binder, BinderSlot};
 
 /// Boxed, `Send` future returned by [`DriverAdapter::map_op`] — yields a
@@ -294,7 +320,7 @@ pub trait DriverAdapter: Send + Sync + 'static {
     fn map_op<'a>(
         &'a self,
         template: &'a nmbrs_workload::model::ParsedOp,
-        parent: std::sync::Arc<PolydatKernel>,
+        parent: std::sync::Arc<dyn Kernel>,
     ) -> MapOpFuture<'a>;
 
     /// Default metric names to display on the status line for this adapter.
@@ -523,8 +549,9 @@ pub trait OpDispenser: Send + Sync {
     }
 
     /// SRD-68 invariant I-3 — the dispenser's canonical Polydat Kernel,
-    /// established at construction by `map_op` from its parent
-    /// (with optional matter assembly via `build_subscope`).
+    /// established at construction by `map_op` from its parent — the
+    /// parent itself, or a kernel bound under it. Any engine: the
+    /// executor finds the program to bind per fiber by `program_id`.
     /// Returns `None` for dispensers that don't own a kernel
     /// (adapters with no Polydat needs, or wrappers that delegate to
     /// an inner dispenser).
@@ -537,7 +564,7 @@ pub trait OpDispenser: Send + Sync {
     /// I-1 single resolution surface.
     ///
     /// Default: delegate to inner dispenser if any, else `None`.
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn Kernel>> {
         self.inner_dispenser()
             .and_then(|inner| inner.canonical_kernel())
     }

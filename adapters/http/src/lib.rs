@@ -305,7 +305,7 @@ impl DriverAdapter for HttpAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a ParsedOp,
-        parent: std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>,
+        parent: std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {
@@ -450,7 +450,7 @@ struct HttpDispenser {
     method: String,
     content_type: String,
     /// SRD-68 invariant I-3: dispenser-owned canonical Polydat Kernel.
-    canonical_kernel: std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>,
     /// Cycle-time templates rendered through `substitute_via_wires`.
     /// `uri` is mandatory; `body` and `headers` are optional.
     uri_template: Option<String>,
@@ -480,7 +480,7 @@ struct HttpDispenser {
 }
 
 impl OpDispenser for HttpDispenser {
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>> {
         Some(&self.canonical_kernel)
     }
 
@@ -785,7 +785,7 @@ mod tests {
         port
     }
 
-    fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
+    fn test_kernel() -> std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel> {
         std::sync::Arc::new(
             polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
         )

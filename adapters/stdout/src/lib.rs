@@ -380,7 +380,7 @@ impl DriverAdapter for StdoutAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a ParsedOp,
-        parent: std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>,
+        parent: std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {
@@ -459,7 +459,7 @@ pub struct StdoutDispenser {
     /// Stored so the per-fiber fan-out can build per-fiber kernels
     /// from this dispenser's slot via the standard `build_subscope`
     /// path (see `OpDispenser::canonical_kernel`).
-    canonical_kernel: std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>,
     /// Op-field templates snapshotted at `map_op` (name + raw
     /// JSON value from the parsed op). At cycle time each entry
     /// is resolved against the per-fiber wires: pure-token
@@ -472,7 +472,7 @@ pub struct StdoutDispenser {
 }
 
 impl OpDispenser for StdoutDispenser {
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel>> {
         Some(&self.canonical_kernel)
     }
     fn execute<'a>(
@@ -641,9 +641,9 @@ mod tests {
     /// Minimal kernel used as the `parent` argument to `map_op`
     /// in tests that don't need a richer Polydat context. SRD-68 Push 2:
     /// the `parent` parameter is plumbed through every `map_op`
-    /// signature as `Arc<PolydatKernel>`; tests pass this fixture so
+    /// signature as `Arc<dyn Kernel>`; tests pass this fixture so
     /// they don't need to stand up the full activity-init pipeline.
-    fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
+    fn test_kernel() -> std::sync::Arc<dyn nmbrs_runtime::adapter::Kernel> {
         std::sync::Arc::new(
             polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
         )

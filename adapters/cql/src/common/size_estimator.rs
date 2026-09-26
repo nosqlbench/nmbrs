@@ -220,28 +220,20 @@ pub fn fixed_batch_stride(row_size: u64, batch_n: usize, budget: Option<u64>) ->
 
 /// Characterize a representative row's estimated CQL-encoded size by
 /// evaluating the op's bound-value wires at cursor offset `0` through a
-/// fresh instance of the phase-scope (`parent`) kernel. Called ONCE at
-/// `map_op` to settle the fixed batch stride (see [`fixed_batch_stride`]).
+/// fork of the phase-scope (`parent`) kernel. Called ONCE at `map_op` to
+/// settle the fixed batch stride (see [`fixed_batch_stride`]).
 ///
-/// The probe kernel is built with the SAME primitive a fiber uses per
-/// cycle ([`PolydatKernel::for_iteration`], wired under `parent`), then
-/// read through the SAME [`CycleWires`] surface the batch dispenser uses
-/// at execute time — so the sampled row-0 values (the dominant dataset
+/// The probe is a [`fork`](polydat::Kernel::fork) of `parent` — its
+/// program, its inputs, its cells shared — on whatever engine `parent`
+/// runs, read through the SAME [`CycleWires`] surface the batch dispenser
+/// uses at execute time, so the sampled row-0 values (the dominant dataset
 /// vector included) match what the op will actually bind. `parent` is
-/// borrowed immutably and unaffected: pulling outputs evaluates the DAG
-/// without committing any write-through, so no shared cell is mutated.
-pub fn characterize_row_size(
-    parent: &std::sync::Arc<polydat::kernel::PolydatKernel>,
-    bind_names: &[String],
-) -> u64 {
+/// unaffected: pulling outputs evaluates the DAG without committing any
+/// write-through, so no shared cell is mutated.
+pub fn characterize_row_size(parent: &dyn polydat::Kernel, bind_names: &[String]) -> u64 {
     use nmbrs_runtime::wires::{CycleWires, WireSource};
-    // `for_iteration` returns a fresh, uniquely-owned Arc (refcount 1),
-    // so `try_unwrap` yields the owned, mutable kernel we position at 0.
-    let probe = polydat::kernel::PolydatKernel::for_iteration(parent, parent, &[]);
-    let mut probe = std::sync::Arc::try_unwrap(probe)
-        .ok()
-        .expect("for_iteration returns a uniquely-owned kernel");
-    let wires = CycleWires::new(&mut probe);
+    let mut probe = parent.fork();
+    let wires = CycleWires::of(probe.as_mut());
     wires.advance(0);
     let values: Vec<Value> = bind_names
         .iter()
@@ -399,17 +391,16 @@ mod tests {
         // same wire surface the batch dispenser uses at execute time.
         let kernel = compile_polydat_interpreter("input cycle: u64\nval := cycle * 8\n")
             .expect("compile probe program");
-        let parent = std::sync::Arc::new(kernel);
         // One bind name → a single U64 → 8 bytes (bigint wire width)
         // plus the per-mutation overhead every row carries.
         assert_eq!(
-            characterize_row_size(&parent, &["val".to_string()]),
+            characterize_row_size(&kernel, &["val".to_string()]),
             ROW_OVERHEAD + 8
         );
         // An undeclared wire resolves to None → contributes 0 value
         // bytes (overhead only), never panics.
         assert_eq!(
-            characterize_row_size(&parent, &["nope".to_string()]),
+            characterize_row_size(&kernel, &["nope".to_string()]),
             ROW_OVERHEAD
         );
     }

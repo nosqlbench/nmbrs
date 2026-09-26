@@ -3045,7 +3045,7 @@ pub fn build_scope(
 /// 3), so it is per-cycle here exactly like a phase-declared one.
 pub fn validate_placeholders_via_kernel(
     ops: &[ParsedOp],
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &dyn polydat::Kernel,
     enclosing: &[&polydat::kernel::PolydatProgram],
 ) -> Result<(), String> {
     let mut per_cycle_names = collect_phase_binding_lhs_names(ops);
@@ -3064,9 +3064,8 @@ pub fn validate_placeholders_via_kernel(
 
     let mut errors: Vec<String> = Vec::new();
     let in_scope = || -> Vec<String> {
-        let prog = kernel.program();
-        let mut names: Vec<String> = prog.output_names().iter().map(|s| s.to_string()).collect();
-        for n in prog.input_names() {
+        let mut names: Vec<String> = kernel.output_names();
+        for n in kernel.input_names() {
             if !names.contains(&n) {
                 names.push(n);
             }
@@ -3144,15 +3143,14 @@ pub fn validate_placeholders_via_kernel(
 /// activity-layer parent.
 pub fn resolve_placeholders_in_op_params(
     op: &mut ParsedOp,
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &dyn polydat::Kernel,
 ) -> Result<(), String> {
     let per_cycle_names = collect_phase_binding_lhs_names(std::slice::from_ref(op));
 
     let mut errors: Vec<String> = Vec::new();
     let in_scope = || -> Vec<String> {
-        let prog = kernel.program();
-        let mut names: Vec<String> = prog.output_names().iter().map(|s| s.to_string()).collect();
-        for n in prog.input_names() {
+        let mut names: Vec<String> = kernel.output_names();
+        for n in kernel.input_names() {
             if !names.contains(&n) {
                 names.push(n);
             }
@@ -3535,7 +3533,7 @@ mod polydat_param_classifier_tests {
 }
 
 /// Recursively walk a JSON value and resolve every `{name}`
-/// placeholder via [`PolydatKernel::lookup`]. Non-resolving names
+/// placeholder via [`KernelLookup`](polydat::kernel::interp::KernelLookup). Non-resolving names
 /// that are in the per-cycle binding set stay as-is (the
 /// dispenser will resolve them at execute time); anything else
 /// gets pushed onto `errors`.
@@ -3545,7 +3543,7 @@ mod polydat_param_classifier_tests {
 /// placeholders.
 fn resolve_placeholders_in_json(
     value: &mut serde_json::Value,
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &dyn polydat::Kernel,
     per_cycle_names: &[String],
     field_path: &str,
     errors: &mut Vec<String>,
@@ -3584,7 +3582,7 @@ fn resolve_placeholders_in_json(
 /// for context.
 fn resolve_placeholders_in_string(
     s: &str,
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &dyn polydat::Kernel,
     per_cycle_names: &[String],
     field_path: &str,
 ) -> Result<String, Vec<String>> {
@@ -3680,9 +3678,12 @@ fn resolve_placeholders_in_string(
         // visible at this scope — accept them by checking
         // `resolve_output`. Per-cycle resolution at dispenser
         // time handles the actual pull.
-        match kernel.lookup(body) {
+        match polydat::kernel::interp::Lookup::lookup(
+            &polydat::kernel::interp::KernelLookup::new(kernel),
+            body,
+        ) {
             Some(v) => out.push_str(&v.to_display_string()),
-            None if kernel.program().resolve_output(body).is_some() => {
+            None if kernel.output_index(body).is_some() => {
                 // Defer to per-cycle resolution. Emit the
                 // placeholder unchanged.
                 out.push('{');

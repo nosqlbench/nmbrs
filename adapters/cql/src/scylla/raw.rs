@@ -30,7 +30,7 @@ pub(super) struct ScyllaRawDispenser {
     /// kernel, and its output indices then address the WRONG program — reading
     /// a neighbouring metric where the index happens to be in range and
     /// panicking the pull plan where it is not.
-    canonical_kernel: Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: Arc<dyn polydat::Kernel>,
     session: Arc<Session>,
     consistency: Consistency,
     /// Original statement template, with `{name}` placeholders
@@ -46,7 +46,7 @@ pub(super) struct ScyllaRawDispenser {
 
 impl ScyllaRawDispenser {
     pub fn new(
-        canonical_kernel: Arc<polydat::kernel::PolydatKernel>,
+        canonical_kernel: Arc<dyn polydat::Kernel>,
         session: Arc<Session>,
         consistency: Consistency,
         stmt_template: String,
@@ -63,7 +63,7 @@ impl ScyllaRawDispenser {
 }
 
 impl OpDispenser for ScyllaRawDispenser {
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<polydat::kernel::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
     fn execute<'a>(

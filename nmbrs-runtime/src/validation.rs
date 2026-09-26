@@ -504,12 +504,14 @@ impl ValidatingDispenser {
         // Bare wire-name forms in `k:` / `r:` resolve against the
         // canonical kernel at wrap time (one-shot, same as the
         // pre-existing `{k}` text-template substitution). The
-        // canonical kernel implements `WireSource` directly per
-        // SRD-68 Push 1; no per-cycle freshness because k / r are
-        // phase-constants by contract.
-        let wires_for_parse: Option<&dyn WireSource> = canonical_kernel
+        // canonical kernel reads as a `WireSource` through
+        // `KernelWires` (SRD-68 Push 1); no per-cycle freshness because
+        // k / r are phase-constants by contract.
+        let canonical_wires = canonical_kernel
             .as_ref()
-            .map(|k| k.as_ref() as &dyn WireSource);
+            .map(|k| crate::wires::KernelWires(k.as_ref()));
+        let wires_for_parse: Option<&dyn WireSource> =
+            canonical_wires.as_ref().map(|w| w as &dyn WireSource);
         let relevancy = parse_relevancy(template, program, wires_for_parse)?;
         let strict = template
             .params

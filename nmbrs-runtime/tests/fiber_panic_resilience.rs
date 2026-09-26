@@ -35,7 +35,7 @@ impl DriverAdapter for PanickingAdapter {
     fn map_op<'a>(
         &'a self,
         _template: &'a nmbrs_workload::model::ParsedOp,
-        _parent: Arc<polydat::kernel::PolydatKernel>,
+        _parent: Arc<dyn polydat::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {

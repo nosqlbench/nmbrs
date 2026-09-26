@@ -231,7 +231,7 @@ impl DriverAdapter for ModelAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a ParsedOp,
-        parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        parent: std::sync::Arc<dyn polydat::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {
@@ -289,7 +289,7 @@ struct ModelDispenser {
     /// and diagnostic output.
     in_flight: Arc<AtomicUsize>,
     /// SRD-68 invariant I-3: dispenser-owned canonical Polydat Kernel.
-    canonical_kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn polydat::Kernel>,
     /// Op-field templates snapshotted at `map_op`. Resolved per
     /// cycle via the generic `wires` API; the rendered text feeds
     /// the trace writer and the OpResult body.
@@ -308,7 +308,7 @@ impl Drop for InFlightGuard {
 }
 
 impl OpDispenser for ModelDispenser {
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<polydat::kernel::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
 
@@ -669,7 +669,7 @@ mod tests {
 
     /// Minimal kernel used as the `parent` argument to `map_op`
     /// in tests that don't need a richer Polydat context (SRD-68 Push 2).
-    fn test_kernel() -> std::sync::Arc<polydat::kernel::PolydatKernel> {
+    fn test_kernel() -> std::sync::Arc<dyn polydat::Kernel> {
         std::sync::Arc::new(
             polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap(),
         )

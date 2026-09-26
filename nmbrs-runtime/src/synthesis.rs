@@ -69,11 +69,32 @@ pub struct OpBuilder {
     /// every fiber's main kernel runs; `None` keeps fibers on the
     /// interpreter.
     fiber_image: Option<Arc<dyn KernelProgram>>,
-    /// Op-template modules whose fiber-engine image agrees with their
-    /// program, keyed by that program's identity (`Arc::as_ptr`): a
-    /// dispenser's canonical kernel names its program, and each fiber
-    /// instantiates the per-op kernel from the matching module.
-    op_modules: Arc<std::collections::HashMap<usize, Arc<OpTemplateModule>>>,
+    /// What each canonical kernel this builder hands out stands for,
+    /// keyed by its `program_id`: a dispenser's canonical may be on any
+    /// engine, and each fiber finds here the interpreter program that
+    /// resolves its indices and the module it instantiates the per-op
+    /// kernel from.
+    canonicals: Canonicals,
+}
+
+/// What a canonical kernel's program is to a fiber: the interpreter
+/// program that resolves its indices (the analysis program; a native
+/// image of it shares its indices, `fiber_engine::agrees`), and the
+/// op-template module a per-op kernel is instantiated from on the fiber
+/// engine, when it has one.
+#[derive(Clone)]
+struct CanonicalSource {
+    program: Arc<PolydatProgram>,
+    module: Option<Arc<OpTemplateModule>>,
+}
+
+/// Canonical sources by the `program_id` of every kernel that stands for
+/// them.
+type Canonicals = Arc<std::collections::HashMap<polydat::kernel::ProgramId, CanonicalSource>>;
+
+/// The identity an interpreter program's kernels report.
+fn program_id_of(program: &Arc<PolydatProgram>) -> polydat::kernel::ProgramId {
+    KernelProgram::program_id(program.as_ref())
 }
 
 impl OpBuilder {
@@ -104,12 +125,21 @@ impl OpBuilder {
                     .unwrap_or(true)
             })
             .collect();
+        // The source kernel is the canonical of every flattened op.
+        let canonicals = std::iter::once((
+            kernel.program_id(),
+            CanonicalSource {
+                program: kernel.program().clone(),
+                module: None,
+            },
+        ))
+        .collect();
         Self {
             scope_values,
             source_kernel: kernel,
             op_template_programs: std::collections::HashMap::new(),
             fiber_image: None,
-            op_modules: Arc::new(std::collections::HashMap::new()),
+            canonicals: Arc::new(canonicals),
         }
     }
 
@@ -122,6 +152,15 @@ impl OpBuilder {
         mut self,
         programs: std::collections::HashMap<String, Arc<PolydatProgram>>,
     ) -> Self {
+        let canonicals = Arc::make_mut(&mut self.canonicals);
+        for program in programs.values() {
+            canonicals
+                .entry(program_id_of(program))
+                .or_insert_with(|| CanonicalSource {
+                    program: program.clone(),
+                    module: None,
+                });
+        }
         self.op_template_programs = programs;
         self
     }
@@ -141,15 +180,22 @@ impl OpBuilder {
         mut self,
         modules: impl IntoIterator<Item = (String, Arc<OpTemplateModule>)>,
     ) -> Self {
-        let usable = modules
-            .into_iter()
-            .filter(|(name, module)| {
-                crate::fiber_engine::module_image(module, &format!("op template '{name}'"))
-                    .is_some()
-            })
-            .map(|(_, module)| (Arc::as_ptr(module.program()) as usize, module))
-            .collect();
-        self.op_modules = Arc::new(usable);
+        let canonicals = Arc::make_mut(&mut self.canonicals);
+        for (name, module) in modules {
+            let Some(image) =
+                crate::fiber_engine::module_image(&module, &format!("op template '{name}'"))
+            else {
+                continue;
+            };
+            let source = CanonicalSource {
+                program: module.program().clone(),
+                module: Some(module.clone()),
+            };
+            // Both the interpreter program and its native image stand
+            // for the module: a canonical kernel reports either.
+            canonicals.insert(program_id_of(module.program()), source.clone());
+            canonicals.insert(image.program_id(), source);
+        }
         self
     }
 
@@ -190,25 +236,41 @@ impl OpBuilder {
     /// When `op_name` has a registered op-template program (phase
     /// `bindings:`, op-level `bindings:`, `result:` block — the
     /// matter assembled by the synthesis pipeline before the
-    /// activity runs), the canonical is a fresh subscope of
-    /// `source_kernel` carrying that program. Otherwise the
-    /// canonical is the source kernel itself (Arc-cloned), which
-    /// covers the flattened-op-template path (no per-op matter).
-    pub fn canonical_kernel_for_op(&self, op_name: &str) -> Arc<PolydatKernel> {
-        match self.op_template_programs.get(op_name) {
-            Some(program) => {
-                let canonical = self
-                    .source_kernel
-                    .build_subscope(
-                        polydat::kernel::subcontext::PolydatMatter::builder()
-                            .program(program.clone())
-                            .build()
-                            .expect("program-form matter is infallible"),
+    /// activity runs), the canonical is that program bound under
+    /// `source_kernel`: instantiated from its module on the fiber
+    /// engine when it has one, on the interpreter otherwise.
+    /// Otherwise the canonical is the source kernel itself
+    /// (Arc-cloned), which covers the flattened-op-template path (no
+    /// per-op matter). Either way the adapter holds a kernel of any
+    /// engine, whose `program_id` this builder recognizes.
+    pub fn canonical_kernel_for_op(&self, op_name: &str) -> Arc<dyn Kernel> {
+        let Some(program) = self.op_template_programs.get(op_name) else {
+            return self.source_kernel.clone();
+        };
+        let module = self
+            .canonicals
+            .get(&program_id_of(program))
+            .and_then(|source| source.module.clone());
+        match module {
+            Some(module) => Arc::from(
+                module
+                    .instantiate_under(
+                        self.source_kernel.as_ref(),
+                        crate::fiber_engine::fiber_engine(),
+                        &[],
                     )
-                    .expect("program-form subscope is infallible");
-                Arc::new(canonical)
-            }
-            None => self.source_kernel.clone(),
+                    .unwrap_or_else(|e| {
+                        panic!("op '{op_name}': canonical kernel failed to instantiate: {e}")
+                    }),
+            ),
+            None => Arc::from(
+                polydat::kernel::bind_under(
+                    self.source_kernel.as_ref(),
+                    program.clone() as Arc<dyn KernelProgram>,
+                    &[],
+                )
+                .unwrap_or_else(|e| panic!("op '{op_name}': canonical kernel failed to bind: {e}")),
+            ),
         }
     }
 
@@ -236,7 +298,7 @@ impl OpBuilder {
             self.fiber_image.clone(),
             self.scope_values.clone(),
         );
-        fb.op_modules = self.op_modules.clone();
+        fb.canonicals = self.canonicals.clone();
         // SRD-68: per-fiber op-template kernels are populated by
         // `attach_dispenser_kernels`, which runs right after this
         // function returns (see executor cycle dispatch), each from
@@ -342,9 +404,10 @@ pub struct FiberBuilder {
     /// kernel's, and so reads the main kernel's outputs through its
     /// broadcast cells (see [`Self::set_source_item`]).
     needs_broadcast: bool,
-    /// The op-template modules per-op kernels are instantiated from,
-    /// keyed by program identity (see [`OpBuilder::with_op_template_modules`]).
-    op_modules: Arc<std::collections::HashMap<usize, Arc<OpTemplateModule>>>,
+    /// What each dispenser's canonical kernel stands for — its
+    /// interpreter program and op-template module — by the kernel's
+    /// `program_id` (see [`OpBuilder::canonical_kernel_for_op`]).
+    canonicals: Canonicals,
 }
 
 /// Validate that all bind points in op templates can be resolved.
@@ -463,6 +526,17 @@ impl FiberBuilder {
             .iter()
             .map(|(name, _)| scope_value_index(&main_program, name))
             .collect();
+        // Standing alone, the fiber knows one canonical: its parent's own
+        // program, the flattened op's. `OpBuilder::create_fiber_builder`
+        // replaces this with the activity's full set.
+        let canonicals = std::iter::once((
+            parent.program_id(),
+            CanonicalSource {
+                program: main_program.clone(),
+                module: None,
+            },
+        ))
+        .collect();
         Self {
             main_kernel,
             main_program,
@@ -473,7 +547,7 @@ impl FiberBuilder {
             scope_value_main_idx,
             scope_value_per_op_idx: Vec::new(),
             needs_broadcast: false,
-            op_modules: Arc::new(std::collections::HashMap::new()),
+            canonicals: Arc::new(canonicals),
         }
     }
 
@@ -513,9 +587,39 @@ impl FiberBuilder {
         // per_op_kernel via the standard scope-chain mechanism;
         // per-fiber state (cycle, scope values) propagates
         // correctly without external refresh.
-        let dispenser_programs: Vec<Option<Arc<PolydatProgram>>> = dispensers
+        // A canonical kernel may be on any engine: what it stands for —
+        // the interpreter program resolving its indices, and the module
+        // a per-op kernel is instantiated from — is looked up by its
+        // program's identity. A canonical this activity's builder did
+        // not hand out — an adapter's own kernel — stands for its
+        // interpreter program when it has one; a compiled one stands for
+        // nothing it can bind, and its dispenser runs against the fiber's
+        // main kernel.
+        let sources: Vec<Option<CanonicalSource>> = dispensers
             .iter()
-            .map(|d| d.canonical_kernel().map(|k| k.program().clone()))
+            .map(|d| {
+                let kernel = d.canonical_kernel()?;
+                if let Some(source) = self.canonicals.get(&kernel.program_id()) {
+                    return Some(source.clone());
+                }
+                let program = kernel.fork().into_program().as_interpreter();
+                if program.is_none() {
+                    crate::diag!(
+                        crate::observer::LogLevel::Warn,
+                        "a dispenser's canonical kernel ({}) was not built by this \
+                         activity; its op reads the fiber's main kernel",
+                        kernel.engine()
+                    );
+                }
+                program.map(|program| CanonicalSource {
+                    program,
+                    module: None,
+                })
+            })
+            .collect();
+        let dispenser_programs: Vec<Option<Arc<PolydatProgram>>> = sources
+            .iter()
+            .map(|s| s.as_ref().map(|s| s.program.clone()))
             .collect();
         let mut per_op_kernels: Vec<Option<Box<dyn Kernel>>> =
             Vec::with_capacity(dispenser_programs.len());
@@ -523,8 +627,8 @@ impl FiberBuilder {
             Vec::with_capacity(dispenser_programs.len());
         let mut per_op_side_effecting: Vec<Vec<usize>> =
             Vec::with_capacity(dispenser_programs.len());
-        for maybe_program in &dispenser_programs {
-            let Some(program) = maybe_program else {
+        for maybe_source in &sources {
+            let Some(CanonicalSource { program, module }) = maybe_source else {
                 per_op_kernels.push(None);
                 per_op_idx.push(None);
                 per_op_side_effecting.push(Vec::new());
@@ -533,7 +637,7 @@ impl FiberBuilder {
             // Scope values are bound with the kernel, before its consts
             // initialize; the indices are cached for `reset_captures`.
             let bindings = scope_bindings(program, &scope_values);
-            let mut op_kernel = match self.op_modules.get(&(Arc::as_ptr(program) as usize)) {
+            let mut op_kernel = match module {
                 Some(module) => module
                     .instantiate_under(
                         self.main_kernel.as_ref(),
@@ -1034,15 +1138,15 @@ mod tests {
             .expect("compile probe canonical")
             .program()
             .clone();
-        let canonical_kernel: std::sync::Arc<PolydatKernel> =
+        let canonical_kernel: std::sync::Arc<dyn polydat::Kernel> =
             builder.canonical_kernel_for_op("nonexistent");
         // For this probe we only need the canonical to expose
         // a program; reuse builder's source_kernel program.
         let _ = canonical_program;
 
-        struct ProbeDispenser(std::sync::Arc<PolydatKernel>);
+        struct ProbeDispenser(std::sync::Arc<dyn polydat::Kernel>);
         impl OpDispenser for ProbeDispenser {
-            fn canonical_kernel(&self) -> Option<&std::sync::Arc<PolydatKernel>> {
+            fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
                 Some(&self.0)
             }
             fn execute<'a>(
@@ -1081,7 +1185,7 @@ mod tests {
         assert!(
             !std::ptr::eq(
                 per_op_a as *const dyn Kernel as *const (),
-                canonical_kernel.as_ref() as *const PolydatKernel as *const ()
+                canonical_kernel.as_ref() as *const dyn polydat::Kernel as *const ()
             ),
             "per_op_a must be a distinct per-fiber instance, \
              not the shared canonical",
@@ -1089,7 +1193,7 @@ mod tests {
         assert!(
             !std::ptr::eq(
                 per_op_b as *const dyn Kernel as *const (),
-                canonical_kernel.as_ref() as *const PolydatKernel as *const ()
+                canonical_kernel.as_ref() as *const dyn polydat::Kernel as *const ()
             ),
             "per_op_b must be a distinct per-fiber instance, \
              not the shared canonical",
@@ -1218,7 +1322,7 @@ scaled := h * 3 + 1
             .into(),
         ));
         let module = Arc::new(op.finalize().expect("op-template module"));
-        let canonical = Arc::new(
+        let canonical: Arc<dyn polydat::Kernel> = Arc::new(
             phase
                 .build_subscope(
                     PolydatMatter::builder()
@@ -1229,9 +1333,9 @@ scaled := h * 3 + 1
                 .expect("canonical per-op kernel"),
         );
 
-        struct Probe(Arc<PolydatKernel>);
+        struct Probe(Arc<dyn polydat::Kernel>);
         impl OpDispenser for Probe {
-            fn canonical_kernel(&self) -> Option<&Arc<PolydatKernel>> {
+            fn canonical_kernel(&self) -> Option<&Arc<dyn polydat::Kernel>> {
                 Some(&self.0)
             }
             fn execute<'a>(

@@ -13,8 +13,9 @@
 //! §"CQL universal field superset" for naming rationale.
 
 use nmbrs_runtime::op_modifier::{ModifierChain, OpFieldModifier};
+use polydat::Kernel;
 use polydat::ast::Value;
-use polydat::kernel::PolydatKernel;
+use polydat::kernel::interp::{KernelLookup, Lookup};
 
 /// Universal per-op field names supported by every CQL engine.
 ///
@@ -94,7 +95,7 @@ pub trait CqlModifierFactory {
 /// the chain. Sessions with no sink installed produce chains
 /// that fall through the no-observer hot path.
 pub fn build_cql_modifier_chain<F>(
-    parent: &PolydatKernel,
+    parent: &dyn Kernel,
     op_label: impl Into<String>,
 ) -> Result<ModifierChain<F::Statement>, String>
 where
@@ -115,7 +116,7 @@ where
         if field == "timeout" || field == "request_timeout_ms" {
             continue;
         }
-        let Some(value) = parent.lookup(field) else {
+        let Some(value) = KernelLookup::new(parent).lookup(field) else {
             continue; // user did not bind this field — driver default in force
         };
         if let Some(m) = F::modifier_for(field, value)
@@ -150,13 +151,13 @@ where
 /// [`build_cql_modifier_chain`] and any caller that needs the resolved value
 /// directly — a batch is a statement too, so the batch path builds its chain
 /// through the very same builder and never re-derives this independently.
-pub fn resolve_cql_request_timeout_ms(parent: &PolydatKernel) -> Result<Option<u64>, String> {
-    if let Some(v) = parent.lookup("timeout") {
+pub fn resolve_cql_request_timeout_ms(parent: &dyn Kernel) -> Result<Option<u64>, String> {
+    if let Some(v) = KernelLookup::new(parent).lookup("timeout") {
         return cql_timeout_value_to_ms(&v)
             .map(Some)
             .map_err(|e| format!("CQL universal field 'timeout': {e}"));
     }
-    if let Some(v) = parent.lookup("request_timeout_ms") {
+    if let Some(v) = KernelLookup::new(parent).lookup("request_timeout_ms") {
         return match &v {
             Value::U64(ms) => Ok(Some(*ms)),
             other => Err(format!(

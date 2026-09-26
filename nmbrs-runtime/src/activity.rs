@@ -1950,7 +1950,11 @@ impl Activity {
                         .or(activity.config.tries)
                         .or_else(|| {
                             raw.canonical_kernel()
-                                .and_then(|k| k.lookup("tries"))
+                                .and_then(|k| {
+                                    use polydat::kernel::interp::Lookup as _;
+                                    polydat::kernel::interp::KernelLookup::new(k.as_ref())
+                                        .lookup("tries")
+                                })
                                 .and_then(|v| match v {
                                     polydat::ast::Value::U64(n) => Some(n as u32),
                                     _ => None,
@@ -5076,7 +5080,7 @@ mod tests {
         fn map_op<'a>(
             &'a self,
             _template: &'a nmbrs_workload::model::ParsedOp,
-            _parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+            _parent: std::sync::Arc<dyn polydat::Kernel>,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
         > {
@@ -5136,7 +5140,7 @@ mod tests {
         fn map_op<'a>(
             &'a self,
             _template: &'a nmbrs_workload::model::ParsedOp,
-            _parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+            _parent: std::sync::Arc<dyn polydat::Kernel>,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
         > {

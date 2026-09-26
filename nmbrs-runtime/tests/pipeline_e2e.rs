@@ -49,7 +49,7 @@ impl DriverAdapter for RecordingAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a nmbrs_workload::model::ParsedOp,
-        _parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        _parent: std::sync::Arc<dyn polydat::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {

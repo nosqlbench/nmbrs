@@ -158,7 +158,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a ParsedOp,
-        parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        parent: std::sync::Arc<dyn polydat::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {
@@ -218,10 +218,10 @@ impl DriverAdapter for ScyllaCqlAdapter {
             let op_label = template.name.clone();
             let modifiers_for_raw = crate::common::op_modifier::build_cql_modifier_chain::<
                 op_modifier::ScyllaModifierFactory<scylla::statement::Statement>,
-            >(&parent, op_label.clone())?;
+            >(&*parent, op_label.clone())?;
             let modifiers_for_prepared = crate::common::op_modifier::build_cql_modifier_chain::<
                 op_modifier::ScyllaModifierFactory<scylla::statement::prepared::PreparedStatement>,
-            >(&parent, op_label)?;
+            >(&*parent, op_label)?;
 
             match mode {
                 OpMode::Raw => Ok(Box::new(raw::ScyllaRawDispenser::new(
@@ -384,15 +384,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
                             field: stmt_field.to_string(),
                             slots,
                         };
-                        polydat::binder::verify_against_kernel(&[binder], &parent).map_err(
-                            |violations| {
-                                violations
-                                    .into_iter()
-                                    .map(|v| v.message)
-                                    .collect::<Vec<_>>()
-                                    .join("; ")
-                            },
-                        )?;
+                        nmbrs_runtime::adapter::verify_binders(&[binder], &*parent)?;
                     }
                     let prepared_arc = std::sync::Arc::new(prep);
 
@@ -437,7 +429,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
                             // accepted alias key.
                             let batch_n: usize =
                                 crate::common::session_handle::resolve_batch_count(
-                                    &parent,
+                                    &*parent,
                                     &session_key,
                                     template
                                         .params
@@ -449,7 +441,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
                                 .unwrap_or(0);
                             let max_batch_bytes =
                                 crate::common::session_handle::resolve_max_batch_bytes(
-                                    &parent,
+                                    &*parent,
                                     &session_key,
                                     template.params.get("max_batch_size"),
                                 )
@@ -461,7 +453,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
                             // / single-row need no probe.
                             let row_size = if max_batch_bytes.is_some() {
                                 crate::common::size_estimator::characterize_row_size(
-                                    &parent,
+                                    &*parent,
                                     &bind_names,
                                 )
                             } else {
@@ -481,7 +473,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
                                     op_modifier::ScyllaModifierFactory<
                                         scylla::statement::batch::Batch,
                                     >,
-                                >(&parent, template.name.clone())?;
+                                >(&*parent, template.name.clone())?;
                             Ok(Box::new(batch::ScyllaBatchDispenser::new(
                                 parent.clone(),
                                 self.session.clone(),

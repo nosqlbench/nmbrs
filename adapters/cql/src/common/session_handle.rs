@@ -35,9 +35,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use polydat::Kernel;
 use polydat::ast::Value;
-use polydat::kernel::PolydatKernel;
-use polydat::kernel::subcontext::PolydatMatter;
 
 /// Cassandra's default batch-size fail-threshold setting name. Backs
 /// [`CqlSessionHandle::server_batch_limit`] and the map_op pre-read.
@@ -217,7 +216,7 @@ pub fn warn_settings_unavailable(warned: &AtomicBool, driver: &str, detail: &str
 /// explicit no-cap) so the dispenser's `max_batch_bytes` stays `None` and the
 /// `batch: N` / single-row paths remain byte-identical.
 pub async fn resolve_max_batch_bytes(
-    parent: &PolydatKernel,
+    parent: &dyn Kernel,
     session_key: &str,
     param: Option<&serde_json::Value>,
 ) -> Result<Option<u64>, String> {
@@ -262,7 +261,7 @@ fn nonzero(bytes: u64) -> Option<u64> {
 /// [`crate::common::size_estimator::fixed_batch_stride`] — the workload authors
 /// the cursor stride; the adapter does not cap it against the byte budget.
 pub async fn resolve_batch_count(
-    parent: &PolydatKernel,
+    parent: &dyn Kernel,
     session_key: &str,
     param: Option<&serde_json::Value>,
 ) -> Result<Option<usize>, String> {
@@ -346,7 +345,7 @@ async fn prime_referenced_settings(session_key: &str, expr: &str) {
 /// Thin numeric wrapper over the shared [`eval_batch_field_expr`] plumbing;
 /// the expression may reference the CQL session nodes and is evaluated against
 /// a subscope with `cql_session_key` bound by value.
-fn eval_batch_expr(parent: &PolydatKernel, session_key: &str, expr: &str) -> Result<u64, String> {
+fn eval_batch_expr(parent: &dyn Kernel, session_key: &str, expr: &str) -> Result<u64, String> {
     let value = eval_batch_field_expr(parent, session_key, expr, "max_batch_size")?;
     value_to_u64(&value).ok_or_else(|| {
         format!("max_batch_size '{expr}' did not resolve to a non-negative number (got {value:?})")
@@ -364,14 +363,13 @@ fn eval_batch_expr(parent: &PolydatKernel, session_key: &str, expr: &str) -> Res
 /// interpolation grammar would otherwise parse as `{name}` placeholders
 /// (turning the key into a spurious per-cycle wire); a value-level binding
 /// side-steps interpolation entirely. The expression may still reference
-/// parent-scope wires, which cascade in through `build_subscope`.
+/// parent-scope wires, which cascade in as it is bound under `parent`.
 fn eval_batch_field_expr(
-    parent: &PolydatKernel,
+    parent: &dyn Kernel,
     session_key: &str,
     expr: &str,
     label: &str,
 ) -> Result<Value, String> {
-    use polydat::Kernel as _;
     // `extern cql_session_key: str` makes the key a named `str` input the
     // subscope can inject by value; the nodes are inventory-registered so the
     // expression's `cql_session(...)` / `cql_server_batch_limit(...)` resolve.
@@ -385,15 +383,12 @@ fn eval_batch_field_expr(
         "cql_session_key".to_string(),
         Value::Str(session_key.into()),
     )];
-    let matter = PolydatMatter::builder()
-        .label(format!("cql_{label}"))
-        .program(program)
-        .iter_bindings(&bindings)
-        .build()
-        .map_err(|e| format!("{label} '{expr}': {e}"))?;
-    let mut child = parent
-        .build_subscope(matter)
-        .map_err(|e| format!("{label} '{expr}': {e:?}"))?;
+    let mut child = polydat::kernel::bind_under(
+        parent,
+        program as Arc<dyn polydat::kernel::KernelProgram>,
+        &bindings,
+    )
+    .map_err(|e| format!("{label} '{expr}': {e:?}"))?;
     Ok(child.pull(&output))
 }
 

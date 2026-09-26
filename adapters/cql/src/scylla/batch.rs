@@ -48,7 +48,7 @@ pub(super) struct ScyllaBatchDispenser {
     /// kernel, and its output indices then address the WRONG program — reading
     /// a neighbouring metric where the index happens to be in range and
     /// panicking the pull plan where it is not.
-    canonical_kernel: Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: Arc<dyn polydat::Kernel>,
     session: Arc<Session>,
     /// Pre-prepared inner statement (consistency + modifiers
     /// already applied at `map_op` time). Same dispenser-init
@@ -112,7 +112,7 @@ pub(super) struct ScyllaBatchDispenser {
 impl ScyllaBatchDispenser {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        canonical_kernel: Arc<polydat::kernel::PolydatKernel>,
+        canonical_kernel: Arc<dyn polydat::Kernel>,
         session: Arc<Session>,
         prepared: Arc<PreparedStatement>,
         stmt_text: String,
@@ -199,7 +199,7 @@ impl ScyllaBatchDispenser {
 }
 
 impl OpDispenser for ScyllaBatchDispenser {
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<polydat::kernel::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
     fn rows_per_op(&self) -> usize {

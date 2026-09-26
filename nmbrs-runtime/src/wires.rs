@@ -228,6 +228,32 @@ pub trait WireSource: Send + Sync {
     fn advance(&self, _coord: u64) {}
 }
 
+/// Read-only `WireSource` over a kernel of any engine: the names a scope
+/// lookup answers (`KernelLookup` — a const's value, an input, a folded
+/// value), as the `PolydatKernel` impl below does for the interpreter.
+/// Computed outputs that need a pull are not covered; `CycleWires` is
+/// the surface that pulls. What an adapter's canonical kernel offers a
+/// wrap-time reader.
+pub struct KernelWires<'a>(pub &'a dyn polydat::Kernel);
+
+impl WireSource for KernelWires<'_> {
+    fn get(&self, name: &str) -> Option<Value> {
+        use polydat::kernel::interp::Lookup as _;
+        polydat::kernel::interp::KernelLookup::new(self.0).lookup(name)
+    }
+
+    fn names(&self) -> Box<dyn Iterator<Item = String> + '_> {
+        let outputs = self.0.output_names();
+        let inputs_only: Vec<String> = self
+            .0
+            .input_names()
+            .into_iter()
+            .filter(|n| !outputs.contains(n))
+            .collect();
+        Box::new(outputs.into_iter().chain(inputs_only))
+    }
+}
+
 /// `WireSource` over `&PolydatKernel` — covers names that the kernel's
 /// `lookup` API already exposes (inputs, scope-init constants,
 /// shared-cell-backed values). Computed outputs that require a
@@ -307,7 +333,9 @@ impl WireSource for PolydatKernel {
 /// kernel as it is now.
 pub struct CycleWires<'a> {
     kernel: std::sync::Mutex<&'a mut dyn polydat::Kernel>,
-    program: std::sync::Arc<polydat::kernel::PolydatProgram>,
+    /// Where names resolve: the interpreter program the kernel shares
+    /// indices with, or `None` to ask the kernel itself.
+    program: Option<std::sync::Arc<polydat::kernel::PolydatProgram>>,
     readings: std::sync::Mutex<std::collections::HashMap<usize, Value>>,
 }
 
@@ -328,8 +356,35 @@ impl<'a> CycleWires<'a> {
     ) -> Self {
         Self {
             kernel: std::sync::Mutex::new(kernel),
-            program,
+            program: Some(program),
             readings: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Wrap a kernel of any engine, resolving names on the kernel
+    /// itself. For a holder with no interpreter program in hand — an
+    /// adapter probing a fork of its `Arc<dyn Kernel>` parent; a
+    /// compiled kernel's name lookup is a scan, so a per-cycle path
+    /// uses [`Self::over`].
+    pub fn of(kernel: &'a mut dyn polydat::Kernel) -> Self {
+        Self {
+            kernel: std::sync::Mutex::new(kernel),
+            program: None,
+            readings: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn output_index(&self, k: &dyn polydat::Kernel, name: &str) -> Option<usize> {
+        match &self.program {
+            Some(p) => p.output_index(name),
+            None => k.output_index(name),
+        }
+    }
+
+    fn input_index(&self, k: &dyn polydat::Kernel, name: &str) -> Option<usize> {
+        match &self.program {
+            Some(p) => p.find_input(name),
+            None => k.input_index(name),
         }
     }
 
@@ -351,7 +406,7 @@ impl<'a> WireSource for CycleWires<'a> {
         // and scope-init constants. No external chain composition —
         // construction-time wiring set up every visible wire
         // (SRD-13f).
-        if let Some(output_idx) = self.program.output_index(name) {
+        if let Some(output_idx) = self.output_index(&**k, name) {
             let mut readings = self.readings.lock().expect("CycleWires readings poisoned");
             let v = readings
                 .entry(output_idx)
@@ -379,15 +434,17 @@ impl<'a> WireSource for CycleWires<'a> {
     }
 
     fn names(&self) -> Box<dyn Iterator<Item = String> + '_> {
-        let outputs: Vec<String> = self
-            .program
-            .output_names()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let inputs_only: Vec<String> = self
-            .program
-            .input_names()
+        let (outputs, inputs): (Vec<String>, Vec<String>) = match &self.program {
+            Some(p) => (
+                p.output_names().iter().map(|s| s.to_string()).collect(),
+                p.input_names(),
+            ),
+            None => {
+                let k = self.kernel.lock().expect("CycleWires mutex poisoned");
+                (k.output_names(), k.input_names())
+            }
+        };
+        let inputs_only: Vec<String> = inputs
             .into_iter()
             .filter(|n| !outputs.contains(n))
             .collect();
@@ -397,7 +454,7 @@ impl<'a> WireSource for CycleWires<'a> {
     fn reset(&self, name: &str) -> WriteOutcome {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         self.forget_readings();
-        let Some(idx) = self.program.find_input(name) else {
+        let Some(idx) = self.input_index(&**k, name) else {
             return WriteOutcome::NoSlot;
         };
         // The declared default is by construction the slot's own
@@ -415,7 +472,7 @@ impl<'a> WireSource for CycleWires<'a> {
     fn write(&self, name: &str, value: Value) -> WriteOutcome {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         self.forget_readings();
-        let found = self.program.find_input(name);
+        let found = self.input_index(&**k, name);
         if std::env::var("NMBRS_DEBUG_WIRES")
             .map(|v| v == "1")
             .unwrap_or(false)

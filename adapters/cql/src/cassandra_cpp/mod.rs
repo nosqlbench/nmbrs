@@ -867,7 +867,7 @@ impl DriverAdapter for CqlAdapter {
     fn map_op<'a>(
         &'a self,
         template: &'a ParsedOp,
-        parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        parent: std::sync::Arc<dyn polydat::Kernel>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<Box<dyn OpDispenser>, String>> + Send + 'a>,
     > {
@@ -909,7 +909,8 @@ impl DriverAdapter for CqlAdapter {
             let parent_for_lookup = parent.clone();
             let (prepared_text, bind_names) =
                 resolve_structural_and_mark_remaining(&stmt_text, |name| {
-                    parent_for_lookup.lookup(name)
+                    use nmbrs_runtime::adapter::Lookup as _;
+                    nmbrs_runtime::adapter::KernelLookup::new(&*parent_for_lookup).lookup(name)
                 });
             // Workload-author lvalue assertions per per-cycle bind
             // point: a `{name:*}` or `{name:<polydat-type>}` suffix
@@ -969,7 +970,7 @@ impl DriverAdapter for CqlAdapter {
             // Workload-authored `batch:` cursor stride (0 = unset → the byte budget,
             // if any, drives the row count). Used directly, unfloored downstream.
             let batch_n: usize = crate::common::session_handle::resolve_batch_count(
-                &parent,
+                &*parent,
                 &session_key,
                 template.params.get("batch"),
             )
@@ -977,7 +978,7 @@ impl DriverAdapter for CqlAdapter {
             .map_err(|e| format!("op '{}': {e}", template.name))?
             .unwrap_or(0);
             let max_batch_bytes = crate::common::session_handle::resolve_max_batch_bytes(
-                &parent,
+                &*parent,
                 &session_key,
                 template.params.get("max_batch_size"),
             )
@@ -1017,7 +1018,7 @@ impl DriverAdapter for CqlAdapter {
             // into its dispenser.
             let modifiers = crate::common::op_modifier::build_cql_modifier_chain::<
                 op_modifier::CassModifierFactory<cass::Statement>,
-            >(&parent, template.name.clone())?;
+            >(&*parent, template.name.clone())?;
             // A batch is a statement too — resolve the SAME universal fields into a
             // batch-targeted chain so consistency / serial / request timeout /
             // tracing all reach the batch itself (the driver ignores member-
@@ -1026,7 +1027,7 @@ impl DriverAdapter for CqlAdapter {
             let batch_modifiers = if has_batch {
                 Some(crate::common::op_modifier::build_cql_modifier_chain::<
                     op_modifier::CassModifierFactory<cass::Batch>,
-                >(&parent, template.name.clone())?)
+                >(&*parent, template.name.clone())?)
             } else {
                 None
             };
@@ -1193,14 +1194,7 @@ impl DriverAdapter for CqlAdapter {
                                 field: "prepared".to_string(),
                                 slots,
                             };
-                            polydat::binder::verify_against_kernel(&[binder], &canonical_kernel)
-                                .map_err(|violations| {
-                                    violations
-                                        .into_iter()
-                                        .map(|v| v.message)
-                                        .collect::<Vec<_>>()
-                                        .join("; ")
-                                })?;
+                            nmbrs_runtime::adapter::verify_binders(&[binder], &*canonical_kernel)?;
                         }
 
                         if has_batch {
@@ -1210,7 +1204,7 @@ impl DriverAdapter for CqlAdapter {
                             // / single-row need no probe.
                             let row_size = if max_batch_bytes.is_some() {
                                 crate::common::size_estimator::characterize_row_size(
-                                    &canonical_kernel,
+                                    &*canonical_kernel,
                                     &bind_names,
                                 )
                             } else {
@@ -1359,7 +1353,7 @@ struct CqlRawDispenser {
     /// `build_subscope` for cycle-time reads through the
     /// narrow `WireSource` trait.
     #[allow(dead_code)]
-    canonical_kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn polydat::Kernel>,
     /// Live tracing probability (f64 bits). Loaded per execute;
     /// `cql_trace_rate` control writes here.
     trace_rate_bits: Arc<AtomicU64>,
@@ -1401,7 +1395,7 @@ impl OpDispenser for CqlRawDispenser {
             .map(|s| format!("CQL raw: {}", flatten_one_line(&s)))
     }
 
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
 
@@ -1571,7 +1565,7 @@ struct CqlPreparedDispenser {
     /// SRD-68 invariant I-3: dispenser-owned canonical Polydat Kernel.
     /// See `CqlRawDispenser::canonical_kernel`.
     #[allow(dead_code)]
-    canonical_kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn polydat::Kernel>,
     /// Pre-prepared statement. Constructed at `map_op` time as part
     /// of the dispenser-init stack frame so the per-cycle path has
     /// no preparation latency.
@@ -1602,7 +1596,7 @@ impl OpDispenser for CqlPreparedDispenser {
         ))
     }
 
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
 
@@ -1823,7 +1817,7 @@ struct CqlBatchDispenser {
     /// SRD-68 invariant I-3: dispenser-owned canonical Polydat Kernel.
     /// See `CqlRawDispenser::canonical_kernel`.
     #[allow(dead_code)]
-    canonical_kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    canonical_kernel: std::sync::Arc<dyn polydat::Kernel>,
     /// Raw `batch: N` row cap from the op param (`0` → unset).
     /// Retained for the `describe_resolved` footer (shows the operator
     /// the configured cap); the per-invocation row count now comes from
@@ -1894,7 +1888,7 @@ impl OpDispenser for CqlBatchDispenser {
         Some(format!("CQL batch: {}", flatten_one_line(&self.stmt_text)))
     }
 
-    fn canonical_kernel(&self) -> Option<&std::sync::Arc<nmbrs_runtime::adapter::PolydatKernel>> {
+    fn canonical_kernel(&self) -> Option<&std::sync::Arc<dyn polydat::Kernel>> {
         Some(&self.canonical_kernel)
     }
 
