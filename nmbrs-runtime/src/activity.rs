@@ -45,7 +45,7 @@ pub struct ActivityConfig {
     pub error_rate_max: Option<f64>,
     /// SRD-83 — the phase's declared stop-condition predicates (the
     /// `when:` of each `stop_when:` entry). Compiled into scope-bound
-    /// `ScopedExpr`s alongside the default error-rate condition and
+    /// `ScopedPredicate`s alongside the default error-rate condition and
     /// evaluated per tick.
     pub stop_when: Vec<crate::stop_conditions::StopConditionDecl>,
     /// SRD-83 §throttle — the phase's adaptive backpressure governor
@@ -915,7 +915,7 @@ pub struct Activity {
     /// walk's `cached_kernel`). Stop-condition predicates bind to THIS
     /// native scope as it sits, not a conjured root. `None` when the
     /// phase has no installed kernel (then no conditions evaluate).
-    pub phase_kernel: Option<Arc<polydat::kernel::PolydatKernel>>,
+    pub phase_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
     /// SRD-82 — the phase shell's [`crate::error_policy::ErrorPolicy`]
     /// (op router + aggregate guard), resolved at scope-init from the
     /// parent policy so equal configs share one instance. Built
@@ -1059,7 +1059,7 @@ pub struct PhasePollContext {
     /// [`crate::wrappers::condition::is_truthy`]. `lookup` would not do: the
     /// predicate is a DYNAMIC binding fed by per-iteration capture writes, so
     /// it has to be pulled or it returns the last-evaluated value forever.
-    pub kernel: Arc<polydat::kernel::PolydatKernel>,
+    pub kernel: Arc<crate::scope_kernel::ScopeKernel>,
     /// Sleep between iterations (after a predicate check
     /// returns "not done").
     pub interval: std::time::Duration,
@@ -1210,7 +1210,7 @@ impl Activity {
         params: std::collections::HashMap<String, String>,
         sigdigs: u8,
         error_policy: Arc<crate::error_policy::ErrorPolicy>,
-        phase_kernel: Option<Arc<polydat::kernel::PolydatKernel>>,
+        phase_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
         metric_detail: &MetricDetailConfig,
     ) -> Self {
         let labels = parent_labels.clone();
@@ -3028,7 +3028,7 @@ impl Activity {
         let mut last_logged_count = activity.config.concurrency;
         // SRD-83 — compile this phase's stop conditions (the default
         // `error_rate > error_rate_max` plus any declared `stop_when:`
-        // predicates) as scope-bound `ScopedExpr`s, evaluated per tick
+        // predicates) as scope-bound `ScopedPredicate`s, evaluated per tick
         // below. Fire at most once per phase.
         //
         // The predicates bind to this phase node's OWN scope kernel
@@ -4881,21 +4881,17 @@ pub fn terminal_cols() -> Option<usize> {
 /// final cell) — the display must never fail a completed phase.
 fn evaluate_final_gutter(
     activity: &Activity,
-    source_kernel: &Arc<polydat::kernel::PolydatKernel>,
+    source_kernel: &Arc<crate::scope_kernel::ScopeKernel>,
     kind: crate::wrappers::gutter::GutterKind,
     template: &str,
 ) -> Option<crate::wrappers::gutter::GutterSpec> {
     use crate::wrappers::gutter::{GutterKind, GutterSpec};
-    // Wires pass: a fresh wired subscope (cells attach via the
-    // sanctioned materialize path) gives template names their live
-    // end-of-phase values.
-    let sub = polydat::kernel::PolydatKernel::for_iteration(source_kernel, source_kernel, &[]);
-    let rendered = match Arc::try_unwrap(sub) {
-        Ok(mut k) => {
-            let wires = crate::wires::CycleWires::new(&mut k);
-            crate::wires::substitute_via_wires(template, &wires).ok()
-        }
-        Err(_) => None,
+    // Wires pass: a fork of the phase scope (its cells shared) gives
+    // template names their live end-of-phase values.
+    let rendered = {
+        let mut k = source_kernel.fork();
+        let wires = crate::wires::CycleWires::new(&mut k);
+        crate::wires::substitute_via_wires(template, &wires).ok()
     };
     let mut text = rendered.unwrap_or_else(|| template.to_string());
 
@@ -5186,7 +5182,7 @@ mod tests {
     }
 
     /// Build a minimal Polydat root kernel (single identity node) for tests.
-    fn test_kernel() -> polydat::kernel::PolydatKernel {
+    fn test_kernel() -> crate::scope_kernel::ScopeKernel {
         use polydat::compile::assembly::{PolydatAssembler, WireRef};
         use polydat::library::identity::Identity;
         let mut asm = PolydatAssembler::new(vec!["cycle".into()]);
@@ -5196,7 +5192,7 @@ mod tests {
             vec![WireRef::input("cycle")],
         );
         asm.add_output("id", WireRef::node("id"));
-        asm.compile().unwrap()
+        asm.compile().unwrap().into()
     }
 
     #[tokio::test]

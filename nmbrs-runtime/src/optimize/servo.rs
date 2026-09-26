@@ -32,11 +32,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use crate::scope_kernel::ScopeKernel;
 use arc_swap::ArcSwap;
 use nmbrs_metrics::cadence_reporter::CadenceReporter;
 use nmbrs_metrics::component::Component;
 use nmbrs_metrics::controls::ControlOrigin;
-use polydat::kernel::PolydatKernel;
 
 use super::settle::start_settle;
 use super::{Budget, Coord, LexSource, OptimizerParams, PullSource, SearchSpace};
@@ -131,8 +131,8 @@ pub async fn servo(
     spec: ServoSpec,
     stop_flag: Arc<AtomicBool>,
     reporter: Arc<CadenceReporter>,
-    parent: Arc<PolydatKernel>,
-    phase_kernel: Arc<PolydatKernel>,
+    parent: Arc<ScopeKernel>,
+    phase_kernel: Arc<ScopeKernel>,
     phase_component: Arc<RwLock<Component>>,
     phase_done: Arc<AtomicBool>,
 ) -> Result<(), String> {

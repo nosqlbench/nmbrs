@@ -31,7 +31,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use polydat::kernel::{PolydatKernel, PolydatProgram};
+use crate::scope_kernel::ScopeKernel;
+use polydat::kernel::PolydatProgram;
 
 /// SHA-256 hex of a param's raw string value — the stored
 /// representation is a digest, never the value itself, so rows
@@ -57,7 +58,7 @@ pub(crate) fn value_digest(value: &str) -> String {
 pub(crate) fn consumed_params(
     own_program: &PolydatProgram,
     op_template_programs: &[Arc<PolydatProgram>],
-    ancestors_below_session: &[Arc<PolydatKernel>],
+    ancestors_below_session: &[Arc<ScopeKernel>],
     phase_config_text: &str,
     params: &HashMap<String, String>,
 ) -> BTreeMap<String, String> {
@@ -96,10 +97,12 @@ pub(crate) fn consumed_params(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polydat::dsl::compile::compile_polydat_interpreter;
 
-    fn kernel(source: &str) -> Arc<PolydatKernel> {
-        Arc::new(compile_polydat_interpreter(source).expect("compile test kernel"))
+    fn kernel(source: &str) -> Arc<ScopeKernel> {
+        Arc::new(
+            crate::bindings::compile_scope_kernel(source, &Default::default())
+                .expect("compile test kernel"),
+        )
     }
 
     fn params(pairs: &[(&str, &str)]) -> HashMap<String, String> {

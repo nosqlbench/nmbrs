@@ -78,7 +78,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use polydat::kernel::{ManifestEntry, PolydatKernel};
+use crate::scope_kernel::ScopeKernel;
+use polydat::kernel::ManifestEntry;
 
 use super::helpers::{
     format_value_as_final_literal, port_type_to_extern_name, workload_param_type_name,
@@ -91,7 +92,7 @@ use super::helpers::{
 /// set, then passes it through to the walker.
 pub struct CascadeInputs<'a> {
     /// Parent kernel — the chain root for all walks.
-    pub parent_kernel: &'a PolydatKernel,
+    pub parent_kernel: &'a ScopeKernel,
     /// Workload params (CLI / params: block defaults).
     pub workload_params: &'a HashMap<String, String>,
     /// Typed manifest of the parent's outputs — used to look up

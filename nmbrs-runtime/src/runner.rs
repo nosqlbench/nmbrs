@@ -2837,7 +2837,7 @@ async fn run_execution(
     // (a) fire side-effecting nodes like `testkit_throw_at` outside the
     // phase cascade context, and (b) cache stale values for
     // cycle-dependent bindings.
-    let workload_canonical_kernel: std::sync::Arc<polydat::kernel::PolydatKernel> =
+    let workload_canonical_kernel: std::sync::Arc<crate::scope_kernel::ScopeKernel> =
         std::sync::Arc::new(
             build_workload_root_kernel(
                 &params_kernel,
@@ -2933,7 +2933,6 @@ async fn run_execution(
     }
 
     let builder = Arc::new(OpBuilder::new(kernel));
-    let program = builder.program();
 
     // Unification — the scenario-tree executor is the sole
     // execution path. `Workload::synthesize_default_phase` (called
@@ -3387,7 +3386,7 @@ async fn run_execution(
             // (those are pass-through structural).
             let parent_kernel = {
                 let mut cursor = scope_tree.nodes[idx].parent;
-                let mut found: Option<std::sync::Arc<polydat::kernel::PolydatKernel>> = None;
+                let mut found: Option<std::sync::Arc<crate::scope_kernel::ScopeKernel>> = None;
                 while let Some(p) = cursor {
                     if let Some(k) = scope_tree.nodes[p].cached_kernel.get() {
                         found = Some(k.clone());
@@ -3465,7 +3464,7 @@ async fn run_execution(
                     // values in at runtime.
                     // The scope module stays on the node for the fiber
                     // engine's per-op images (`crate::fiber_engine`).
-                    crate::scope::build_op_template_scope_module(
+                    crate::scope::build_op_template_scope_kernel(
                         &op,
                         &parent_manifest,
                         &parent_kernel,
@@ -3476,18 +3475,6 @@ async fn run_execution(
                         kernel_opt,
                         &context,
                     )
-                    .map(|(kernel, module)| {
-                        // Build the image now, beside the interpreter
-                        // program, so its compile cost and any refusal
-                        // land at load rather than at a phase's first
-                        // fiber.
-                        let _ = crate::fiber_engine::module_image(&module, &context);
-                        let _ = scope_tree.nodes[idx]
-                            .fiber_images
-                            .op_module
-                            .set(std::sync::Arc::new(module));
-                        kernel
-                    })
                 }
                 InstallSpec::Bindings { bindings, .. } => {
                     // Single install path for both phase-level
@@ -3731,7 +3718,7 @@ async fn run_execution(
             workload_params: workload_params.clone(),
             wrappers_override: workload_wrappers_override.clone(),
             wrap_default_order: cli_wrap_default_order.clone(),
-            program: program.clone(),
+            workload_scope: builder.source_kernel().clone(),
             polydat_lib_paths: polydat_lib_paths.clone(),
             workload_dir: workload_dir.map(|p| p.to_path_buf()),
             strict,
@@ -4545,7 +4532,7 @@ fn print_kernel_dump_header() {
 /// from, indented by the scope's depth.
 fn print_kernel_for_scope(
     node: &crate::scope_tree::ScopeNode,
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &crate::scope_kernel::ScopeKernel,
 ) {
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
     let (bold, dim, reset, cyan, magenta, green) = if is_tty {
@@ -5737,7 +5724,10 @@ fn scan_input_decl_names(out: &mut std::collections::HashSet<String>, body: &str
 }
 
 /// Resolve a config value to u64 via Polydat scope lookup or numeric parsing.
-pub fn resolve_polydat_config(value: &str, kernel: &polydat::kernel::PolydatKernel) -> Option<u64> {
+pub fn resolve_polydat_config(
+    value: &str,
+    kernel: &crate::scope_kernel::ScopeKernel,
+) -> Option<u64> {
     if value.starts_with('{') && value.ends_with('}') {
         let inner = &value[1..value.len() - 1];
         // SRD-16 §"Visibility Rules: Shadowing": `lookup`

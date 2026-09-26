@@ -4,7 +4,7 @@
 //! `WireSource` — narrow read trait for op-template name resolution.
 //!
 //! SRD-68 §"The narrow trait" specifies the wall between adapter
-//! code and `polydat::kernel::PolydatKernel` internals: a dispenser
+//! code and `crate::scope_kernel::ScopeKernel` internals: a dispenser
 //! at cycle time accesses its bound Polydat context only through this
 //! trait's `get` (value lookup by name) and `names` (declared-name
 //! iteration for diagnostics). No `program()`, no `state()`, no
@@ -12,7 +12,7 @@
 //! mechanics.
 //!
 //! Two implementations ship here:
-//! - `PolydatKernel` itself, via the kernel's existing `lookup` chain
+//! - `ScopeKernel` itself, via the kernel's existing `lookup` chain
 //!   (input slots, outputs, inherited scope state). Single
 //!   resolution surface — name resolves where SRD-67 places it,
 //!   no fallback (SRD-68 invariant I-1).
@@ -26,8 +26,9 @@
 
 use std::sync::OnceLock;
 
+use crate::scope_kernel::ScopeKernel;
 use polydat::ast::{PortType, Value};
-use polydat::kernel::{PolydatKernel, WriteError};
+use polydat::kernel::WriteError;
 
 /// Cached `NMBRS_DIRTY_DEBUG` flag. Per-cycle env reads cost ~30%
 /// of CPU on single-fiber benches; the OnceLock makes the gate
@@ -188,7 +189,7 @@ pub trait WireSource: Send + Sync {
     ///
     /// Default impl returns `NoSlot` — appropriate for read-only
     /// implementations like `NullWireSource` and the bare
-    /// `&PolydatKernel` baseline (which has no `&mut` handle to mutate
+    /// `&ScopeKernel` baseline (which has no `&mut` handle to mutate
     /// state). `CycleWires` overrides with the real write path
     /// through the wrapped kernel's `set_input`.
     fn write(&self, _name: &str, _value: Value) -> WriteOutcome {
@@ -230,7 +231,7 @@ pub trait WireSource: Send + Sync {
 
 /// Read-only `WireSource` over a kernel of any engine: the names a scope
 /// lookup answers (`KernelLookup` — a const's value, an input, a folded
-/// value), as the `PolydatKernel` impl below does for the interpreter.
+/// value), as the `ScopeKernel` impl below does for the interpreter.
 /// Computed outputs that need a pull are not covered; `CycleWires` is
 /// the surface that pulls. What an adapter's canonical kernel offers a
 /// wrap-time reader.
@@ -254,7 +255,7 @@ impl WireSource for KernelWires<'_> {
     }
 }
 
-/// `WireSource` over `&PolydatKernel` — covers names that the kernel's
+/// `WireSource` over `&ScopeKernel` — covers names that the kernel's
 /// `lookup` API already exposes (inputs, scope-init constants,
 /// shared-cell-backed values). Computed outputs that require a
 /// memoizing `pull(&mut state, …)` evaluation are NOT covered here
@@ -262,11 +263,11 @@ impl WireSource for KernelWires<'_> {
 /// richer `WireSource` impl that owns the per-fiber kernel handle
 /// with interior mutability and can pull outputs at cycle time.
 ///
-/// For Push 1 this `&PolydatKernel` impl is the additive baseline: every
+/// For Push 1 this `&ScopeKernel` impl is the additive baseline: every
 /// existing call site that gets handed a `NullWireSource` continues
 /// working unchanged, and code that wants kernel-side reads via the
 /// trait can use it for the names `lookup` already answers.
-impl WireSource for PolydatKernel {
+impl WireSource for ScopeKernel {
     fn get(&self, name: &str) -> Option<Value> {
         self.lookup(name)
     }
@@ -292,10 +293,46 @@ impl WireSource for PolydatKernel {
     }
 }
 
+/// A kernel that carries the interpreter program its names resolve on:
+/// a scope kernel, or an interpreter kernel.
+pub trait ProgramKernel {
+    /// The running kernel and its program.
+    fn split_program(
+        &mut self,
+    ) -> (
+        &mut dyn polydat::Kernel,
+        std::sync::Arc<polydat::kernel::PolydatProgram>,
+    );
+}
+
+impl ProgramKernel for ScopeKernel {
+    fn split_program(
+        &mut self,
+    ) -> (
+        &mut dyn polydat::Kernel,
+        std::sync::Arc<polydat::kernel::PolydatProgram>,
+    ) {
+        let program = self.program().clone();
+        (self.kernel_mut(), program)
+    }
+}
+
+impl ProgramKernel for polydat::kernel::PolydatKernel {
+    fn split_program(
+        &mut self,
+    ) -> (
+        &mut dyn polydat::Kernel,
+        std::sync::Arc<polydat::kernel::PolydatProgram>,
+    ) {
+        let program = self.program().clone();
+        (self, program)
+    }
+}
+
 /// `WireSource` over a per-fiber kernel handle that supports the
 /// full read surface — inputs, scope-init constants, AND computed
 /// outputs (which need a memoizing `pull(&mut state, …)` to fire
-/// the eval cone). Wraps a `&mut PolydatKernel` in a `Mutex` so the
+/// the eval cone). Wraps a `&mut ScopeKernel` in a `Mutex` so the
 /// trait stays `&self`-callable (and `Sync`) while still permitting
 /// pull's `&mut` requirement.
 ///
@@ -340,11 +377,11 @@ pub struct CycleWires<'a> {
 }
 
 impl<'a> CycleWires<'a> {
-    /// Wrap an interpreter kernel handle for cycle-time reads. The
-    /// caller holds the only outstanding borrow on the kernel for the
-    /// duration of this cycle.
-    pub fn new(kernel: &'a mut PolydatKernel) -> Self {
-        let program = kernel.program().clone();
+    /// Wrap a scope kernel (or an interpreter kernel) for cycle-time
+    /// reads; names resolve on its program. The caller holds the only
+    /// outstanding borrow on the kernel for the duration of this cycle.
+    pub fn new<K: ProgramKernel + ?Sized>(kernel: &'a mut K) -> Self {
+        let (kernel, program) = kernel.split_program();
         Self::over(kernel, program)
     }
 
@@ -879,12 +916,12 @@ mod tests {
     use polydat::dsl::compile::compile_polydat_interpreter;
 
     #[test]
-    fn polydatkernel_get_resolves_inputs_and_constants() {
+    fn scope_kernel_get_resolves_inputs_and_constants() {
         // `lookup` (and therefore Push 1's WireSource) covers
         // input slots and scope-init constants — the names available
         // without a memoizing pull. `folded := 42` lands as a
         // compile-folded constant; `cycle` is a coordinate input.
-        let mut k = compile_polydat_interpreter(
+        let mut k = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              folded := 42\n",
         )
@@ -896,14 +933,14 @@ mod tests {
     }
 
     #[test]
-    fn polydatkernel_get_returns_none_for_pull_only_outputs_in_push_1() {
+    fn scope_kernel_get_returns_none_for_pull_only_outputs_in_push_1() {
         // Push 1 baseline: outputs that require a memoizing
         // `pull(&mut state, …)` evaluation are NOT served by the
-        // `&PolydatKernel` impl. Push 2 introduces the kernel-owning
+        // `&ScopeKernel` impl. Push 2 introduces the kernel-owning
         // wires impl that can pull outputs. This test pins the
         // current contract so the Push 2 change is visible as a
         // diff.
-        let mut k = compile_polydat_interpreter(
+        let mut k = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              cyc_dep := hash(cycle)\n",
         )
@@ -914,15 +951,16 @@ mod tests {
     }
 
     #[test]
-    fn polydatkernel_get_returns_none_for_unknown_name() {
-        let k = compile_polydat_interpreter("input cycle: u64\nx := 1\n").unwrap();
+    fn scope_kernel_get_returns_none_for_unknown_name() {
+        let k = crate::scope_kernel::ScopeKernel::compile("input cycle: u64\nx := 1\n").unwrap();
         let wires: &dyn WireSource = &k;
         assert!(wires.get("not_a_real_name").is_none());
     }
 
     #[test]
-    fn polydatkernel_names_lists_declared_outputs_and_inputs() {
-        let k = compile_polydat_interpreter("input cycle: u64\nfolded := 42\n").unwrap();
+    fn scope_kernel_names_lists_declared_outputs_and_inputs() {
+        let k =
+            crate::scope_kernel::ScopeKernel::compile("input cycle: u64\nfolded := 42\n").unwrap();
         let wires: &dyn WireSource = &k;
         let names: Vec<String> = wires.names().collect();
         assert!(
@@ -945,10 +983,10 @@ mod tests {
     #[test]
     fn cycle_wires_pulls_outputs() {
         // CycleWires (Push 4) covers the memoizing-pull path that
-        // the bare `&PolydatKernel` impl can't reach. `cyc_dep` is a
+        // the bare `&ScopeKernel` impl can't reach. `cyc_dep` is a
         // computed output — pulling it requires `&mut state` to
         // fire the eval cone and cache the result.
-        let mut k = compile_polydat_interpreter(
+        let mut k = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              folded := 42\n\
              cyc_dep := hash(cycle)\n",

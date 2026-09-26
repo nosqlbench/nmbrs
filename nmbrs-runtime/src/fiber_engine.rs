@@ -1,15 +1,15 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! The engine nmbrs runs its per-cycle kernels on.
+//! The engine nmbrs runs its kernels on.
 //!
-//! The scope tree is built and analysed on the interpreter: synthesis
-//! reads program structure (`PolydatProgram`), adapters receive the
-//! interpreter's canonical kernels, and pull plans resolve their indices
-//! against the interpreter's program. What runs every cycle — each
-//! fiber's main kernel and its per-op kernels — runs on a compiled
-//! engine instead, bound under its interpreter parent through the
-//! engine-neutral `Kernel` surface (polydat's native_scope_trees.md).
+//! Scope synthesis reads program structure on the interpreter
+//! (`PolydatProgram`), and pull plans resolve their indices against the
+//! interpreter's program. Every kernel that runs — each scope of the
+//! tree ([`crate::scope_kernel::ScopeKernel`]), each fiber's main kernel,
+//! its per-op kernels, the kernels adapters hold — runs on a compiled
+//! engine instead, bound under its parent through the engine-neutral
+//! `Kernel` surface (polydat's native_scope_trees.md).
 //!
 //! A compiled image stands in for an interpreter program only where it
 //! reports the same inputs and outputs in the same order, which is what
@@ -28,7 +28,7 @@ use polydat::kernel::{KernelProgram, PolydatProgram};
 /// image is built from.
 pub type OpTemplateModule = ScopeModule<Child<RootMarker>>;
 
-/// The engine fiber and per-op kernels run on: polydat's default, the
+/// The engine scope, fiber and per-op kernels run on: polydat's default, the
 /// most native form the build has.
 pub fn fiber_engine() -> polydat::Engine {
     polydat::Engine::default()
@@ -49,9 +49,9 @@ pub fn agrees(program: &PolydatProgram, image: &Arc<dyn KernelProgram>) -> bool 
         && kernel.coord_count() == program.coord_count()
 }
 
-/// The fiber-engine image of an op-template module, or `None` when the
+/// The fiber-engine image of a scope module, or `None` when the
 /// engine refuses it or it disagrees with the module's program; the
-/// per-op kernel then stays on the interpreter.
+/// module's kernels then stay on the interpreter.
 pub fn module_image(module: &OpTemplateModule, context: &str) -> Option<Arc<dyn KernelProgram>> {
     match module.program_on(fiber_engine()) {
         Ok(image) if agrees(module.program(), &image) => Some(image),
@@ -105,31 +105,7 @@ pub fn source_image(
 fn warn_interpreter(context: &str, reason: &str) {
     crate::diag!(
         crate::observer::LogLevel::Warn,
-        "{context}: per-cycle kernels stay on the interpreter ({} unavailable: {reason})",
+        "{context}: kernels stay on the interpreter ({} unavailable: {reason})",
         fiber_engine()
     );
-}
-
-/// What a scope-tree node keeps for the fiber engine beside its cached
-/// interpreter kernel, filled once, when the node's kernel is built.
-#[derive(Default)]
-pub struct FiberImages {
-    /// A phase scope's fiber-engine image of its cached program; `None`
-    /// inside when the image could not stand in for it.
-    pub phase: std::sync::OnceLock<Option<Arc<dyn KernelProgram>>>,
-    /// An op-template scope's module, from which each fiber instantiates
-    /// its per-op kernel with the module's write-throughs.
-    pub op_module: std::sync::OnceLock<Arc<OpTemplateModule>>,
-}
-
-impl std::fmt::Debug for FiberImages {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FiberImages")
-            .field(
-                "phase",
-                &self.phase.get().map(|p| p.as_ref().map(|p| p.engine())),
-            )
-            .field("op_module", &self.op_module.get().is_some())
-            .finish()
-    }
 }

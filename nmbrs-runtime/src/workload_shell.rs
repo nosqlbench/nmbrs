@@ -64,7 +64,7 @@ pub struct WorkloadShell {
     /// `ScopeKind::Workload` node's cached kernel.
     ///
     /// `Mutex` because [`StopConditionSet::evaluate`] needs `&mut`
-    /// (each predicate is a `ScopedExpr` that re-evaluates in place)
+    /// (each predicate is a `ScopedPredicate` that re-evaluates in place)
     /// and the set is shared across concurrent phase-finisher tasks.
     /// The lock is taken, the predicates evaluated, and the lock
     /// released within [`Self::evaluate`] — never held across an
@@ -248,7 +248,7 @@ mod tests {
     /// the declared predicate.
     #[test]
     fn stop_on_error_latches_on_first_failed_child() {
-        let root = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
+        let root = crate::scope_kernel::ScopeKernel::compile("input cycle: u64\nx := 5")
             .expect("root kernel");
         let set = StopConditionSet::build_for_phase(
             &root,
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn aggregate_op_count_trips_across_phases() {
         let root =
-            polydat::dsl::compile_polydat_interpreter("input cycle: u64").expect("root kernel");
+            crate::scope_kernel::ScopeKernel::compile("input cycle: u64").expect("root kernel");
         let set = StopConditionSet::build_for_phase(
             &root,
             &[crate::stop_conditions::StopConditionDecl {

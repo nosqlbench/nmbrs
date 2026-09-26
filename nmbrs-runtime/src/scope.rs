@@ -835,7 +835,7 @@ fn parse_modifier_and_name(lhs: &str) -> (ScopeModifier, &str) {
 /// The phase scope owns this kernel as part of its closure lifetime
 /// (per the Polydat builder/walk/instancing protocol): a phase whose YAML
 /// declared `bindings: |` produces matter that the parent kernel's
-/// `build_subscope` materializes into a layered kernel. Op-template
+/// builds a child scope from (`ScopeKernel::build_under`). Op-template
 /// scopes that descend from this phase find these bindings as
 /// outputs of their parent kernel and `extern` them through the
 /// standard manifest cascade.
@@ -922,7 +922,7 @@ pub fn synthesize_phase_scope_bindings(
     // No phase-scope augmentation needed — pass the author's bindings
     // through unchanged so a metrics/poll-free phase keeps its original
     // (possibly empty) `BindingsDef`. Stop conditions do NOT augment the
-    // matter (they are scope-bound `ScopedExpr`s built against the phase
+    // matter (they are scope-bound `ScopedPredicate`s built against the phase
     // kernel), so they don't force synthesis here.
     if !has_poll && !has_metrics && !has_objective_expr {
         return Ok(phase.bindings.clone());
@@ -1076,7 +1076,7 @@ pub fn synthesize_phase_scope_bindings(
     }
 
     // SRD-83 stop conditions are NOT synthesized into the phase matter.
-    // Each predicate is compiled as a scope-bound `ScopedExpr`
+    // Each predicate is compiled as a scope-bound `ScopedPredicate`
     // (`stop_conditions::compile_stop_condition`) against the *built*
     // phase kernel and evaluated per trigger — authored phase bindings
     // and evaluated stop predicates stay orthogonal concerns.
@@ -1097,13 +1097,13 @@ pub fn synthesize_phase_scope_bindings(
 pub fn build_phase_scope_kernel(
     bindings: &nmbrs_workload::model::BindingsDef,
     parent_manifest: &[crate::runner::ManifestEntry],
-    parent_kernel: &polydat::kernel::PolydatKernel,
+    parent_kernel: &crate::scope_kernel::ScopeKernel,
     workload_params: &HashMap<String, String>,
     polydat_lib_paths: Vec<std::path::PathBuf>,
     workload_dir: Option<&std::path::Path>,
     strict: bool,
     context: &str,
-) -> Result<polydat::kernel::PolydatKernel, String> {
+) -> Result<crate::scope_kernel::ScopeKernel, String> {
     use nmbrs_workload::model::BindingsDef;
 
     let body_text: String = match bindings {
@@ -1189,18 +1189,12 @@ pub fn build_phase_scope_kernel(
             "=== SCOPE SYNTH [{context}] inherited={inherited_names:?} ===\n{source}\n=== END ==="
         );
     }
-    let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-        .label(context)
-        .source(source)
-        .inherited_outputs(inherited_names)
-        .options(compile_options)
-        .build()
-        .map_err(|e| format!("{context}: phase scope synthesis: {e}"))?;
-    let mut kernel = parent_kernel
-        .build_subscope(matter)
-        .map_err(|e| format!("{context}: phase scope synthesis: {e}"))?;
-    parent_kernel.propagate_inputs_into(&mut kernel);
-    Ok(kernel)
+    crate::scope_kernel::ScopeKernel::synthesize_under(
+        parent_kernel,
+        crate::scope_kernel::SourceMatter::source(context, source, compile_options)
+            .inherited(inherited_names),
+    )
+    .map_err(|e| format!("{context}: phase scope synthesis: {e}"))
 }
 
 // reason: cohesive scope-kernel constructor — each argument is a distinct
@@ -1211,13 +1205,13 @@ pub fn build_do_loop_scope_kernel(
     counter: Option<&str>,
     condition: &str,
     parent_manifest: &[crate::runner::ManifestEntry],
-    parent_kernel: &polydat::kernel::PolydatKernel,
+    parent_kernel: &crate::scope_kernel::ScopeKernel,
     workload_params: &HashMap<String, String>,
     polydat_lib_paths: Vec<std::path::PathBuf>,
     workload_dir: Option<&std::path::Path>,
     strict: bool,
     context: &str,
-) -> Result<polydat::kernel::PolydatKernel, String> {
+) -> Result<crate::scope_kernel::ScopeKernel, String> {
     // Scope-specific contribution: declare the counter extern
     // (if a counter is in play). The counter is the do-loop's
     // only own-iter wire; pre-emit it so the shared cascade
@@ -1270,17 +1264,12 @@ pub fn build_do_loop_scope_kernel(
     // path); the do-loop's emitted source shape doesn't need
     // them. Recorded as a Phase 3 follow-up.
     let _ = (polydat_lib_paths, workload_dir, strict);
-    let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-        .label(context)
-        .source(source)
-        .inherited_outputs(inherited_names)
-        .build()
-        .map_err(|e| format!("{context}: do-loop scope synthesis: {e}"))?;
-    let mut kernel = parent_kernel
-        .build_subscope(matter)
-        .map_err(|e| format!("{context}: do-loop scope synthesis: {e}"))?;
-    parent_kernel.propagate_inputs_into(&mut kernel);
-    Ok(kernel)
+    crate::scope_kernel::ScopeKernel::synthesize_under(
+        parent_kernel,
+        crate::scope_kernel::SourceMatter::source(context, source, Default::default())
+            .inherited(inherited_names),
+    )
+    .map_err(|e| format!("{context}: do-loop scope synthesis: {e}"))
 }
 
 /// Token-shaped identifier scan over Polydat source. Returns every
@@ -1476,8 +1465,10 @@ pub(crate) fn scan_locally_declared_idents(src: &str) -> HashSet<String> {
 ///    workload-init time with a clear message pointing at the
 ///    `shared` modifier path.
 /// 3. Emits the op's own bindings.
-/// 4. Compiles + `materialize_wiring_from_outer`s to the parent kernel and
-///    propagates inherited inputs.
+/// 4. Builds the scope under the parent kernel and propagates
+///    inherited inputs. The scope keeps its module, from which each
+///    fiber instantiates its per-op kernel with the module's
+///    `result:` write-throughs ([`crate::fiber_engine`]).
 // reason: cohesive scope-kernel constructor — each argument is a distinct
 // piece of the op-template's compile context (op, parent kernel, params,
 // cascade inputs); a parameter struct would only relocate the same fields.
@@ -1485,52 +1476,14 @@ pub(crate) fn scan_locally_declared_idents(src: &str) -> HashSet<String> {
 pub fn build_op_template_scope_kernel(
     op: &nmbrs_workload::model::ParsedOp,
     parent_manifest: &[crate::runner::ManifestEntry],
-    parent_kernel: &polydat::kernel::PolydatKernel,
+    parent_kernel: &crate::scope_kernel::ScopeKernel,
     workload_params: &HashMap<String, String>,
     polydat_lib_paths: Vec<std::path::PathBuf>,
     workload_dir: Option<&std::path::Path>,
     strict: bool,
     kernel_opt: polydat::kernel::KernelOptLevel,
     context: &str,
-) -> Result<polydat::kernel::PolydatKernel, String> {
-    build_op_template_scope_module(
-        op,
-        parent_manifest,
-        parent_kernel,
-        workload_params,
-        polydat_lib_paths,
-        workload_dir,
-        strict,
-        kernel_opt,
-        context,
-    )
-    .map(|(kernel, _)| kernel)
-}
-
-/// [`build_op_template_scope_kernel`], keeping the scope module the
-/// kernel was instantiated from. Fibers instantiate their per-op
-/// kernels from the module on the fiber engine
-/// ([`crate::fiber_engine`]); the module carries the settings and the
-/// `result:` write-throughs every engine's image needs.
-// reason: same argument list as `build_op_template_scope_kernel`.
-#[allow(clippy::too_many_arguments)]
-pub fn build_op_template_scope_module(
-    op: &nmbrs_workload::model::ParsedOp,
-    parent_manifest: &[crate::runner::ManifestEntry],
-    parent_kernel: &polydat::kernel::PolydatKernel,
-    workload_params: &HashMap<String, String>,
-    polydat_lib_paths: Vec<std::path::PathBuf>,
-    workload_dir: Option<&std::path::Path>,
-    strict: bool,
-    kernel_opt: polydat::kernel::KernelOptLevel,
-    context: &str,
-) -> Result<
-    (
-        polydat::kernel::PolydatKernel,
-        crate::fiber_engine::OpTemplateModule,
-    ),
-    String,
-> {
+) -> Result<crate::scope_kernel::ScopeKernel, String> {
     use nmbrs_workload::model::BindingsDef;
 
     let manifest_by_name: HashMap<&str, &crate::runner::ManifestEntry> = parent_manifest
@@ -1940,7 +1893,7 @@ pub fn build_op_template_scope_module(
     // bridge applies `mark_inherited_outputs` and
     // `materialize_wiring_from_outer` against the live parent so per-cycle
     // values reach the inner kernel's input slots; the trailing
-    // `PolydatKernel::propagate_inputs_into` keeps cascade-extern'd inputs
+    // `polydat::kernel::propagate_inputs` keeps cascade-extern'd inputs
     // flowing through (until Rule 4 / Rule 5 absorb them).
     let compile_options = polydat::kernel::subcontext::CompileOptions {
         workload_dir: workload_dir.map(|p| p.to_path_buf()),
@@ -2039,45 +1992,19 @@ pub fn build_op_template_scope_module(
             manifest_by_name.contains_key("xval")
         );
     }
-    // The source form of `build_subscope`, spelled out so the finalized
-    // module is kept: the interpreter kernel is materialized from the
-    // module's program exactly as `build_subscope` does, and the module
-    // stays available for the fiber engine's per-op images.
-    use polydat::kernel::subcontext::{
-        BodyFragment, ContractViolation, PolydatMatter, SourceContext, SubcontextBuilder,
-    };
-    let synthesis_error =
-        |e: ContractViolation| format!("{context}: op-template scope synthesis: {e}");
-    let mut builder = SubcontextBuilder::under(parent_kernel);
-    builder
-        .context(SourceContext::new(context.to_string()))
-        .mark_inherited_outputs(inherited_names)
-        .with_compile_options(compile_options)
-        .body(BodyFragment::PolydatSource(source));
+    // Built under the parent from source matter; the scope keeps the
+    // finalized module, from which each fiber instantiates its per-op
+    // kernel with the module's write-throughs. Strict mode refuses a
+    // scope-init const that fell through to `None`
+    // (composition_substrate.md L2.f).
+    let synthesis_error = |e: String| format!("{context}: op-template scope synthesis: {e}");
+    let mut matter = crate::scope_kernel::SourceMatter::source(context, source, compile_options)
+        .inherited(inherited_names);
     if let Some(rb) = result_source {
-        builder.add_result_bindings(&rb).map_err(synthesis_error)?;
+        matter = matter.results(rb);
     }
-    let module = builder.finalize().map_err(synthesis_error)?;
-    let mut kernel = parent_kernel
-        .build_subscope(
-            PolydatMatter::builder()
-                .program(module.program().clone())
-                .build()
-                .map_err(|e| format!("{context}: op-template scope synthesis: {e}"))?,
-        )
+    let kernel = crate::scope_kernel::ScopeKernel::synthesize_under(parent_kernel, matter)
         .map_err(synthesis_error)?;
-    // Strict mode escalates a scope-init const that fell through to
-    // `None` (composition_substrate.md L2.f), as `build_subscope` does.
-    if strict {
-        let bindings = kernel.find_l2f_violations();
-        if !bindings.is_empty() {
-            return Err(synthesis_error(ContractViolation::StrictNonePropagation {
-                bindings,
-                site: SourceContext::new(context.to_string()),
-            }));
-        }
-    }
-    parent_kernel.propagate_inputs_into(&mut kernel);
 
     // SRD-108 Part B — the interface's TYPE PROOF, at the same
     // place every other wire is type-checked: pre-map synthesis,
@@ -2086,7 +2013,7 @@ pub fn build_op_template_scope_module(
     if let Some(iface) = op.abstract_interface.as_ref() {
         verify_op_interface(iface, kernel.program().as_ref(), context)?;
     }
-    Ok((kernel, module))
+    Ok(kernel)
 }
 
 /// SRD-108 Part B — verify a bound slot's interface against its
@@ -2314,7 +2241,7 @@ pub fn build_scope(
     // folded constant state (for case 1 promoted-final
     // emission). `None` for the workload-root build (it IS the
     // root; no parent).
-    parent_kernel: Option<&polydat::kernel::PolydatKernel>,
+    parent_kernel: Option<&crate::scope_kernel::ScopeKernel>,
 ) -> Result<BindingScope, String> {
     let mut scope = BindingScope::new();
 
@@ -2625,8 +2552,8 @@ pub fn build_scope(
                         })
                         .unwrap_or(true);
                     if statically_known
-                        && let Some(value) = parent_kernel_ref.get_constant(name)
-                        && let Some(natural) = value_to_param_string(value)
+                        && let Some(value) = parent_kernel_ref.lookup(name)
+                        && let Some(natural) = value_to_param_string(&value)
                     {
                         scope.add_param_binding(name, &natural);
                         already_satisfied.insert(name.to_string());
@@ -4115,16 +4042,17 @@ mod tests {
 
     // ── SRD-13d Phase 9 cross-scope contract check ──────────
 
-    fn parent_kernel_with_load() -> polydat::kernel::PolydatKernel {
+    fn parent_kernel_with_load() -> crate::scope_kernel::ScopeKernel {
         // Parent has `cycle` input, a folded constant `dim`, a
         // shared output `budget`, and a dynamic output `load`
         // (cycle-dependent, no modifier). Each shape exercises
         // a different `ParentRefKind` arm.
-        polydat::dsl::compile::compile_polydat_interpreter(
+        crate::bindings::compile_scope_kernel(
             "input cycle: u64\n\
              const dim := 128\n\
              shared budget := 100\n\
              load := add(cycle, 1)\n",
+            &Default::default(),
         )
         .expect("compile parent")
     }
@@ -4342,13 +4270,12 @@ extern limit: u64
 extern optimize_for: String
 extern table: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_interpreter_with_options(
+        let parent = crate::bindings::compile_scope_kernel(
             parent_src,
             &polydat::dsl::compile::CompileOptions {
                 context: "parent".to_string(),
                 ..Default::default()
             },
-            None,
         )
         .expect("parent compile");
         let manifest: Vec<crate::runner::ManifestEntry> =
@@ -4459,13 +4386,12 @@ extern dataset: String
 extern profile: String
 extern keyspace: String
 "#;
-        let parent = polydat::dsl::compile::compile_polydat_interpreter_with_options(
+        let parent = crate::bindings::compile_scope_kernel(
             parent_src,
             &polydat::dsl::compile::CompileOptions {
                 context: "parent".to_string(),
                 ..Default::default()
             },
-            None,
         )
         .expect("parent compile");
         let manifest: Vec<crate::runner::ManifestEntry> =
@@ -4573,7 +4499,7 @@ extern keyspace: String
             const k_value := 5\n\
             const limit_value := 100\n";
         let real_parent =
-            polydat::dsl::compile::compile_polydat_interpreter(kernel_src).expect("parent compile");
+            crate::scope_kernel::ScopeKernel::compile(kernel_src).expect("parent compile");
         let real_manifest = polydat::kernel::extract_manifest(real_parent.program())
             .into_iter()
             .map(|e| crate::runner::ManifestEntry {
@@ -4680,7 +4606,7 @@ extern keyspace: String
         // upstream and a Str, the synthesizer emits
         // `const name := "value"` in the child's source rather
         // than auto-externing it.
-        let parent = polydat::dsl::compile_polydat_interpreter(
+        let parent = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\nconst dataset := \"example\"\n",
         )
         .expect("compile parent");
@@ -4719,7 +4645,7 @@ extern keyspace: String
     #[test]
     fn promoted_final_emits_inline_literal_for_u64() {
         let parent =
-            polydat::dsl::compile_polydat_interpreter("input cycle: u64\nconst count := 42\n")
+            crate::scope_kernel::ScopeKernel::compile("input cycle: u64\nconst count := 42\n")
                 .expect("compile parent");
         let manifest: Vec<crate::runner::ManifestEntry> =
             polydat::kernel::extract_manifest(parent.program())
@@ -4755,7 +4681,7 @@ extern keyspace: String
         // `{tirp}` instead of the declared `trip`) is rejected
         // at the synthesizer level with a structured error,
         // not via a downstream Polydat compiler error.
-        let parent = polydat::dsl::compile_polydat_interpreter(
+        let parent = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\nconst dataset := \"example\"\n",
         )
         .expect("compile parent");
@@ -4865,7 +4791,7 @@ extern keyspace: String
                           shared has_indexes := false\n";
         scope.ingest_polydat_source(workload_polydat, BindingOrigin::Inherited);
         let source = scope.emit();
-        let kernel = polydat::dsl::compile_polydat_interpreter(&source)
+        let kernel = crate::scope_kernel::ScopeKernel::compile(&source)
             .unwrap_or_else(|e| panic!("compile failed for source:\n{source}\nerror: {e}"));
         let shared = kernel.program().shared_outputs();
         assert!(
@@ -5015,7 +4941,7 @@ extern keyspace: String
         );
         // The emitted source must compile as a phase kernel body, with
         // `__metric_time_to_index` surfacing as an output.
-        let kernel = polydat::dsl::compile_polydat_interpreter(&src)
+        let kernel = crate::scope_kernel::ScopeKernel::compile(&src)
             .unwrap_or_else(|e| panic!("compile failed:\n{src}\nerror: {e}"));
         assert!(
             kernel
@@ -5157,7 +5083,7 @@ extern keyspace: String
         let parent_kernel = crate::scope_synth::build_for_each_scope_kernel(
             &[("p".to_string(), "partitions(\"linear:3\")".to_string())],
             &[],
-            &polydat::dsl::compile_polydat_interpreter("\n").unwrap(),
+            &crate::scope_kernel::ScopeKernel::compile("\n").unwrap(),
             &HashMap::new(),
             Vec::new(),
             None,
@@ -5211,7 +5137,7 @@ extern keyspace: String
             &[("p".to_string(), "partitions(\"linear:3\")".to_string())],
             &[], // empty parent_manifest is fine; for_each scope only
             // cascades names it actually references.
-            &polydat::dsl::compile_polydat_interpreter("\n").unwrap(),
+            &crate::scope_kernel::ScopeKernel::compile("\n").unwrap(),
             &HashMap::new(),
             Vec::new(),
             None,
@@ -5280,7 +5206,7 @@ extern keyspace: String
         // attaches gets a slot whose declared type doesn't match
         // the cell's actual Value variant — downstream consumers
         // (e.g. pick) see the runtime variant and reject it.
-        let parent = polydat::dsl::compile_polydat_interpreter(
+        let parent = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\nshared has_sai_column_indexes := false\n\
              shared has_indexes := false\n",
         )
@@ -5355,7 +5281,7 @@ extern keyspace: String
         use polydat::kernel::extract_manifest;
 
         // ── workload root ──
-        let root = polydat::dsl::compile_polydat_interpreter(
+        let root = crate::scope_kernel::ScopeKernel::compile(
             "shared has_a := true\n\
              shared has_b := false\n\
              selector := mod(cycle, 1)\n",
@@ -5496,7 +5422,7 @@ extern keyspace: String
             params_source.push_str(&format!("const {k} := \"{}\"\n", workload_params[k]));
         }
         let params_kernel =
-            polydat::dsl::compile_polydat_interpreter(&params_source).expect("params compile");
+            crate::scope_kernel::ScopeKernel::compile(&params_source).expect("params compile");
 
         // Step 2: workload-root kernel.
         let mut scope = build_scope(
@@ -5519,23 +5445,23 @@ extern keyspace: String
                                  shared has_b := false\n";
         scope.ingest_polydat_source(workload_level_polydat, BindingOrigin::Inherited);
         let root_source = scope.emit();
-        let root_matter = polydat::kernel::subcontext::PolydatMatter::builder()
-            .label("test_root")
-            .source(root_source.clone())
-            .options(polydat::kernel::subcontext::CompileOptions {
-                workload_dir: None,
-                polydat_lib_paths: Vec::new(),
-                strict: false,
-                required_outputs: scope.required_outputs(),
-                context_label: Some("test_root".to_string()),
-                cursor_limit: None,
-                ..Default::default()
-            })
-            .build()
-            .expect("root matter");
-        let root = params_kernel
-            .build_subscope(root_matter)
-            .expect("root build");
+        let root = crate::scope_kernel::ScopeKernel::build_under(
+            params_kernel.kernel(),
+            crate::scope_kernel::SourceMatter::source(
+                "test_root",
+                root_source.clone(),
+                polydat::kernel::subcontext::CompileOptions {
+                    workload_dir: None,
+                    polydat_lib_paths: Vec::new(),
+                    strict: false,
+                    required_outputs: scope.required_outputs(),
+                    context_label: Some("test_root".to_string()),
+                    cursor_limit: None,
+                    ..Default::default()
+                },
+            ),
+        )
+        .expect("root build");
 
         // Sanity: has_a SHARED at root.
         let shared = root.program().shared_outputs();
@@ -5693,7 +5619,7 @@ extern keyspace: String
             params_source.push_str(&format!("const {k} := \"{v}\"\n"));
         }
         let params_kernel =
-            polydat::dsl::compile_polydat_interpreter(&params_source).expect("params compile");
+            crate::scope_kernel::ScopeKernel::compile(&params_source).expect("params compile");
 
         // The workload's `bindings:` block. The trigger.
         let workload_level_polydat = "selector := mod(cycle, 1)\n\
@@ -5726,15 +5652,11 @@ extern keyspace: String
             cursor_limit: None,
             ..Default::default()
         };
-        let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-            .label("test_workload_root")
-            .source(source.clone())
-            .options(opts)
-            .build()
-            .expect("matter build");
-        let root = params_kernel
-            .build_subscope(matter)
-            .expect("workload root build");
+        let root = crate::scope_kernel::ScopeKernel::build_under(
+            params_kernel.kernel(),
+            crate::scope_kernel::SourceMatter::source("test_workload_root", source.clone(), opts),
+        )
+        .expect("workload root build");
 
         // The workload-root program must have has_a:
         //   - present as an input slot,
@@ -5817,7 +5739,7 @@ extern keyspace: String
 
         // Step 1: workload root with shared bool AND a
         // non-shared cycle binding. The trigger.
-        let root = polydat::dsl::compile_polydat_interpreter(
+        let root = crate::scope_kernel::ScopeKernel::compile(
             "shared has_a := true\n\
              shared has_b := false\n\
              selector := mod(cycle, 1)\n",
@@ -5926,7 +5848,7 @@ extern keyspace: String
         // bind_outer_scope then cell-attaches at each level so
         // the original SharedCell reaches the leaf.
         use polydat::kernel::extract_manifest;
-        let root = polydat::dsl::compile_polydat_interpreter(
+        let root = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\nshared has_sai_column_indexes := false\n\
              shared has_indexes := false\n",
         )

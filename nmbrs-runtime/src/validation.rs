@@ -1981,13 +1981,12 @@ mod tests {
         // against the canonical kernel at wrap time. Same one-shot
         // evaluation as the `{k}` text-template form but without
         // the placeholder braces.
-        use polydat::dsl::compile::compile_polydat_interpreter;
-        let kernel = compile_polydat_interpreter(
+        let kernel = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              const k := 10\n\
              const limit := 100\n",
         )
-        .expect("compile_polydat_interpreter wires");
+        .expect("compile scope kernel wires");
         let wires: &dyn WireSource = &kernel;
 
         let mut template = nmbrs_workload::model::ParsedOp::simple("test", "SELECT key FROM t");

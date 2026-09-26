@@ -672,20 +672,20 @@ mod tests {
         (fields, pulls)
     }
 
-    fn kernel_with_extern_inputs(names: &[(&str, &str)]) -> polydat::kernel::PolydatKernel {
-        use polydat::dsl::compile::compile_polydat_interpreter;
+    fn kernel_with_extern_inputs(names: &[(&str, &str)]) -> crate::scope_kernel::ScopeKernel {
         let mut src = String::from("input cycle: u64\n");
         for (n, ty) in names {
             src.push_str(&format!("extern {n}: {ty}\n"));
         }
-        let mut k = compile_polydat_interpreter(&src).expect("kernel_with_extern_inputs compile");
+        let mut k = crate::bindings::compile_scope_kernel(&src, &Default::default())
+            .expect("kernel_with_extern_inputs compile");
         k.set_inputs(&[0]);
         k
     }
 
     fn run_with_wires(
         dispenser: Arc<dyn OpDispenser>,
-        kernel: &mut polydat::kernel::PolydatKernel,
+        kernel: &mut crate::scope_kernel::ScopeKernel,
     ) -> Result<OpResult, ExecutionError> {
         let fields = crate::adapter::ResolvedFields::new(vec![], vec![]);
         let pulls = ResolvedPulls::empty();

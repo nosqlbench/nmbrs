@@ -827,7 +827,10 @@ mod tests {
 
     fn kernel_with_const_outputs(
         consts: &[(&str, f64)],
-    ) -> (polydat::kernel::PolydatKernel, crate::fixture::ScopeFixture) {
+    ) -> (
+        crate::scope_kernel::ScopeKernel,
+        crate::fixture::ScopeFixture,
+    ) {
         use polydat::compile::assembly::{PolydatAssembler, WireRef};
         use polydat::library::fixed::ConstF64;
         let mut asm = PolydatAssembler::new(vec!["cycle".into()]);
@@ -836,7 +839,8 @@ mod tests {
             asm.add_node(&binding, Box::new(ConstF64::new(*val)), vec![]);
             asm.add_output(&binding, WireRef::node(&binding));
         }
-        let kernel = asm.compile().expect("test kernel asm.compile");
+        let kernel =
+            crate::scope_kernel::ScopeKernel::from(asm.compile().expect("test kernel asm.compile"));
         let fx = crate::fixture::ScopeFixture::new(kernel.program().clone());
         (kernel, fx)
     }
@@ -849,7 +853,7 @@ mod tests {
         (
             Arc<MetricsDispenser>,
             crate::fixture::ResolvedPulls,
-            polydat::kernel::PolydatKernel,
+            crate::scope_kernel::ScopeKernel,
         ),
         String,
     > {
@@ -915,7 +919,7 @@ mod tests {
     fn run_dispenser(
         dispenser: Arc<dyn OpDispenser>,
         pulls: &crate::fixture::ResolvedPulls,
-        kernel: &mut polydat::kernel::PolydatKernel,
+        kernel: &mut crate::scope_kernel::ScopeKernel,
     ) -> Result<OpResult, ExecutionError> {
         let fields = crate::adapter::ResolvedFields::new(vec![], vec![]);
         let cw = crate::wires::CycleWires::new(kernel);

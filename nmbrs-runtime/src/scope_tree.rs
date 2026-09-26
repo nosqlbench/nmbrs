@@ -240,29 +240,23 @@ pub struct ScopeNode {
     /// inline pragma block once the workload model supports
     /// per-node pragmas).
     pub pragmas: PragmaSet,
-    /// Cache for this scope's compiled Polydat Kernel — the canonical
-    /// instance that owns its `Arc<PolydatProgram>` and a folded-
-    /// constant-seeded `PolydatState` so `get_constant(name)` is a
-    /// straight `&self` read. Populated at pre-map time by
-    /// [`ScopeTree::install_kernel`].
+    /// This scope's canonical kernel ([`crate::scope_kernel::ScopeKernel`]):
+    /// the interpreter program synthesis reads, beside the kernel that runs
+    /// on the fiber engine, and for an op-template scope the module each
+    /// fiber instantiates its per-op kernel from. Populated at pre-map
+    /// time by [`ScopeTree::install_kernel`].
     ///
     /// SRD 18b §"Iteration variables as scope outputs": every
     /// non-trivial scope owns a kernel. The cached kernel is
     /// shared via `Arc` (read-only canonical state). Mutable
-    /// per-iteration / per-fiber execution pulls a fresh kernel
-    /// via `PolydatKernel::from_program(kernel.program().clone())` —
-    /// the cache-and-rebind primitive documented on
-    /// `PolydatKernel::from_program`.
+    /// per-iteration / per-fiber execution binds another instance of
+    /// it under the live parent ([`crate::scope_kernel::ScopeKernel::bind_under`]).
     ///
     /// `OnceLock` keeps installation lock-free; downstream
     /// readers walk the parent chain via
     /// [`ScopeTree::lookup_name`] and never touch this slot
     /// directly.
-    pub cached_kernel: std::sync::OnceLock<std::sync::Arc<polydat::kernel::PolydatKernel>>,
-    /// The fiber engine's images of this scope, beside
-    /// [`Self::cached_kernel`]: a phase's compiled program, an
-    /// op-template's module. See [`crate::fiber_engine`].
-    pub fiber_images: crate::fiber_engine::FiberImages,
+    pub cached_kernel: std::sync::OnceLock<std::sync::Arc<crate::scope_kernel::ScopeKernel>>,
     /// SRD-13d §3 scope-elision mark — set once at
     /// pre-walk by [`ScopeTree::mark_scope_elision`] and
     /// read by every consumer (premap, runtime, diagnostics).
@@ -296,7 +290,6 @@ impl Clone for ScopeNode {
             depth: self.depth,
             pragmas: self.pragmas.clone(),
             cached_kernel: std::sync::OnceLock::new(),
-            fiber_images: Default::default(),
             materialised: self.materialised,
             logical_name: self.logical_name.clone(),
         }
@@ -335,7 +328,6 @@ impl ScopeTree {
             depth: 0,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
-            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -349,7 +341,6 @@ impl ScopeTree {
             depth: 1,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
-            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -367,7 +358,6 @@ impl ScopeTree {
             depth: 2,
             pragmas: PragmaSet::default(),
             cached_kernel: std::sync::OnceLock::new(),
-            fiber_images: Default::default(),
             materialised: None,
             logical_name: String::new(),
         });
@@ -420,7 +410,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -440,7 +429,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -457,7 +445,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -481,7 +468,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -505,7 +491,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -524,7 +509,6 @@ impl ScopeTree {
                     depth,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -599,7 +583,6 @@ impl ScopeTree {
                     depth: phase_depth + 1,
                     pragmas: PragmaSet::default(),
                     cached_kernel: std::sync::OnceLock::new(),
-                    fiber_images: Default::default(),
                     materialised: None,
                     logical_name: String::new(),
                 });
@@ -786,7 +769,7 @@ impl ScopeTree {
     /// Rule 2 write-through bindings ride on the program itself
     /// (baked in by the SRD-67 builder's finalize step). Any
     /// kernel built from the program inherits them automatically
-    /// via `PolydatKernel::from_program` — no side channel.
+    /// when bound (`ScopeKernel::bind_under`) — no side channel.
     pub fn op_template_programs_for_phase(
         &self,
         phase_idx: ScopeNodeIdx,
@@ -829,7 +812,7 @@ impl ScopeTree {
                 if child.materialised != Some(true) {
                     return None;
                 }
-                let module = child.fiber_images.op_module.get()?;
+                let module = child.cached_kernel.get()?.module()?;
                 Some((name.clone(), module.clone()))
             })
             .collect()
@@ -854,7 +837,7 @@ impl ScopeTree {
     pub fn nearest_installed_ancestor_kernel(
         &self,
         idx: ScopeNodeIdx,
-    ) -> Option<std::sync::Arc<polydat::kernel::PolydatKernel>> {
+    ) -> Option<std::sync::Arc<crate::scope_kernel::ScopeKernel>> {
         let mut cursor = self.nodes.get(idx)?.parent;
         while let Some(p) = cursor {
             if let Some(k) = self.nodes[p].cached_kernel.get() {
@@ -876,7 +859,7 @@ impl ScopeTree {
     pub fn ancestor_kernels(
         &self,
         idx: ScopeNodeIdx,
-    ) -> Vec<std::sync::Arc<polydat::kernel::PolydatKernel>> {
+    ) -> Vec<std::sync::Arc<crate::scope_kernel::ScopeKernel>> {
         let mut out = Vec::new();
         let mut cursor = self.nodes.get(idx).and_then(|n| n.parent);
         while let Some(p) = cursor {
@@ -900,8 +883,8 @@ impl ScopeTree {
         &self,
         idx: ScopeNodeIdx,
     ) -> (
-        Vec<std::sync::Arc<polydat::kernel::PolydatKernel>>,
-        Option<std::sync::Arc<polydat::kernel::PolydatKernel>>,
+        Vec<std::sync::Arc<crate::scope_kernel::ScopeKernel>>,
+        Option<std::sync::Arc<crate::scope_kernel::ScopeKernel>>,
     ) {
         let mut below = Vec::new();
         let mut session = None;
@@ -1118,7 +1101,7 @@ impl ScopeTree {
     pub fn install_kernel(
         &self,
         scope_idx: ScopeNodeIdx,
-        kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        kernel: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
     ) -> bool {
         match self.nodes.get(scope_idx) {
             Some(node) => {
@@ -1247,7 +1230,7 @@ fn extract_phase_pragmas(phase: &nmbrs_workload::model::WorkloadPhase) -> Pragma
 /// encounters the scope. `None` (the default) keeps install
 /// a no-cost hot path.
 pub type KernelInstallVisitor =
-    Box<dyn Fn(&ScopeNode, ScopeNodeIdx, &polydat::kernel::PolydatKernel) + Send + Sync>;
+    Box<dyn Fn(&ScopeNode, ScopeNodeIdx, &crate::scope_kernel::ScopeKernel) + Send + Sync>;
 
 static KERNEL_INSTALL_VISITOR: std::sync::OnceLock<std::sync::Mutex<Option<KernelInstallVisitor>>> =
     std::sync::OnceLock::new();
@@ -1269,7 +1252,7 @@ pub fn set_kernel_install_visitor(v: Option<KernelInstallVisitor>) {
 fn notify_kernel_installed(
     node: &ScopeNode,
     idx: ScopeNodeIdx,
-    kernel: &polydat::kernel::PolydatKernel,
+    kernel: &crate::scope_kernel::ScopeKernel,
 ) {
     if let Ok(slot) = visitor_slot().lock()
         && let Some(visitor) = slot.as_ref()
@@ -1517,8 +1500,8 @@ mod tests {
     /// scope's canonical instance. A one-line `name := <const>`
     /// suffices to populate `output_map` so `get_constant`
     /// returns the folded value.
-    fn compile_kernel(source: &str) -> std::sync::Arc<polydat::kernel::PolydatKernel> {
-        let kernel = polydat::dsl::compile::compile_polydat_interpreter(source)
+    fn compile_kernel(source: &str) -> std::sync::Arc<crate::scope_kernel::ScopeKernel> {
+        let kernel = crate::bindings::compile_scope_kernel(source, &Default::default())
             .expect("test source should compile");
         std::sync::Arc::new(kernel)
     }
@@ -1540,8 +1523,8 @@ mod tests {
             .cached_kernel
             .get()
             .expect("install populated the slot");
-        match cached.get_constant("dataset") {
-            Some(polydat::ast::Value::Str(s)) => assert_eq!(&**s, "example"),
+        match cached.lookup("dataset") {
+            Some(polydat::ast::Value::Str(s)) => assert_eq!(&*s, "example"),
             other => panic!("expected Str(\"example\"), got {other:?}"),
         }
     }
@@ -1555,13 +1538,11 @@ mod tests {
         // values are reachable on the synthesized kernel via
         // standard Polydat API. Validates the chain inheritance
         // path without any caller-side scope walking.
-        use polydat::kernel::PolydatKernel;
         use std::sync::Arc;
 
         // Parent: a workload-shaped kernel exposing `k_values`.
         let parent_src = "const k_values := \"1, 10\"\n";
-        let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
+        let parent = Arc::new(crate::scope_kernel::ScopeKernel::compile(parent_src).unwrap());
 
         // Build the for_each scope kernel as the runner would.
         let parent_manifest = crate::runner::extract_manifest(parent.program());
@@ -1581,7 +1562,7 @@ mod tests {
         // After `materialize_wiring_from_outer` (called inside the helper),
         // the inherited extern is populated with the parent's
         // value.
-        match kernel.get_input("k_values") {
+        match kernel.lookup("k_values") {
             Some(polydat::ast::Value::Str(s)) => assert_eq!(&*s, "1, 10"),
             other => panic!("expected Str(\"1, 10\"), got {other:?}"),
         }
@@ -1622,12 +1603,10 @@ mod tests {
         // Pre-eval at synthesis detects U64 from "1, 10" and
         // declares `extern k: u64` instead of `extern k: String`.
         // Per SRD-18b "native types as the general rule".
-        use polydat::kernel::PolydatKernel;
         use std::sync::Arc;
 
         let parent_src = "const k_values := \"1, 10\"\n";
-        let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
+        let parent = Arc::new(crate::scope_kernel::ScopeKernel::compile(parent_src).unwrap());
         let parent_manifest = crate::runner::extract_manifest(parent.program());
 
         let kernel = crate::scope_synth::build_for_each_scope_kernel(
@@ -1665,7 +1644,6 @@ mod tests {
         // substitutes {k}→1, leaving `{k_1_limits}`, which
         // resolves to "1, 2, 4, 8" via parent's manifest. First
         // value is 1, type U64.
-        use polydat::kernel::PolydatKernel;
         use std::sync::Arc;
 
         let parent_src = concat!(
@@ -1673,8 +1651,7 @@ mod tests {
             "const k_1_limits := \"1, 2, 4, 8\"\n",
             "const k_10_limits := \"10, 20, 30\"\n",
         );
-        let parent: Arc<PolydatKernel> =
-            Arc::new(polydat::dsl::compile::compile_polydat_interpreter(parent_src).unwrap());
+        let parent = Arc::new(crate::scope_kernel::ScopeKernel::compile(parent_src).unwrap());
         let parent_manifest = crate::runner::extract_manifest(parent.program());
 
         let kernel = crate::scope_synth::build_for_each_scope_kernel(
@@ -1963,8 +1940,8 @@ mod tests {
         assert!(!tree.install_kernel(0, k2), "second install no-ops");
 
         let cached = tree.nodes[0].cached_kernel.get().unwrap();
-        match cached.get_constant("x") {
-            Some(polydat::ast::Value::U64(n)) => assert_eq!(*n, 1),
+        match cached.lookup("x") {
+            Some(polydat::ast::Value::U64(n)) => assert_eq!(n, 1),
             other => panic!("expected U64(1), got {other:?}"),
         }
     }

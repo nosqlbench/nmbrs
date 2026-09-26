@@ -32,8 +32,9 @@
 
 use std::collections::HashSet;
 
+use crate::scope_kernel::ScopeKernel;
 use polydat::iteration::comprehension::pre_evaluate_clause;
-use polydat::kernel::{ManifestEntry, PolydatKernel};
+use polydat::kernel::ManifestEntry;
 
 use super::cascade::{CascadeInputs, CascadeOutputs, cascade_parent_into_source};
 use super::helpers::{collect_leaf_placeholders, scan_one};
@@ -57,7 +58,7 @@ use super::helpers::{collect_leaf_placeholders, scan_one};
 ///   exposes.
 /// - `materialize_wiring_from_outer(parent)` already called.
 /// - Parent input-slot values propagated via
-///   [`PolydatKernel::propagate_inputs_into`].
+///   `polydat::kernel::propagate_inputs` ([`ScopeKernel::synthesize_under`]).
 ///
 /// The caller's responsibility: per-iteration, install the
 /// tuple's typed values on this kernel's input slots before
@@ -66,14 +67,14 @@ use super::helpers::{collect_leaf_placeholders, scan_one};
 pub fn build_for_each_scope_kernel(
     bindings: &[(String, String)],
     parent_manifest: &[ManifestEntry],
-    parent_kernel: &PolydatKernel,
+    parent_kernel: &ScopeKernel,
     workload_params: &std::collections::HashMap<String, String>,
     polydat_lib_paths: Vec<std::path::PathBuf>,
     workload_dir: Option<&std::path::Path>,
     strict: bool,
     context: &str,
     phase_bindings: Option<&str>,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
     let iter_vars: Vec<String> = bindings.iter().map(|(v, _)| v.clone()).collect();
     let spec_exprs: Vec<String> = bindings.iter().map(|(_, e)| e.clone()).collect();
 
@@ -179,18 +180,10 @@ pub fn build_for_each_scope_kernel(
         cursor_limit: None,
         ..Default::default()
     };
-    let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-        .label(context)
-        .source(source)
-        .inherited_outputs(inherited_names)
-        .options(compile_options)
-        .build()
-        .map_err(|e| format!("{context}: for_each scope synthesis: {e}"))?;
-    let mut kernel = parent_kernel
-        .build_subscope(matter)
-        .map_err(|e| format!("{context}: for_each scope synthesis: {e}"))?;
-
-    parent_kernel.propagate_inputs_into(&mut kernel);
-
-    Ok(kernel)
+    crate::scope_kernel::ScopeKernel::synthesize_under(
+        parent_kernel,
+        crate::scope_kernel::SourceMatter::source(context, source, compile_options)
+            .inherited(inherited_names),
+    )
+    .map_err(|e| format!("{context}: for_each scope synthesis: {e}"))
 }

@@ -375,20 +375,16 @@ fn eval_batch_field_expr(
     // expression's `cql_session(...)` / `cql_server_batch_limit(...)` resolve.
     let output = format!("__nmbrs_{label}");
     let source = format!("extern cql_session_key: str\n{output} := {expr}\n");
-    let program = nmbrs_runtime::bindings::compile_scope_kernel(&source, &Default::default())
+    let image = nmbrs_runtime::bindings::compile_scope_kernel(&source, &Default::default())
         .map_err(|e| format!("{label} '{expr}': {e}"))?
-        .program()
+        .image()
         .clone();
     let bindings = [(
         "cql_session_key".to_string(),
         Value::Str(session_key.into()),
     )];
-    let mut child = polydat::kernel::bind_under(
-        parent,
-        program as Arc<dyn polydat::kernel::KernelProgram>,
-        &bindings,
-    )
-    .map_err(|e| format!("{label} '{expr}': {e:?}"))?;
+    let mut child = polydat::kernel::bind_under(parent, image, &bindings)
+        .map_err(|e| format!("{label} '{expr}': {e:?}"))?;
     Ok(child.pull(&output))
 }
 

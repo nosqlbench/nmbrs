@@ -271,8 +271,8 @@ pub trait DriverAdapter: Send + Sync + 'static {
     /// should attach to. Adapters that need their own Polydat context
     /// for op-template-scope name resolution clone the Arc and
     /// either retain it directly (no op-level matter) or use it as
-    /// the parent in a SRD-67 `build_subscope` call to materialise
-    /// their canonical kernel (op-level matter present); adapters
+    /// the parent their canonical kernel is bound under
+    /// (`polydat::kernel::bind_under` / `ScopeModule::instantiate_under`) (op-level matter present); adapters
     /// with no Polydat needs ignore the parameter. The Arc lets the
     /// dispenser own a long-lived reference to the canonical
     /// kernel without re-cloning state. See SRD-68 §"Adapter API

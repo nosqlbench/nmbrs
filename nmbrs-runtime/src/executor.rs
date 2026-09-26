@@ -23,7 +23,6 @@ use nmbrs_metrics::component::{self, Component, ComponentState};
 use nmbrs_metrics::labels::Labels;
 use nmbrs_workload::model::{ScenarioNode, WorkloadPhase};
 
-use polydat::Kernel as _;
 use polydat::kernel::{ScopeCoord, format_scope_coordinate_path};
 
 /// SRD-83 follow-up — resolve a stop condition's action scope from its
@@ -102,7 +101,9 @@ pub struct ExecCtx {
     /// wrappers); this only changes the tiebreaker the
     /// resolver uses when constraints leave order ambiguous.
     pub wrap_default_order: Option<Vec<String>>,
-    pub program: Arc<polydat::kernel::PolydatProgram>,
+    /// The workload scope: what a phase with no scope of its own runs
+    /// under, bound under the live parent kernel.
+    pub workload_scope: Arc<crate::scope_kernel::ScopeKernel>,
     pub polydat_lib_paths: Vec<PathBuf>,
     pub workload_dir: Option<PathBuf>,
     pub strict: bool,
@@ -219,7 +220,7 @@ pub struct ExecCtx {
     /// `None`, the leaf phase falls back to the workload-level
     /// `outer_manifest` / `outer_scope_values` (the legacy flat
     /// data flow that M3.4 retires for kernel-routed scopes).
-    pub current_parent_kernel: Option<Arc<polydat::kernel::PolydatKernel>>,
+    pub current_parent_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
     /// Workload source text + path, kept for error diagnostics.
     /// Errors at the dispatch layer (for_each / do_while spec
     /// evaluation, interpolation failures) include the YAML
@@ -1413,7 +1414,7 @@ fn do_loop_own_names(
 fn effective_parent_kernel(
     ctx: &ExecCtx,
     scope_idx: usize,
-) -> Option<std::sync::Arc<polydat::kernel::PolydatKernel>> {
+) -> Option<std::sync::Arc<crate::scope_kernel::ScopeKernel>> {
     ctx.current_parent_kernel
         .clone()
         .or_else(|| ctx.scope_tree.nearest_installed_ancestor_kernel(scope_idx))
@@ -2235,8 +2236,7 @@ fn execute_node<'a>(
                 // chained to the current parent. This is the
                 // same chain-extension `dispatch_comprehension`
                 // does for its per-iter bound_kernel
-                // (`from_program → materialize_wiring_from_outer`
-                // sequence, SRD-67 Phase 3).
+                // (`ScopeKernel::bind_under`, SRD-67 Phase 3).
                 // Positional resolution (One Walker): same as the Comprehension
                 // arm — the dispatcher mapped this node to its scope index by
                 // position, so AST/source-identical sibling bindings resolve
@@ -2277,40 +2277,22 @@ fn execute_node<'a>(
                 // `materialize_wiring_from_outer`) against the
                 // current parent's outputs. This is the same
                 // recipe the for_each dispatcher uses for its
-                // own per-iter `bound_kernel` (from_program →
-                // materialize_wiring_from_outer). The cached
+                // own per-iter `bound_kernel` (`ScopeKernel::bind_under`).
+                // The cached
                 // `installed` kernel's state held iter-1's
                 // computed values; reusing it directly froze
                 // every `const X := <expr-with-iter-var>` at the
                 // first iter's value.
                 let chained = match ctx.current_parent_kernel.as_ref() {
-                    Some(parent) => {
-                        let matter = match polydat::kernel::subcontext::PolydatMatter::builder()
-                            .program(installed.program().clone())
-                            .build()
-                        {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return crate::phase_outcome::Outcome::failed().with_reason(
-                                    format!(
-                                        "bindings scope at index {scope_idx}: \
-                                 build subscope matter: {e:?}",
-                                    ),
-                                );
-                            }
-                        };
-                        match parent.build_subscope(matter).map(std::sync::Arc::new) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return crate::phase_outcome::Outcome::failed().with_reason(
-                                    format!(
-                                        "bindings scope at index {scope_idx}: \
-                                 chain to current parent kernel: {e:?}",
-                                    ),
-                                );
-                            }
+                    Some(parent) => match installed.bind_under(parent.kernel(), &[]) {
+                        Ok(v) => std::sync::Arc::new(v),
+                        Err(e) => {
+                            return crate::phase_outcome::Outcome::failed().with_reason(format!(
+                                "bindings scope at index {scope_idx}: \
+                                 chain to current parent kernel: {e}",
+                            ));
                         }
-                    }
+                    },
                     None => installed,
                 };
                 // Structural push: bindings scope header. SRD 18b
@@ -2318,7 +2300,7 @@ fn execute_node<'a>(
                 // arm pushes the scene-tree node uniformly with
                 // every other arm. The original asymmetry bug had
                 // this arm "transparent" in pre-map while the
-                // runtime did build_subscope; the unified walker
+                // runtime bound a subscope; the unified walker
                 // does both at every depth.
                 // Label = the names this scope defines (comment-only
                 // first lines made the raw-source label read as a
@@ -2362,8 +2344,8 @@ fn execute_node<'a>(
 // via the [`Comprehension`] strategy trait, which produces
 // successive iteration bindings; the dispatcher's single
 // per-branch loop applies those bindings to a fresh per-branch
-// kernel (`PolydatKernel::from_program` from the scope's installed
-// canonical) and runs the children under it. No duplicated
+// kernel (the scope's installed canonical bound under the parent,
+// `ScopeKernel::bind_under`) and runs the children under it. No duplicated
 // recursion logic per iteration kind.
 // =====================================================================
 
@@ -2396,7 +2378,7 @@ pub struct IterationStep {
     /// this as their effective parent kernel — both for
     /// nested comprehension interpolation (`vec_{profile}`)
     /// and for runtime phase dispatch.
-    pub bound_kernel: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    pub bound_kernel: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
     /// Root-first scope-coordinate chain ending at this
     /// iteration. Pass through
     /// `polydat::kernel::format_scope_coordinate_path` (after
@@ -2419,13 +2401,13 @@ pub struct IterationStep {
 /// reading.
 fn runtime_iterate(
     ctx: &ExecCtx,
-    canonical: &std::sync::Arc<polydat::kernel::PolydatKernel>,
-    parent: &std::sync::Arc<polydat::kernel::PolydatKernel>,
+    canonical: &std::sync::Arc<crate::scope_kernel::ScopeKernel>,
+    parent: &std::sync::Arc<crate::scope_kernel::ScopeKernel>,
     parent_coords: &[ScopeCoord],
     comprehension: &polydat::iteration::comprehension::Comprehension,
 ) -> Result<Vec<IterationStep>, String> {
     use polydat::iteration::comprehension::evaluate_for_iteration_reported;
-    use polydat::kernel::{PolydatKernel, ScopeCoord};
+    use polydat::kernel::ScopeCoord;
 
     // The evaluator reads names through `Lookup` — the parent kernel
     // is the scope; the canonical program is only needed below, to
@@ -2457,14 +2439,14 @@ fn runtime_iterate(
     let tuples = evaluated.tuples;
 
     // Materialise each tuple into an IterationStep: per-iter
-    // kernel via PolydatKernel::for_iteration, coord path extended
+    // kernel via ScopeKernel::bind_under, coord path extended
     // from parent_coords. The runtime evaluator already gives
     // us polydat-Value tuples (RuntimeTuple), so no conversion
     // is needed — Ext-typed Partition values pass through
     // intact for the executor's Ext-slot binding.
     let mut steps = Vec::with_capacity(tuples.len());
     for tuple in tuples {
-        let bound_kernel = PolydatKernel::for_iteration(canonical, parent, &tuple);
+        let bound_kernel = std::sync::Arc::new(canonical.bind_under(parent.kernel(), &tuple)?);
         let mut coord_path = parent_coords.to_vec();
         coord_path.push(ScopeCoord::from(tuple.iter().cloned()));
         steps.push(IterationStep {
@@ -2524,8 +2506,8 @@ impl OwnedTerminal {
 /// iteration coordinates, and pulls the predicate — see [`resolve_continue_if`].
 struct ContinueIfGate {
     spec: nmbrs_workload::model::ContinueIfSpec,
-    gate_canonical: std::sync::Arc<polydat::kernel::PolydatKernel>,
-    parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+    gate_canonical: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
+    parent: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
 }
 
 /// SRD-101 — resolve a `continue_if` spec for a sweep: compile its predicate
@@ -2536,7 +2518,7 @@ struct ContinueIfGate {
 /// `Err` surfaces a predicate compile error.
 fn resolve_continue_if(
     spec: Option<nmbrs_workload::model::ContinueIfSpec>,
-    parent: &std::sync::Arc<polydat::kernel::PolydatKernel>,
+    parent: &std::sync::Arc<crate::scope_kernel::ScopeKernel>,
     coord_sample: &[(String, polydat::ast::Value)],
     strict: bool,
 ) -> Result<Option<ContinueIfGate>, String> {
@@ -3506,7 +3488,7 @@ fn search_space_continuous(
 ///   proposed coordinate is matched to its step and an off-grid coordinate is
 ///   infeasible (SRD-86 §"holes" — the grid carries feasibility/holes).
 /// - `Synthesized` (continuous): no enumeration — the realized coordinate is
-///   bound into a fresh iteration kernel via [`PolydatKernel::for_iteration`],
+///   bound into a fresh iteration kernel via [`crate::scope_kernel::ScopeKernel::bind_under`],
 ///   exactly as `runtime_iterate` materializes a comprehension tuple.
 enum CoordEval {
     Enumerated {
@@ -3515,8 +3497,8 @@ enum CoordEval {
     },
     Synthesized {
         axis_names: Vec<String>,
-        canonical: std::sync::Arc<polydat::kernel::PolydatKernel>,
-        parent: std::sync::Arc<polydat::kernel::PolydatKernel>,
+        canonical: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
+        parent: std::sync::Arc<crate::scope_kernel::ScopeKernel>,
         parent_coords: Vec<polydat::kernel::ScopeCoord>,
     },
 }
@@ -3540,8 +3522,16 @@ impl CoordEval {
                     .zip(coord)
                     .map(|(n, av)| (n.clone(), axis_value_to_polydat(av)))
                     .collect();
-                let bound_kernel =
-                    polydat::kernel::PolydatKernel::for_iteration(canonical, parent, &tuple);
+                let bound_kernel = match canonical.bind_under(parent.kernel(), &tuple) {
+                    Ok(k) => std::sync::Arc::new(k),
+                    Err(e) => {
+                        crate::diag!(
+                            crate::observer::LogLevel::Warn,
+                            "coordinate {tuple:?} could not be bound: {e}"
+                        );
+                        return None;
+                    }
+                };
                 let mut coord_path = parent_coords.clone();
                 coord_path.push(polydat::kernel::ScopeCoord::from(tuple.iter().cloned()));
                 Some(IterationStep {
@@ -3593,20 +3583,13 @@ impl CoordEval {
 /// §"Settling via the cadence pulse". The caller selects the path by
 /// objective shape.
 fn read_objective_at_completion(
-    parent: &std::sync::Arc<polydat::kernel::PolydatKernel>,
-    phase_kernel: &std::sync::Arc<polydat::kernel::PolydatKernel>,
+    parent: &std::sync::Arc<crate::scope_kernel::ScopeKernel>,
+    phase_kernel: &std::sync::Arc<crate::scope_kernel::ScopeKernel>,
     objective: &str,
 ) -> Option<f64> {
     use polydat::ast::Value;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut k = parent
-            .build_subscope(
-                polydat::kernel::subcontext::PolydatMatter::builder()
-                    .program(phase_kernel.program().clone())
-                    .build()
-                    .ok()?,
-            )
-            .ok()?;
+        let mut k = phase_kernel.bind_under(parent.kernel(), &[]).ok()?;
         Some(k.pull(objective))
     }));
     match result {
@@ -3740,18 +3723,10 @@ async fn run_do_loop(
 
     // Persistent loop kernel: one fork from the do-loop scope's
     // canonical program, bound once from the parent. Lives for
-    // the loop's whole duration. SRD-67 Phase 3 — route the
-    // `from_program → materialize_wiring_from_outer` sequence through the
-    // typed bridge so the rebind primitive sits behind a single
-    // entry point.
-    let mut loop_kernel = parent
-        .build_subscope(
-            polydat::kernel::subcontext::PolydatMatter::builder()
-                .program(canonical.program().clone())
-                .build()
-                .unwrap(),
-        )
-        .expect("subscope from program is infallible");
+    // the loop's whole duration (`ScopeKernel::bind_under`).
+    let mut loop_kernel = canonical
+        .bind_under(parent.kernel(), &[])
+        .map_err(|e| format!("do-loop '{condition}': {e}"))?;
 
     let mut counter_value: u64 = 0;
     loop {
@@ -3759,12 +3734,18 @@ async fn run_do_loop(
         if let Some(c) = counter
             && let Some(idx) = loop_kernel.program().find_input(c)
         {
-            loop_kernel
-                .state()
-                .set_input(idx, polydat::ast::Value::U64(counter_value));
+            crate::wires::write_input(
+                loop_kernel.kernel_mut(),
+                idx,
+                c,
+                polydat::ast::Value::U64(counter_value),
+            )
+            .map_err(|e| format!("do-loop '{condition}': counter '{c}': {e}"))?;
             // A const that reads the counter is fixed at init; recompute
             // it for this iteration before the condition reads it.
-            polydat::Kernel::init(&mut loop_kernel)
+            loop_kernel
+                .kernel_mut()
+                .init()
                 .map_err(|e| format!("do-loop '{condition}': {e}"))?;
         }
 
@@ -3798,17 +3779,9 @@ async fn run_do_loop(
         }
         let arc_loop = std::sync::Arc::new(std::mem::replace(
             &mut loop_kernel,
-            // Placeholder — overwritten on reclaim. Constructed
-            // via the typed subscope path against the canonical;
-            // shares cells but is otherwise throwaway.
-            canonical
-                .build_subscope(
-                    polydat::kernel::subcontext::PolydatMatter::builder()
-                        .program(canonical.program().clone())
-                        .build()
-                        .unwrap(),
-                )
-                .expect("program-form subscope is infallible"),
+            // Placeholder — overwritten on reclaim: a fork of the
+            // canonical, sharing its cells but otherwise throwaway.
+            canonical.fork(),
         ));
         ctx.current_parent_kernel = Some(arc_loop.clone());
 
@@ -3880,9 +3853,8 @@ async fn run_do_loop(
 /// The bound kernel comes from the Polydat-side
 /// [`IterationStep`] — same
 /// kernel both pre-map and runtime see for the same iteration
-/// position. No `from_program`/`materialize_wiring_from_outer`/`set_input`
-/// dance here; that recipe is owned by `PolydatKernel::for_iteration`
-/// and reached via `iterate_scope`.
+/// position. No binding recipe here; that is owned by
+/// `ScopeKernel::bind_under` and reached via `iterate_scope`.
 async fn run_one_iteration(
     ctx: &mut ExecCtx,
     step: &IterationStep,
@@ -4405,11 +4377,9 @@ async fn run_phase_inner(
                 all_false = false; // no kernel to consult — don't guess
                 break;
             };
-            let gate_kernel = polydat::kernel::PolydatKernel::for_iteration(installed, parent, &[]);
-            // `for_iteration` returns a fresh kernel; this Arc holds the
-            // only reference, so the unwrap is structural. Fall through
-            // to a normal run rather than guess if that ever changes.
-            let Ok(mut gate_kernel) = std::sync::Arc::try_unwrap(gate_kernel) else {
+            // A kernel that can't be bound is not consulted: fall through
+            // to a normal run rather than guess.
+            let Ok(mut gate_kernel) = installed.bind_under(parent.kernel(), &[]) else {
                 all_false = false;
                 break;
             };
@@ -4537,9 +4507,12 @@ async fn run_phase_inner(
             std::iter::once(parent_kernel.program().as_ref())
                 .chain(ancestors.iter().map(|k| k.program().as_ref()))
                 .collect();
-        if let Err(e) =
-            crate::scope::validate_placeholders_via_kernel(&ops, validation_kernel, &enclosing)
-                .map_err(|e| format!("phase '{phase_name}': {e}"))
+        if let Err(e) = crate::scope::validate_placeholders_via_kernel(
+            &ops,
+            validation_kernel.kernel(),
+            &enclosing,
+        )
+        .map_err(|e| format!("phase '{phase_name}': {e}"))
         {
             return crate::phase_outcome::Outcome::failed().with_reason(e);
         }
@@ -4597,7 +4570,7 @@ async fn run_phase_inner(
         // was installed; otherwise the immediate runtime parent
         // (current_parent_kernel) is the right resolver. Same
         // lookup pattern as the placeholder validator above.
-        let classifier_kernel: &polydat::kernel::PolydatKernel = ctx
+        let classifier_kernel: &crate::scope_kernel::ScopeKernel = ctx
             .scope_tree
             .phase_node_by_name(phase_name)
             .and_then(|idx| ctx.scope_tree.nodes[idx].cached_kernel.get())
@@ -4661,48 +4634,13 @@ async fn run_phase_inner(
             .map(|idx| ctx.scope_tree.nodes[idx].pragmas.clone())
             .unwrap_or_default();
 
-        // Resolve the phase scope's program (compile-and-cache
-        // on first hit) and rebind it under the parent kernel.
-        // SRD-67 Phase 3 — the `from_program → materialize_wiring_from_outer`
-        // pair routes through `bind_program_under_parent` so the
-        // cache-and-rebind primitive sits behind a single typed
-        // entry point.
-        let phase_program = if let Some(idx) = phase_idx {
-            let node = &ctx.scope_tree.nodes[idx];
-            if let Some(canonical) = node.cached_kernel.get() {
-                canonical.program().clone()
-            } else {
-                // First call for this phase — compile, install
-                // the just-compiled kernel as this scope's
-                // canonical instance (so `lookup_name` can read
-                // its folded constants). Subsequent iterations
-                // all hit the OnceLock cache hit branch above.
-                // The program is iter-invariant (iter vars flow
-                // as wires; dataset specs interpolate at eval),
-                // so the same program serves every iteration.
-                let compiled = match crate::bindings::compile_from_scope(
-                    &scope,
-                    ctx.workload_dir.as_deref(),
-                    ctx.polydat_lib_paths.clone(),
-                    ctx.strict,
-                    &polydat_context,
-                    cursor_limit,
-                    &phase_pragmas,
-                )
-                .map_err(|e| format!("{polydat_context}: {e}"))
-                {
-                    Ok(v) => v,
-                    Err(e) => return crate::phase_outcome::Outcome::failed().with_reason(e),
-                };
-                let prog = compiled.program().clone();
-                let _ = node.cached_kernel.set(std::sync::Arc::new(compiled));
-                prog
-            }
-        } else {
-            // Phase not in the scope tree (shouldn't happen for
-            // any executor-driven invocation; defensive). Fall
-            // back to the un-cached compile path.
-            match crate::bindings::compile_from_scope(
+        // Resolve the phase scope (compile-and-cache on first hit) and
+        // bind another instance of it under the parent kernel. The scope
+        // carries the interpreter program synthesis reads and the fiber
+        // engine's image its kernels run; every fiber's main kernel binds
+        // that image (`crate::fiber_engine`).
+        let compile_phase = || {
+            crate::bindings::compile_from_scope(
                 &scope,
                 ctx.workload_dir.as_deref(),
                 ctx.polydat_lib_paths.clone(),
@@ -4712,52 +4650,50 @@ async fn run_phase_inner(
                 &phase_pragmas,
             )
             .map_err(|e| format!("{polydat_context}: {e}"))
-            {
-                Ok(v) => v,
-                Err(e) => return crate::phase_outcome::Outcome::failed().with_reason(e),
-            }
-            .program()
-            .clone()
         };
-        // The fiber engine's image of the phase program, which every
-        // fiber's main kernel runs (`crate::fiber_engine`): built once per
-        // phase node from the same source and options, beside its cached
-        // program.
-        let phase_image = {
-            let image = || {
-                crate::bindings::compile_from_scope_image(
-                    &phase_program,
-                    &scope,
-                    ctx.workload_dir.as_deref(),
-                    ctx.polydat_lib_paths.clone(),
-                    ctx.strict,
-                    &polydat_context,
-                    cursor_limit,
-                    &phase_pragmas,
-                )
-            };
-            match phase_idx {
-                Some(idx) => ctx.scope_tree.nodes[idx]
-                    .fiber_images
-                    .phase
-                    .get_or_init(image)
-                    .clone(),
-                None => image(),
+        let phase_scope: std::sync::Arc<crate::scope_kernel::ScopeKernel> = match phase_idx {
+            Some(idx) => {
+                let node = &ctx.scope_tree.nodes[idx];
+                match node.cached_kernel.get() {
+                    Some(canonical) => canonical.clone(),
+                    None => {
+                        // First call for this phase — compile, and install
+                        // the kernel as this scope's canonical instance (so
+                        // `lookup_name` can read its folded constants). The
+                        // program is iter-invariant (iter vars flow as
+                        // wires; dataset specs interpolate at eval), so the
+                        // same scope serves every iteration.
+                        let compiled = match compile_phase() {
+                            Ok(v) => std::sync::Arc::new(v),
+                            Err(e) => {
+                                return crate::phase_outcome::Outcome::failed().with_reason(e);
+                            }
+                        };
+                        let _ = node.cached_kernel.set(compiled.clone());
+                        compiled
+                    }
+                }
             }
+            // Phase not in the scope tree (shouldn't happen for any
+            // executor-driven invocation; defensive): the un-cached
+            // compile path.
+            None => match compile_phase() {
+                Ok(v) => std::sync::Arc::new(v),
+                Err(e) => return crate::phase_outcome::Outcome::failed().with_reason(e),
+            },
         };
 
         // Wire inherited values + iter-var values from the
         // parent scope's per-branch kernel via standard GK
         // chain composition. Single call, single source of
         // values — SRD-16 §"Visibility Rules".
-        let mut kernel = parent_kernel
-            .build_subscope(
-                polydat::kernel::subcontext::PolydatMatter::builder()
-                    .program(phase_program)
-                    .build()
-                    .unwrap(),
-            )
-            .expect("program-form subscope is infallible");
+        let mut kernel = match phase_scope.bind_under(parent_kernel.kernel(), &[]) {
+            Ok(v) => v,
+            Err(e) => {
+                return crate::phase_outcome::Outcome::failed()
+                    .with_reason(format!("{polydat_context}: {e}"));
+            }
+        };
 
         // ─── Plan B: Init-Binding Contract (scope-activation) ─────
         //
@@ -4814,7 +4750,7 @@ async fn run_phase_inner(
         // the scope's lifetime." When the RHS is a literal or
         // depends only on other compile-time constants, the GK
         // compiler const-folds the value into the program's
-        // buffer and `get_constant` returns it immediately.
+        // buffer and a scope lookup returns it immediately.
         //
         // But `const` bindings with RHS depending on iter-vars
         // or other extern slots (`const ann_opts := select_str(
@@ -4846,7 +4782,7 @@ async fn run_phase_inner(
             .map(|s| s.to_string())
             .collect();
         for final_name in &const_outputs {
-            if kernel.get_constant(final_name).is_some() {
+            if kernel.lookup(final_name).is_some() {
                 continue;
             }
             let pull_result =
@@ -4902,9 +4838,9 @@ async fn run_phase_inner(
                 // The CLI value is text; the param slot may be any
                 // type (a `u64` param overridden with "100"), so the
                 // write converts it to the slot's declared type.
-                let written = match polydat::Kernel::input_index(&kernel, &ov.param) {
+                let written = match kernel.input_index(&ov.param) {
                     Some(idx) => crate::wires::write_input(
-                        &mut kernel,
+                        kernel.kernel_mut(),
                         idx,
                         &ov.param,
                         polydat::ast::Value::Str(ov.value.clone().into()),
@@ -4950,7 +4886,7 @@ async fn run_phase_inner(
             }
             // A const that reads an overridden param is fixed at init;
             // recompute the consts from the overridden values.
-            if overridden && let Err(e) = polydat::Kernel::init(&mut kernel) {
+            if overridden && let Err(e) = kernel.kernel_mut().init() {
                 return crate::phase_outcome::Outcome::failed()
                     .with_reason(format!("{polydat_context}: phase-scoped overrides: {e}"));
             }
@@ -5002,8 +4938,8 @@ async fn run_phase_inner(
             .collect();
         for (name, outputs, limit, cursor_kind, partition_output) in cursor_specs {
             if let Some((start_out, end_out)) = outputs {
-                let start = kernel.pull_ref(&start_out).as_u64();
-                let end = kernel.pull_ref(&end_out).as_u64();
+                let start = kernel.pull(&start_out).as_u64();
+                let end = kernel.pull(&end_out).as_u64();
                 let extent = end.saturating_sub(start);
                 let final_extent = limit.map(|l| extent.min(l)).unwrap_or(extent);
                 runtime_extents.insert(name.clone(), final_extent);
@@ -5028,8 +4964,14 @@ async fn run_phase_inner(
                 // contract from process_cursor.
                 let mut write_slot = |suffix: &str, v: polydat::ast::Value| {
                     let slot = format!("{name}__cursor{suffix}");
-                    if let Some(idx) = kernel.program().find_input(&slot) {
-                        kernel.state().set_input(idx, v);
+                    if let Some(idx) = kernel.program().find_input(&slot)
+                        && let Err(e) =
+                            crate::wires::write_input(kernel.kernel_mut(), idx, &slot, v)
+                    {
+                        crate::diag!(
+                            crate::observer::LogLevel::Warn,
+                            "cursor '{name}': slot '{slot}' refused its value: {e}"
+                        );
                     }
                 };
                 use polydat::ast::Value as PValue;
@@ -5092,7 +5034,7 @@ async fn run_phase_inner(
                 }
                 // The cursor slots are inputs the program's consts may
                 // read; recompute them from the narrowed partition.
-                if let Err(e) = polydat::Kernel::init(&mut kernel) {
+                if let Err(e) = kernel.kernel_mut().init() {
                     return crate::phase_outcome::Outcome::failed()
                         .with_reason(format!("cursor '{name}': {e}"));
                 }
@@ -5108,9 +5050,9 @@ async fn run_phase_inner(
                     min_ms_output,
                     delta_output,
                 } => {
-                    runtime_min_ms.insert(name.clone(), kernel.pull_ref(min_ms_output).as_u64());
+                    runtime_min_ms.insert(name.clone(), kernel.pull(min_ms_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
                     }
                 }
                 ExtendingPasses {
@@ -5118,19 +5060,18 @@ async fn run_phase_inner(
                     delta_output,
                 } => {
                     runtime_min_passes
-                        .insert(name.clone(), kernel.pull_ref(min_passes_output).as_u64());
+                        .insert(name.clone(), kernel.pull(min_passes_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
                     }
                 }
                 ExtendingCount {
                     min_count_output,
                     delta_output,
                 } => {
-                    runtime_min_count
-                        .insert(name.clone(), kernel.pull_ref(min_count_output).as_u64());
+                    runtime_min_count.insert(name.clone(), kernel.pull(min_count_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
                     }
                 }
                 ExtendingElapsedAndPasses {
@@ -5143,11 +5084,11 @@ async fn run_phase_inner(
                     min_passes_output,
                     delta_output,
                 } => {
-                    runtime_min_ms.insert(name.clone(), kernel.pull_ref(min_ms_output).as_u64());
+                    runtime_min_ms.insert(name.clone(), kernel.pull(min_ms_output).as_u64());
                     runtime_min_passes
-                        .insert(name.clone(), kernel.pull_ref(min_passes_output).as_u64());
+                        .insert(name.clone(), kernel.pull(min_passes_output).as_u64());
                     if let Some(d) = delta_output {
-                        runtime_delta.insert(name.clone(), kernel.pull_ref(d).as_u64());
+                        runtime_delta.insert(name.clone(), kernel.pull(d).as_u64());
                     }
                 }
             }
@@ -5178,9 +5119,9 @@ async fn run_phase_inner(
         // carries NO cells — a predicate reading a root `shared` wire
         // failed to compile against it (the disarmed-backstop
         // regression, 2026-08-06).
-        let activation_scope = Arc::new(kernel.cell_scope_snapshot());
+        let activation_scope = Arc::new(kernel.fork());
         let op_builder = {
-            let mut b = OpBuilder::new(kernel).with_fiber_image(phase_image);
+            let mut b = OpBuilder::new(kernel);
             if let Some(phase_idx) = ctx.scope_tree.phase_node_by_name(phase_name) {
                 let map = ctx.scope_tree.op_template_programs_for_phase(phase_idx);
                 if !map.is_empty() {
@@ -5205,24 +5146,22 @@ async fn run_phase_inner(
         )
     } else {
         // Workload-kernel fallback: no per-iteration values to
-        // inject. Materialize a fresh subscope of the live
-        // parent kernel using the workload program — the only
-        // sanctioned construction path. Cells flow forward via
-        // the cascade.
+        // inject. Bind another instance of the workload scope under
+        // the live parent kernel. Cells flow forward via the
+        // cascade.
         let parent = ctx
             .current_parent_kernel
             .as_ref()
             .expect("workload-kernel fallback requires an installed parent kernel");
-        let workload_subscope = parent
-            .build_subscope(
-                polydat::kernel::subcontext::PolydatMatter::builder()
-                    .program(ctx.program.clone())
-                    .build()
-                    .unwrap(),
-            )
-            .expect("program-form subscope is infallible");
+        let workload_subscope = match ctx.workload_scope.bind_under(parent.kernel(), &[]) {
+            Ok(v) => v,
+            Err(e) => {
+                return crate::phase_outcome::Outcome::failed()
+                    .with_reason(format!("phase '{phase_name}': workload scope: {e}"));
+            }
+        };
         // Same stop-condition scope hold as the per-iteration branch.
-        let activation_scope = Arc::new(workload_subscope.cell_scope_snapshot());
+        let activation_scope = Arc::new(workload_subscope.fork());
         let mut b = OpBuilder::new(workload_subscope);
         if let Some(phase_idx) = ctx.scope_tree.phase_node_by_name(phase_name) {
             let map = ctx.scope_tree.op_template_programs_for_phase(phase_idx);
@@ -7334,15 +7273,12 @@ fn emit_phase_metrics(
     // Fresh subscope for the completion-time pull (own state, shares
     // the parent's cells). Mirrors the per-fiber main-kernel and the
     // do-loop persistent-kernel construction.
+    let metric_pull_error = |e: String| format!("phase '{phase_name}': metric-pull subscope: {e}");
     let mut k = phase_kernel
-        .build_subscope(
-            polydat::kernel::subcontext::PolydatMatter::builder()
-                .program(phase_kernel.program().clone())
-                .build()
-                .expect("program-form matter is infallible"),
-        )
-        .map_err(|e| format!("phase '{phase_name}': metric-pull subscope: {e}"))?;
-    phase_kernel.propagate_inputs_into(&mut k);
+        .bind_under(phase_kernel.kernel(), &[])
+        .map_err(metric_pull_error)?;
+    polydat::kernel::propagate_inputs(phase_kernel.kernel(), k.kernel_mut())
+        .map_err(|e| metric_pull_error(e.to_string()))?;
 
     // The synthesized `phase_start` is no longer an extern filled here — it
     // binds `phase_start_millis()`, which reads the phase origin scoped by
@@ -7351,9 +7287,16 @@ fn emit_phase_metrics(
     // 0 default). This remains only for a workload that declares the extern by
     // hand; a program without the input is the normal case and no-ops.
     if let Some(idx) = k.program().find_input("phase_start") {
-        k.state().set_input(idx, Value::U64(phase_start_epoch_ms));
-        polydat::Kernel::init(&mut k)
-            .map_err(|e| format!("phase '{phase_name}': metric-pull subscope: {e}"))?;
+        crate::wires::write_input(
+            k.kernel_mut(),
+            idx,
+            "phase_start",
+            Value::U64(phase_start_epoch_ms),
+        )
+        .map_err(|e| metric_pull_error(e.to_string()))?;
+        k.kernel_mut()
+            .init()
+            .map_err(|e| metric_pull_error(e.to_string()))?;
     }
 
     // Pull every metric value first (no component lock held), then

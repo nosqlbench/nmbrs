@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use polydat::kernel::PolydatKernel;
+use crate::scope_kernel::ScopeKernel;
 
 use nmbrs_workload::bindpoints;
 use nmbrs_workload::model::ParsedOp;
@@ -165,7 +165,7 @@ pub fn probe_compile_level(func_name: &str) -> polydat::ast::CompileLevel {
     }
 }
 
-pub fn compile_bindings(ops: &[ParsedOp]) -> Result<PolydatKernel, String> {
+pub fn compile_bindings(ops: &[ParsedOp]) -> Result<ScopeKernel, String> {
     compile_bindings_with_path(ops, None)
 }
 
@@ -228,7 +228,7 @@ fn collect_json_bindings(
 pub fn compile_bindings_with_path(
     ops: &[ParsedOp],
     source_dir: Option<&std::path::Path>,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
     compile_bindings_with_opts(ops, source_dir, false)
 }
 
@@ -254,7 +254,7 @@ pub fn compile_from_scope(
     context: &str,
     cursor_limit: Option<u64>,
     pragmas: &polydat::dsl::pragmas::PragmaSet,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
     let (source, options) = scope_source_and_options(
         scope,
         source_dir,
@@ -265,35 +265,6 @@ pub fn compile_from_scope(
         pragmas,
     );
     compile_scope_kernel(&source, &options)
-}
-
-/// The fiber engine's image of the program [`compile_from_scope`]
-/// compiled from the same arguments, which must be `program`: the same
-/// source and options on [`crate::fiber_engine::fiber_engine`]. `None`,
-/// with a warning, when that image cannot stand in for `program`.
-// reason: the same argument list as `compile_from_scope`, plus the
-// program the image stands in for.
-#[allow(clippy::too_many_arguments)]
-pub fn compile_from_scope_image(
-    program: &polydat::kernel::PolydatProgram,
-    scope: &crate::scope::BindingScope,
-    source_dir: Option<&std::path::Path>,
-    polydat_lib_paths: Vec<std::path::PathBuf>,
-    strict: bool,
-    context: &str,
-    cursor_limit: Option<u64>,
-    pragmas: &polydat::dsl::pragmas::PragmaSet,
-) -> Option<std::sync::Arc<dyn polydat::KernelProgram>> {
-    let (source, options) = scope_source_and_options(
-        scope,
-        source_dir,
-        polydat_lib_paths,
-        strict,
-        context,
-        cursor_limit,
-        pragmas,
-    );
-    crate::fiber_engine::source_image(program, &source, &options, context)
 }
 
 /// The Polydat source and compile options a scope compiles from.
@@ -321,23 +292,36 @@ fn scope_source_and_options(
     (source, options)
 }
 
-/// Compile Polydat source into a scope kernel — a node of nmbrs's scope
-/// tree.
+/// Compile Polydat source into a root scope kernel — a node of nmbrs's
+/// scope tree with no parent.
 ///
-/// The tree builds each child from its parent with the interpreter
-/// kernel's subscope API (`for_iteration`, `build_subscope`, `lookup`,
-/// `propagate_inputs_into`), which polydat keeps on the concrete
-/// [`PolydatKernel`] rather than the engine-neutral `Kernel` trait, so
-/// every scope kernel is compiled onto the interpreter here, in one
-/// place. `options.engine` still decides how much of each graph fuses
-/// into native cones. A kernel that stands outside the tree compiles
-/// through `compile_polydat_kernel_with_options` and is driven as a
-/// `Box<dyn Kernel>` on the default engine instead.
+/// The interpreter compiles the program scope synthesis reads; the
+/// running kernel is the fiber engine's image of the same source and
+/// options when it can stand in for that program, and the interpreter
+/// kernel otherwise ([`ScopeKernel::root`]). Children are bound under it
+/// through the engine-neutral `Kernel` surface. Every root scope is
+/// compiled here, in one place.
 pub fn compile_scope_kernel(
     source: &str,
     options: &polydat::dsl::compile::CompileOptions,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
+    let interpreter =
+        polydat::dsl::compile::compile_polydat_interpreter_with_options(source, options, None)
+            .map_err(|e| e.to_string())?;
+    let image =
+        crate::fiber_engine::source_image(interpreter.program(), source, options, &options.context);
+    Ok(ScopeKernel::root(interpreter, image))
+}
+
+/// Compile Polydat source to the interpreter program scope synthesis
+/// reads, with no running kernel: for a caller that binds the program
+/// under a scope itself.
+pub fn compile_scope_program(
+    source: &str,
+    options: &polydat::dsl::compile::CompileOptions,
+) -> Result<std::sync::Arc<polydat::kernel::PolydatProgram>, String> {
     polydat::dsl::compile::compile_polydat_interpreter_with_options(source, options, None)
+        .map(|k| k.program().clone())
         .map_err(|e| e.to_string())
 }
 
@@ -389,13 +373,13 @@ pub fn workload_names_session_start(workload: &nmbrs_workload::model::Workload) 
     })
 }
 
-/// Build the workload-root [`PolydatKernel`] as a subscope of the
+/// Build the workload-root [`ScopeKernel`] as a subscope of the
 /// workload-params kernel.
 ///
 /// The workload-root is "just another scope" per SRD-67
 /// §"Composition with SRD-66": it goes through the same
-/// `parent.build_subscope(matter)` protocol every other scope
-/// uses. The specialised content for the root is:
+/// source-matter construction every other scope uses
+/// ([`ScopeKernel::build_under`]). The specialised content for the root is:
 ///
 /// - Op-level bindings (rare at root; most workloads put
 ///   bindings at the workload or phase level).
@@ -418,7 +402,7 @@ pub fn workload_names_session_start(workload: &nmbrs_workload::model::Workload) 
 // struct would only move the same fields without adding clarity.
 #[allow(clippy::too_many_arguments)]
 pub fn build_workload_root_kernel(
-    parent: &PolydatKernel,
+    parent: &ScopeKernel,
     ops: &[ParsedOp],
     source_dir: Option<&std::path::Path>,
     polydat_lib_paths: Vec<std::path::PathBuf>,
@@ -429,7 +413,7 @@ pub fn build_workload_root_kernel(
     workload_params: &std::collections::HashMap<String, String>,
     workload_level_polydat: Option<&str>,
     session_clock: bool,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
     // Build the workload-root scope. workload_params get
     // injected as `const` bindings so descendants resolve them
     // via the standard manifest auto-extern.
@@ -498,9 +482,9 @@ pub fn build_workload_root_kernel(
         }
     }
 
-    // Standard ScopeKernel construction: PolydatMatter::source +
-    // parent.build_subscope. Identical to every other scope's
-    // build pathway (SRD-67 §"The construction protocol").
+    // Standard scope construction: source matter built under the
+    // parent (ScopeKernel::build_under), identical to every other
+    // scope's build pathway (SRD-67 §"The construction protocol").
     let mut source = scope.emit();
     // If the workload's authored matter doesn't declare its
     // own `input ...: u64` line, default the workload-root
@@ -541,14 +525,11 @@ pub fn build_workload_root_kernel(
     // treats them as inherited rather than as its own iter-vars.
     let mut inherited_param_names: Vec<String> = workload_params.keys().cloned().collect();
     inherited_param_names.sort();
-    let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-        .label(context)
-        .source(source)
-        .inherited_outputs(inherited_param_names)
-        .options(opts)
-        .build()
-        .map_err(|e| format!("{e:?}"))?;
-    parent.build_subscope(matter).map_err(|e| format!("{e:?}"))
+    ScopeKernel::build_under(
+        parent.kernel(),
+        crate::scope_kernel::SourceMatter::source(context, source, opts)
+            .inherited(inherited_param_names),
+    )
 }
 
 /// Compile all bindings from a set of ParsedOps into a Polydat Kernel.
@@ -561,7 +542,7 @@ pub fn compile_bindings_with_opts(
     ops: &[ParsedOp],
     source_dir: Option<&std::path::Path>,
     strict: bool,
-) -> Result<PolydatKernel, String> {
+) -> Result<ScopeKernel, String> {
     use nmbrs_workload::model::BindingsDef;
 
     // Check if any op uses Polydat source mode
@@ -938,7 +919,7 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        assert_eq!(kernel.pull_ref("myval").as_u64(), 42);
+        assert_eq!(kernel.pull("myval").as_u64(), 42);
     }
 
     #[test]
@@ -951,7 +932,7 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        let val = kernel.pull_ref("id").as_u64();
+        let val = kernel.pull("id").as_u64();
         assert!(val < 1_000_000, "got {val}");
     }
 
@@ -964,9 +945,9 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[42]);
-        let v1 = kernel.pull_ref("id").as_u64();
+        let v1 = kernel.pull("id").as_u64();
         kernel.set_inputs(&[42]);
-        let v2 = kernel.pull_ref("id").as_u64();
+        let v2 = kernel.pull("id").as_u64();
         assert_eq!(v1, v2);
     }
 
@@ -980,8 +961,8 @@ mod tests {
         }];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[5]);
-        assert_eq!(kernel.pull_ref("a").as_u64(), 5);
-        assert!(kernel.pull_ref("b").as_u64() < 100);
+        assert_eq!(kernel.pull("a").as_u64(), 5);
+        assert!(kernel.pull("b").as_u64() < 100);
     }
 
     #[test]
@@ -1004,7 +985,7 @@ mod tests {
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[5]);
         // 5 + 100 = 105, 105 % 1000 = 105
-        assert_eq!(kernel.pull_ref("val").as_u64(), 105);
+        assert_eq!(kernel.pull("val").as_u64(), 105);
     }
 
     #[test]
@@ -1012,7 +993,7 @@ mod tests {
         let ops = vec![ParsedOp::simple("test", "cycle={cycle}")];
         let mut kernel = compile_bindings(&ops).unwrap();
         kernel.set_inputs(&[99]);
-        assert_eq!(kernel.pull_ref("cycle").as_u64(), 99);
+        assert_eq!(kernel.pull("cycle").as_u64(), 99);
     }
 
     #[test]

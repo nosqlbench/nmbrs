@@ -39,12 +39,13 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+use crate::scope_kernel::ScopeKernel;
 use arc_swap::ArcSwap;
 use nmbrs_metrics::cadence_reporter::{CadenceReporter, SubscriberId};
 use nmbrs_metrics::snapshot::MetricSet;
 use polydat::Kernel;
 use polydat::ast::Value;
-use polydat::kernel::{PolydatKernel, PolydatProgram};
+use polydat::kernel::PolydatProgram;
 
 use super::phase_pulse::{PhaseStopEvaluator, PulseEvaluator, StopOutcomeCell};
 use crate::phase_outcome::Outcome;
@@ -197,7 +198,7 @@ impl SettleInterpreter {
 /// settle `timeout` elapses without settling (`failed` — SRD-86 §6
 /// step 5). `None` while the loop should hold.
 pub struct SettleEvaluator {
-    objective: PolydatKernel,
+    objective: ScopeKernel,
     objective_wire: String,
     poke: Option<usize>,
     interp: SettleInterpreter,
@@ -219,7 +220,7 @@ impl SettleEvaluator {
     /// input positioned at each pulse's ordinal (typically `cycle`);
     /// `interp` the `is_stable` engine fed the objective value.
     pub fn new(
-        objective: PolydatKernel,
+        objective: ScopeKernel,
         objective_wire: &str,
         poke_input: &str,
         interp: SettleInterpreter,
@@ -253,11 +254,27 @@ impl PulseEvaluator for SettleEvaluator {
         // volatile reader in its cone re-reads the latest published
         // window on every pull.
         if let Some(idx) = self.poke {
-            self.objective
-                .state()
-                .set_input(idx, Value::U64(self.pulses));
+            let k = &mut self.objective;
+            let coords = k.coord_count();
+            if idx < coords {
+                // A coordinate is positioned with `set_inputs`; the pulse
+                // then invalidates every output so a volatile reader
+                // re-reads (native_scope_trees.md §3, the settle pulse).
+                let mut position: Vec<u64> = (0..coords)
+                    .map(|i| k.input_value_at(i).map_or(0, |v| v.as_u64()))
+                    .collect();
+                position[idx] = self.pulses;
+                k.set_inputs(&position);
+                k.invalidate_all();
+            } else if let Err(e) = k.set_input_at(idx, Value::U64(self.pulses)) {
+                crate::diag!(
+                    crate::observer::LogLevel::Warn,
+                    "settle: the objective's poke input refused pulse {}: {e}",
+                    self.pulses
+                );
+            }
         }
-        let obj = objective_to_f64(self.objective.pull_ref(&self.objective_wire));
+        let obj = objective_to_f64(&self.objective.pull(&self.objective_wire));
         // SRD-89 — a NaN objective is a windowed metric reading **no data** (an
         // empty `rate(...[W])` lookback — see `nodes::no_data_value`), distinct
         // from a real 0. HOLD on it: do not feed the stability detector (a
@@ -412,8 +429,8 @@ impl std::fmt::Display for SettleSkip {
 /// is correct there) or when the metrics cadence is disabled, and says
 /// which; a detector that cannot be built is [`SettleSkip::Failed`].
 pub fn start_settle(
-    parent: &Arc<PolydatKernel>,
-    phase_kernel: &Arc<PolydatKernel>,
+    parent: &Arc<ScopeKernel>,
+    phase_kernel: &Arc<ScopeKernel>,
     objective: &str,
     reporter: &Arc<CadenceReporter>,
     stop_flag: Arc<AtomicBool>,
@@ -441,12 +458,8 @@ pub fn start_settle(
     }
 
     let failed = |what: &str, e: &dyn std::fmt::Display| SettleSkip::Failed(format!("{what}: {e}"));
-    let matter = polydat::kernel::subcontext::PolydatMatter::builder()
-        .program(program.clone())
-        .build()
-        .map_err(|e| failed("objective kernel matter", &e))?;
-    let obj_kernel = parent
-        .build_subscope(matter)
+    let obj_kernel = phase_kernel
+        .bind_under(parent.kernel(), &[])
         .map_err(|e| failed("objective kernel", &e))?;
 
     let is_stable_kernel = polydat::dsl::compile::compile_polydat(&format!(
@@ -514,8 +527,9 @@ mod tests {
         SettleInterpreter::new(kernel, "samples", "stable_value", "stable", 8)
     }
 
-    fn obj_kernel(src: &str) -> PolydatKernel {
-        compile_polydat_interpreter(src).expect("objective kernel compiles")
+    fn obj_kernel(src: &str) -> ScopeKernel {
+        crate::bindings::compile_scope_kernel(src, &Default::default())
+            .expect("objective kernel compiles")
     }
 
     // A constant objective: settles regardless of the poke.

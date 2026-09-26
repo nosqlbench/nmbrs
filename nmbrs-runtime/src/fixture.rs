@@ -23,8 +23,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::scope_kernel::ScopeKernel;
 use polydat::ast::Value;
-use polydat::kernel::{PolydatKernel, PolydatProgram};
+use polydat::kernel::PolydatProgram;
 
 /// What the kernel reports a registered name resolves to.
 ///
@@ -253,11 +254,11 @@ impl PullPlan {
         ResolvedPulls { values }
     }
 
-    /// Convenience: resolve against an interpreter kernel. Provided so
+    /// Convenience: resolve against a scope kernel. Provided so
     /// test scaffolding and other ergonomic call sites don't have to
     /// name the trait object.
-    pub fn resolve_with(&self, kernel: &mut PolydatKernel) -> ResolvedPulls {
-        self.resolve(kernel)
+    pub fn resolve_with(&self, kernel: &mut ScopeKernel) -> ResolvedPulls {
+        self.resolve(kernel.kernel_mut())
     }
 }
 
@@ -361,7 +362,7 @@ impl<'a> ExecCtx<'a> {
     /// Construct an `ExecCtx` with an explicit `WireSource` — the
     /// SRD-68 path. The `wires` value should be the per-fiber
     /// kernel slot for the firing dispenser, narrowed to the
-    /// `WireSource` trait so adapter code never sees `PolydatKernel`
+    /// `WireSource` trait so adapter code never sees `ScopeKernel`
     /// internals.
     pub fn with_wires(
         fields: &'a crate::adapter::ResolvedFields,
@@ -380,15 +381,15 @@ impl<'a> ExecCtx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use polydat::dsl::compile::compile_polydat_interpreter;
 
-    fn k() -> PolydatKernel {
-        compile_polydat_interpreter(
+    fn k() -> ScopeKernel {
+        crate::bindings::compile_scope_kernel(
             "input cycle: u64\n\
              folded := 42\n\
              cyc_dep := hash(cycle)\n",
+            &Default::default(),
         )
-        .expect("compile_polydat_interpreter")
+        .expect("compile_scope_kernel")
     }
 
     #[test]

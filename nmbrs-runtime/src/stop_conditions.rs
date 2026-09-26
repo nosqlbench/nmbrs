@@ -21,18 +21,68 @@
 //! executor injects a [`RuntimeState`] snapshot before each evaluation.
 //!
 //! The predicate is compiled (`compile_stop_condition`) as an SRD-84
-//! **shape 2** [`ScopedExpr`] bound to the shell's phase kernel — a
+//! **shape 2** [`ScopedPredicate`] bound to the shell's phase kernel — a
 //! scope-bound, callable expression over the runtime-state externs —
 //! *not* baked into the phase kernel's own matter. The firing events /
 //! settle daemon (step 3) drive [`RuntimeState::trips`] per trigger.
 
 use std::sync::Arc;
 
+use crate::scope_kernel::ScopeKernel;
 use polydat::ast::Value;
-use polydat::dsl::stub::{ExprStub, GraphMatter, ScopedExpr};
-use polydat::kernel::PolydatKernel;
+use polydat::dsl::stub::{ExprStub, GraphMatter};
 
 use crate::phase_outcome::Outcome;
+
+/// An SRD-84 **shape 2** expression bound to a scope: its matter built
+/// under the scope (so it reads every name in scope), on the scope's
+/// engine, with the one output it evaluates. Evaluated many times after
+/// its inputs are written; each pull re-evaluates its volatile cone.
+pub struct ScopedPredicate {
+    kernel: ScopeKernel,
+    output: usize,
+}
+
+impl ScopedPredicate {
+    /// Bind `matter`, which defines `output` and the externs it reads,
+    /// under `parent`.
+    pub fn bind(parent: &ScopeKernel, output: &str, matter: GraphMatter) -> Result<Self, String> {
+        let kernel = ScopeKernel::build_under(
+            parent.kernel(),
+            crate::scope_kernel::SourceMatter::statements(
+                output,
+                matter.into_statements(),
+                Default::default(),
+            ),
+        )
+        .map_err(|e| format!("scoped-expr subscope: {e}"))?;
+        let output = kernel
+            .program()
+            .output_index(output)
+            .ok_or_else(|| format!("scoped-expr: no output `{output}`"))?;
+        Ok(Self { kernel, output })
+    }
+
+    /// The kernel whose inputs are written before an evaluation.
+    pub fn dataflow(&mut self) -> &mut dyn polydat::Kernel {
+        self.kernel.kernel_mut()
+    }
+
+    /// The expression's value now.
+    pub fn eval(&mut self) -> Value {
+        self.kernel.pull_at(self.output)
+    }
+
+    /// The expression's truthiness: polydat comparisons and `&&` / `||`
+    /// yield `U64` `0/1`, so non-zero is true.
+    pub fn is_true(&mut self) -> bool {
+        match self.eval() {
+            Value::Bool(b) => b,
+            Value::F64(v) => v != 0.0,
+            v => v.as_u64() != 0,
+        }
+    }
+}
 
 /// Canonical runtime-state wire names a stop-condition predicate may
 /// read. A predicate references the ones it needs; the rest are absent
@@ -197,7 +247,7 @@ impl RuntimeState {
     /// Evaluate a stop-condition predicate against this snapshot:
     /// inject the runtime-state wires, then read the predicate's
     /// truthiness. `true` means the condition has tripped.
-    pub fn trips(&self, condition: &mut ScopedExpr) -> bool {
+    pub fn trips(&self, condition: &mut ScopedPredicate) -> bool {
         self.inject_into(condition.dataflow());
         condition.is_true()
     }
@@ -223,7 +273,7 @@ pub fn extern_matter() -> GraphMatter {
 }
 
 /// Compile a stop-condition predicate (SRD-83 Part 2) as an SRD-84
-/// **shape 2** [`ScopedExpr`] bound to the shell's `phase_kernel`: a
+/// **shape 2** [`ScopedPredicate`] bound to the shell's `phase_kernel`: a
 /// `volatile` expression living in that kernel's lexical scope, over
 /// the runtime-state externs, coerced to `u64` truthiness. The executor
 /// (step 3) evaluates it per trigger via [`RuntimeState::trips`].
@@ -232,10 +282,10 @@ pub fn extern_matter() -> GraphMatter {
 /// is a separate sub-context, so authored phase bindings and evaluated
 /// stop predicates stay orthogonal concerns.
 pub fn compile_stop_condition(
-    phase_kernel: &PolydatKernel,
+    phase_kernel: &ScopeKernel,
     idx: usize,
     when: &str,
-) -> Result<ScopedExpr, String> {
+) -> Result<ScopedPredicate, String> {
     let name = format!("__stop_cond_{idx}");
     let mut matter = extern_matter();
     // A predicate may also read `shared` wires from the scope cascade —
@@ -269,7 +319,7 @@ pub fn compile_stop_condition(
         wire::CHILDREN_FAILED,
         wire::CHILDREN_DONE,
     ];
-    let cells = phase_kernel.shared_cells_in_scope();
+    let cells = phase_kernel.cells_in_scope();
     for referenced in polydat::dsl::refs::referenced_names(when) {
         if CANONICAL.contains(&referenced.as_str()) {
             continue;
@@ -284,7 +334,7 @@ pub fn compile_stop_condition(
             .returning::<u64>()
             .volatile(),
     );
-    ScopedExpr::bind(phase_kernel, name, matter)
+    ScopedPredicate::bind(phase_kernel, &name, matter)
         .map_err(|e| format!("stop condition {idx} predicate `{when}`: {e}"))
 }
 
@@ -304,7 +354,7 @@ pub fn compile_continue_if(
     when: &str,
     coords: &[(String, Value)],
     strict: bool,
-) -> Result<Arc<PolydatKernel>, String> {
+) -> Result<Arc<ScopeKernel>, String> {
     let mut source = String::new();
     for (name, value) in coords {
         source.push_str(&format!(
@@ -327,7 +377,7 @@ pub fn compile_continue_if(
 ///
 /// Materialises the gate kernel as a proper sub-scope of the sweep's `parent`
 /// — the SAME scope-walk that builds the body's per-iteration kernel
-/// ([`PolydatKernel::for_iteration`]) — so the auto-externed outer consts are
+/// ([`ScopeKernel::for_iteration`]) — so the auto-externed outer consts are
 /// WIRED IN from the parent's cascade and the iteration coordinates are SET
 /// from `bindings`. The predicate therefore resolves every in-scope name
 /// natively: the canonical-scope contract (one scope-walked kernel answers all
@@ -335,16 +385,16 @@ pub fn compile_continue_if(
 /// inherited consts. Returns truthiness: `true` → keep sweeping (run this
 /// iteration); `false` → the gate has gone false, halt the sweep.
 pub fn eval_continue_if(
-    gate_canonical: &Arc<PolydatKernel>,
-    parent: &Arc<PolydatKernel>,
+    gate_canonical: &Arc<ScopeKernel>,
+    parent: &Arc<ScopeKernel>,
     bindings: &[(String, Value)],
 ) -> Result<bool, String> {
-    let mut kernel = PolydatKernel::for_iteration(gate_canonical, parent, bindings);
-    let pulled = Arc::get_mut(&mut kernel)
-        .ok_or("continue_if: freshly built gate kernel unexpectedly shared")?
-        .pull_ref("__continue_if");
+    let mut kernel = gate_canonical
+        .bind_under(parent.kernel(), bindings)
+        .map_err(|e| format!("continue_if: {e}"))?;
+    let pulled = kernel.pull("__continue_if");
     Ok(match pulled {
-        Value::Bool(b) => *b,
+        Value::Bool(b) => b,
         other => other.as_u64() != 0,
     })
 }
@@ -471,7 +521,7 @@ impl StopConditionDecl {
 
 /// A shell's compiled stop conditions (SRD-83 steps 3–5): the default
 /// `error_rate > error_rate_max` condition (when a max is set) plus each
-/// phase-declared predicate, every one a scope-bound [`ScopedExpr`].
+/// phase-declared predicate, every one a scope-bound [`ScopedPredicate`].
 /// Built once when the shell's kernel exists; evaluated per firing event
 /// against a [`RuntimeState`] snapshot. This is the polydat-predicate
 /// successor to the interim `AggregateGuard`.
@@ -480,7 +530,7 @@ pub struct StopConditionSet {
 }
 
 struct StopCondition {
-    expr: ScopedExpr,
+    expr: ScopedPredicate,
     /// SRD-83 Part 5 — the two-axis Outcome the shell adopts when this
     /// condition trips. `fail` → Interrupted+Failed; `stop` →
     /// Interrupted+Succeeded.
@@ -504,7 +554,7 @@ impl StopConditionSet {
     /// fails to compile is a hard error (surfaced at build time, not
     /// swallowed per "never ignore silently").
     pub fn build_for_phase(
-        phase_kernel: &PolydatKernel,
+        phase_kernel: &ScopeKernel,
         declared: &[StopConditionDecl],
     ) -> Result<Self, String> {
         let mut conditions = Vec::new();
@@ -574,7 +624,7 @@ mod tests {
         // Root scope: f64 cells, as the incremental compaction sweep declares
         // (`shared recent_result_failures: f64 := 0.0`) — the typed-
         // extern path matters, a u64 guess would corrupt the compare.
-        let mut root = polydat::dsl::compile_polydat_interpreter(
+        let mut root = ScopeKernel::compile(
             "shared recent_result_failures: f64 := 0.0
              shared recent_result_total: f64 := 0.0
              rx := 1",
@@ -582,12 +632,11 @@ mod tests {
         .expect("root kernel");
         // Phase kernel as a subscope whose matter does NOT reference
         // the shared wires (like load_increment_adaptive's bindings).
-        let pm = polydat::kernel::subcontext::PolydatMatter::builder()
-            .label("phase_test")
-            .source("x := 5")
-            .build()
-            .expect("matter");
-        let phase = root.build_subscope(pm).expect("phase kernel");
+        let phase = ScopeKernel::build_under(
+            root.kernel(),
+            crate::scope_kernel::SourceMatter::source("phase_test", "x := 5", Default::default()),
+        )
+        .expect("phase kernel");
 
         // Canonical-only predicates keep compiling.
         compile_stop_condition(&phase, 0, "result_failure >= 100")
@@ -615,13 +664,15 @@ mod tests {
             .program()
             .find_input("recent_result_failures")
             .expect("root input slot for the shared wire");
-        root.state().set_input(idx, polydat::ast::Value::F64(150.0));
+        root.set_input_at(idx, polydat::ast::Value::F64(150.0))
+            .expect("write the shared cell");
         assert!(
             state.trips(&mut cond),
             "predicate must read the LIVE shared cell (150 >= 100, ratio floor 0)"
         );
         // And back down: no latch.
-        root.state().set_input(idx, polydat::ast::Value::F64(0.0));
+        root.set_input_at(idx, polydat::ast::Value::F64(0.0))
+            .expect("write the shared cell");
         assert!(!state.trips(&mut cond), "cell reset must un-trip");
 
         // A misspelled name is neither canonical nor a cell: still a
@@ -663,8 +714,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(all_fail.result_failure_fraction(), 1.0);
-        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
-            .expect("phase kernel");
+        let phase_kernel = ScopeKernel::compile("input cycle: u64\nx := 5").expect("phase kernel");
         let mut cond = compile_stop_condition(
             &phase_kernel,
             0,
@@ -725,11 +775,10 @@ mod tests {
     #[test]
     fn compiles_and_trips_a_scoped_stop_condition() {
         // SRD-83 Part 2 re-pointed onto SRD-84 shape 2: the predicate is
-        // a `ScopedExpr` bound to the phase kernel, evaluated per trigger
+        // a `ScopedPredicate` bound to the phase kernel, evaluated per trigger
         // against an injected runtime-state snapshot — never baked into
         // the phase matter.
-        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
-            .expect("phase kernel");
+        let phase_kernel = ScopeKernel::compile("input cycle: u64\nx := 5").expect("phase kernel");
         let mut cond = compile_stop_condition(
             &phase_kernel,
             0,
@@ -768,8 +817,7 @@ mod tests {
 
     #[test]
     fn stop_condition_set_installs_default_error_rate_and_declared_predicates() {
-        let phase_kernel = polydat::dsl::compile_polydat_interpreter("input cycle: u64\nx := 5")
-            .expect("phase kernel");
+        let phase_kernel = ScopeKernel::compile("input cycle: u64\nx := 5").expect("phase kernel");
         // The synthesized error-rate guard (0.1) rides the SAME list
         // as the declared op-count predicate — one uniform path
         // (SRD-82: no hidden conditions).
@@ -863,8 +911,7 @@ mod tests {
         assert!(!StopConditionDecl::action_cancels_ops(None));
 
         // A compiled abort decl surfaces cancel_ops=true through evaluate.
-        let root =
-            polydat::dsl::compile_polydat_interpreter("input cycle: u64").expect("root kernel");
+        let root = ScopeKernel::compile("input cycle: u64").expect("root kernel");
         let mut set = StopConditionSet::build_for_phase(
             &root,
             &[StopConditionDecl {

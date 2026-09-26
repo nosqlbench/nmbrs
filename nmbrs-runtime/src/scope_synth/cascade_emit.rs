@@ -14,7 +14,7 @@
 
 use std::collections::HashSet;
 
-use polydat::kernel::PolydatKernel;
+use crate::scope_kernel::ScopeKernel;
 
 use super::helpers::{format_workload_param_as_polydat_literal, value_to_param_string};
 
@@ -50,7 +50,7 @@ use super::helpers::{format_workload_param_as_polydat_literal, value_to_param_st
 pub fn emit_workload_param_chain_aware(
     name: &str,
     hashmap_default: &str,
-    parent_kernel: &PolydatKernel,
+    parent_kernel: &ScopeKernel,
     source: &mut String,
     emitted: &mut HashSet<String>,
     inherited_names: Option<&mut Vec<String>>,

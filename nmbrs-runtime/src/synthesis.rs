@@ -19,11 +19,12 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::fiber_engine::OpTemplateModule;
+use crate::scope_kernel::ScopeKernel;
 use nmbrs_workload::bindpoints::{self, BindPoint, BindQualifier};
 use nmbrs_workload::model::ParsedOp;
 use polydat::Kernel;
 use polydat::ast::Value;
-use polydat::kernel::{KernelProgram, PolydatKernel, PolydatProgram};
+use polydat::kernel::{KernelProgram, PolydatProgram};
 
 /// Cached `NMBRS_DIRTY_DEBUG` flag — per-cycle `std::env::var`
 /// reads measured at ~30% of single-fiber CPU; the OnceLock
@@ -56,7 +57,7 @@ pub struct OpBuilder {
     /// kernel (not just its program) carries the activity's full cell
     /// state — own input-slot cells plus transit cells inherited from
     /// ancestors — to every fiber's main kernel.
-    source_kernel: Arc<PolydatKernel>,
+    source_kernel: Arc<ScopeKernel>,
     /// SRD-13d Phase 9 — per-op-template kernel programs keyed
     /// by op name. Populated by [`Self::with_op_template_programs`]
     /// when the runner has materialised op-template kernels in
@@ -65,10 +66,6 @@ pub struct OpBuilder {
     /// and build their `ScopeFixture` against it; flattened
     /// op-templates fall through to the activity-wide `program`.
     op_template_programs: std::collections::HashMap<String, Arc<PolydatProgram>>,
-    /// The fiber engine's image of the source kernel's program, which
-    /// every fiber's main kernel runs; `None` keeps fibers on the
-    /// interpreter.
-    fiber_image: Option<Arc<dyn KernelProgram>>,
     /// What each canonical kernel this builder hands out stands for,
     /// keyed by its `program_id`: a dispenser's canonical may be on any
     /// engine, and each fiber finds here the interpreter program that
@@ -81,11 +78,26 @@ pub struct OpBuilder {
 /// program that resolves its indices (the analysis program; a native
 /// image of it shares its indices, `fiber_engine::agrees`), and the
 /// op-template module a per-op kernel is instantiated from on the fiber
-/// engine, when it has one.
+/// engine, when it has one, or else the image a per-op kernel is bound
+/// from — the scope's own engine program, the interpreter program when
+/// nothing better stands in for it.
 #[derive(Clone)]
 struct CanonicalSource {
     program: Arc<PolydatProgram>,
+    image: Arc<dyn KernelProgram>,
     module: Option<Arc<OpTemplateModule>>,
+}
+
+impl CanonicalSource {
+    /// A program with no other image: per-op kernels bind it on the
+    /// interpreter.
+    fn interpreted(program: Arc<PolydatProgram>) -> Self {
+        Self {
+            image: program.clone(),
+            program,
+            module: None,
+        }
+    }
 }
 
 /// Canonical sources by the `program_id` of every kernel that stands for
@@ -103,8 +115,8 @@ impl OpBuilder {
     /// If the kernel has scope values (set via `materialize_wiring_from_outer`
     /// or directly via `kernel.state().set_input`), they are
     /// captured and propagated into every fiber's kernels.
-    pub fn new(kernel: impl Into<Arc<PolydatKernel>>) -> Self {
-        let kernel: Arc<PolydatKernel> = kernel.into();
+    pub fn new(kernel: impl crate::scope_kernel::IntoSharedScope) -> Self {
+        let kernel: Arc<ScopeKernel> = kernel.into_shared_scope();
         // Scope values seed PLAIN slots only. A CELL-BOUND slot's value
         // is the live shared cell — snapshotting it here freezes the
         // cell's activity-start value, and every downstream
@@ -121,7 +133,7 @@ impl OpBuilder {
                 kernel
                     .program()
                     .find_input(name)
-                    .map(|idx| !Kernel::input_is_cell_bound(kernel.as_ref(), idx))
+                    .map(|idx| !kernel.input_is_cell_bound(idx))
                     .unwrap_or(true)
             })
             .collect();
@@ -130,6 +142,7 @@ impl OpBuilder {
             kernel.program_id(),
             CanonicalSource {
                 program: kernel.program().clone(),
+                image: kernel.image().clone(),
                 module: None,
             },
         ))
@@ -138,7 +151,6 @@ impl OpBuilder {
             scope_values,
             source_kernel: kernel,
             op_template_programs: std::collections::HashMap::new(),
-            fiber_image: None,
             canonicals: Arc::new(canonicals),
         }
     }
@@ -156,19 +168,9 @@ impl OpBuilder {
         for program in programs.values() {
             canonicals
                 .entry(program_id_of(program))
-                .or_insert_with(|| CanonicalSource {
-                    program: program.clone(),
-                    module: None,
-                });
+                .or_insert_with(|| CanonicalSource::interpreted(program.clone()));
         }
         self.op_template_programs = programs;
-        self
-    }
-
-    /// Run every fiber's main kernel on `image`, the fiber engine's
-    /// image of the source kernel's program ([`crate::fiber_engine`]).
-    pub fn with_fiber_image(mut self, image: Option<Arc<dyn KernelProgram>>) -> Self {
-        self.fiber_image = image;
         self
     }
 
@@ -189,6 +191,7 @@ impl OpBuilder {
             };
             let source = CanonicalSource {
                 program: module.program().clone(),
+                image: image.clone(),
                 module: Some(module.clone()),
             };
             // Both the interpreter program and its native image stand
@@ -219,12 +222,11 @@ impl OpBuilder {
 
     /// The activity-wide source kernel — the Polydat context every
     /// op-template subscope is built upon. Adapters' `map_op`
-    /// implementations receive a clone of this Arc as the `parent`
-    /// argument so they can materialise their own canonical
-    /// op-template kernel via SRD-67 `build_subscope` (SRD-68
-    /// invariant I-3) or simply retain the Arc when their op has
-    /// no matter to add.
-    pub fn source_kernel(&self) -> &Arc<PolydatKernel> {
+    /// implementations receive a kernel of this scope (see
+    /// [`Self::canonical_kernel_for_op`]) as the `parent` argument, to
+    /// bind their own canonical op-template kernel under (SRD-68
+    /// invariant I-3) or to retain when their op has no matter to add.
+    pub fn source_kernel(&self) -> &Arc<ScopeKernel> {
         &self.source_kernel
     }
 
@@ -239,13 +241,13 @@ impl OpBuilder {
     /// activity runs), the canonical is that program bound under
     /// `source_kernel`: instantiated from its module on the fiber
     /// engine when it has one, on the interpreter otherwise.
-    /// Otherwise the canonical is the source kernel itself
-    /// (Arc-cloned), which covers the flattened-op-template path (no
-    /// per-op matter). Either way the adapter holds a kernel of any
+    /// Otherwise the canonical is a fork of the source kernel (its
+    /// program, state and cells), which covers the flattened-op-template
+    /// path (no per-op matter). Either way the adapter holds a kernel of any
     /// engine, whose `program_id` this builder recognizes.
     pub fn canonical_kernel_for_op(&self, op_name: &str) -> Arc<dyn Kernel> {
         let Some(program) = self.op_template_programs.get(op_name) else {
-            return self.source_kernel.clone();
+            return Arc::from(self.source_kernel.fork().into_kernel());
         };
         let module = self
             .canonicals
@@ -255,7 +257,7 @@ impl OpBuilder {
             Some(module) => Arc::from(
                 module
                     .instantiate_under(
-                        self.source_kernel.as_ref(),
+                        self.source_kernel.kernel(),
                         crate::fiber_engine::fiber_engine(),
                         &[],
                     )
@@ -265,7 +267,7 @@ impl OpBuilder {
             ),
             None => Arc::from(
                 polydat::kernel::bind_under(
-                    self.source_kernel.as_ref(),
+                    self.source_kernel.kernel(),
                     program.clone() as Arc<dyn KernelProgram>,
                     &[],
                 )
@@ -293,11 +295,7 @@ impl OpBuilder {
         // main kernel's consts initialize from them (a const is fixed at
         // init). The indices cached here feed the per-cycle
         // `reset_captures` re-application.
-        let mut fb = FiberBuilder::with_scope(
-            &self.source_kernel,
-            self.fiber_image.clone(),
-            self.scope_values.clone(),
-        );
+        let mut fb = FiberBuilder::with_scope(&self.source_kernel, None, self.scope_values.clone());
         fb.canonicals = self.canonicals.clone();
         // SRD-68: per-fiber op-template kernels are populated by
         // `attach_dispenser_kernels`, which runs right after this
@@ -494,18 +492,18 @@ pub fn validate_bind_points(
 
 impl FiberBuilder {
     /// Create a new fiber builder whose main kernel is the parent's own
-    /// program bound under the parent, on the interpreter.
-    pub fn new(parent: &PolydatKernel) -> Self {
+    /// image bound under the parent, on the parent's engine.
+    pub fn new(parent: &ScopeKernel) -> Self {
         Self::with_image(parent, None)
     }
 
     /// Create a new fiber builder whose main kernel runs `image` — the
     /// fiber engine's image of `parent`'s program — bound under
-    /// `parent`; the interpreter program itself when `image` is `None`.
+    /// `parent`; the parent's own image when `image` is `None`.
     /// Per-fiber state is fresh; cell handles are Arc-shared with the
     /// parent so writes propagate to the workload-root through the
     /// cascade.
-    pub fn with_image(parent: &PolydatKernel, image: Option<Arc<dyn KernelProgram>>) -> Self {
+    pub fn with_image(parent: &ScopeKernel, image: Option<Arc<dyn KernelProgram>>) -> Self {
         Self::with_scope(parent, image, Vec::new())
     }
 
@@ -513,14 +511,14 @@ impl FiberBuilder {
     /// as it is built, before its consts initialize, and remembering
     /// them for the stanza-boundary [`Self::reset_captures`].
     pub fn with_scope(
-        parent: &PolydatKernel,
+        parent: &ScopeKernel,
         image: Option<Arc<dyn KernelProgram>>,
         scope_values: Vec<(String, Value)>,
     ) -> Self {
         let main_program = parent.program().clone();
-        let image: Arc<dyn KernelProgram> = image.unwrap_or_else(|| main_program.clone());
+        let image: Arc<dyn KernelProgram> = image.unwrap_or_else(|| parent.image().clone());
         let bindings = scope_bindings(&main_program, &scope_values);
-        let main_kernel = polydat::kernel::bind_under(parent, image, &bindings)
+        let main_kernel = polydat::kernel::bind_under(parent.kernel(), image, &bindings)
             .unwrap_or_else(|e| panic!("a fiber's main kernel failed to bind: {e}"));
         let scope_value_main_idx = scope_values
             .iter()
@@ -533,6 +531,7 @@ impl FiberBuilder {
             parent.program_id(),
             CanonicalSource {
                 program: main_program.clone(),
+                image: parent.image().clone(),
                 module: None,
             },
         ))
@@ -611,10 +610,7 @@ impl FiberBuilder {
                         kernel.engine()
                     );
                 }
-                program.map(|program| CanonicalSource {
-                    program,
-                    module: None,
-                })
+                program.map(CanonicalSource::interpreted)
             })
             .collect();
         let dispenser_programs: Vec<Option<Arc<PolydatProgram>>> = sources
@@ -628,7 +624,12 @@ impl FiberBuilder {
         let mut per_op_side_effecting: Vec<Vec<usize>> =
             Vec::with_capacity(dispenser_programs.len());
         for maybe_source in &sources {
-            let Some(CanonicalSource { program, module }) = maybe_source else {
+            let Some(CanonicalSource {
+                program,
+                image,
+                module,
+            }) = maybe_source
+            else {
                 per_op_kernels.push(None);
                 per_op_idx.push(None);
                 per_op_side_effecting.push(Vec::new());
@@ -645,12 +646,10 @@ impl FiberBuilder {
                         &bindings,
                     )
                     .unwrap_or_else(|e| panic!("per-op kernel failed to instantiate: {e}")),
-                None => polydat::kernel::bind_under(
-                    self.main_kernel.as_ref(),
-                    program.clone() as Arc<dyn KernelProgram>,
-                    &bindings,
-                )
-                .unwrap_or_else(|e| panic!("per-op kernel failed to bind: {e}")),
+                None => {
+                    polydat::kernel::bind_under(self.main_kernel.as_ref(), image.clone(), &bindings)
+                        .unwrap_or_else(|e| panic!("per-op kernel failed to bind: {e}"))
+                }
             };
             let idx_vec: Vec<Option<usize>> = scope_values
                 .iter()
@@ -1093,7 +1092,7 @@ mod tests {
     use polydat::library::arithmetic::Mod;
     use polydat::library::hash::Hash;
 
-    fn make_kernel() -> PolydatKernel {
+    fn make_kernel() -> ScopeKernel {
         let mut asm = PolydatAssembler::new(vec!["cycle".into()]);
         asm.add_node(
             "hashed",
@@ -1107,7 +1106,7 @@ mod tests {
         );
         asm.add_output("user_id", WireRef::node("user_id"));
         asm.add_output("hashed", WireRef::node("hashed"));
-        asm.compile().unwrap()
+        asm.compile().unwrap().into()
     }
 
     /// SRD-13f Stage 1 gate — verify that the per-fiber
@@ -1295,26 +1294,25 @@ mod tests {
         );
     }
 
-    /// The fiber engine carries the per-cycle kernels: a fiber's main
-    /// kernel runs the phase program's image, and a per-op kernel is
-    /// instantiated from its op-template module, both off the
+    /// The fiber engine carries the scope tree: the phase scope, a
+    /// fiber's main kernel bound under it, and a per-op kernel
+    /// instantiated from its op-template module all run off the
     /// interpreter — and every value they compute is the interpreter's.
     #[test]
     fn fiber_kernels_run_on_the_fiber_engine_with_interpreter_values() {
         use crate::adapter::OpDispenser;
         use crate::wires::WireSource as _;
-        use polydat::kernel::subcontext::{BodyFragment, PolydatMatter, SubcontextBuilder};
+        use polydat::kernel::subcontext::{BodyFragment, SubcontextBuilder};
 
         let phase_src = "input cycle: u64
 h := mod(hash(cycle), 1000)
 ";
-        let options = polydat::dsl::compile::CompileOptions::default();
-        let phase = crate::bindings::compile_scope_kernel(phase_src, &options).expect("phase");
-        let image = crate::fiber_engine::source_image(phase.program(), phase_src, &options, "test")
-            .expect("the phase image agrees with its program");
-        let phase = Arc::new(phase);
+        let phase = Arc::new(ScopeKernel::compile(phase_src).expect("phase"));
+        let reference_phase = Arc::new(ScopeKernel::from(
+            polydat::dsl::compile::compile_polydat_interpreter(phase_src).expect("reference phase"),
+        ));
 
-        let mut op = SubcontextBuilder::under(phase.as_ref());
+        let mut op = SubcontextBuilder::under(phase.kernel());
         op.body(BodyFragment::PolydatSource(
             "extern h: u64
 scaled := h * 3 + 1
@@ -1322,14 +1320,8 @@ scaled := h * 3 + 1
             .into(),
         ));
         let module = Arc::new(op.finalize().expect("op-template module"));
-        let canonical: Arc<dyn polydat::Kernel> = Arc::new(
-            phase
-                .build_subscope(
-                    PolydatMatter::builder()
-                        .program(module.program().clone())
-                        .build()
-                        .expect("program matter"),
-                )
+        let canonical: Arc<dyn polydat::Kernel> = Arc::from(
+            polydat::kernel::bind_under(phase.kernel(), module.program().clone(), &[])
                 .expect("canonical per-op kernel"),
         );
 
@@ -1358,16 +1350,20 @@ scaled := h * 3 + 1
         }
         let dispensers: Vec<Arc<dyn OpDispenser>> = vec![Arc::new(Probe(canonical))];
 
-        let native = OpBuilder::new(phase.clone())
-            .with_fiber_image(Some(image))
-            .with_op_template_modules([("op".to_string(), module)]);
-        let interpreted = OpBuilder::new(phase);
+        let native =
+            OpBuilder::new(phase.clone()).with_op_template_modules([("op".to_string(), module)]);
+        let interpreted = OpBuilder::new(reference_phase);
         let mut fiber = native.create_fiber_builder();
         fiber.attach_dispenser_kernels(&dispensers);
         let mut reference = interpreted.create_fiber_builder();
         reference.attach_dispenser_kernels(&dispensers);
 
         let on_interpreter = |k: &dyn Kernel| matches!(k.engine(), polydat::Engine::Interpreter(_));
+        assert!(
+            !on_interpreter(phase.kernel()),
+            "phase scope on {}",
+            phase.engine()
+        );
         assert!(
             !on_interpreter(fiber.main_kernel()),
             "main kernel on {}",

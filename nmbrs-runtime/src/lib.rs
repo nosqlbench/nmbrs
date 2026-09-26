@@ -129,6 +129,7 @@ pub mod scene_tree;
 pub(crate) mod scheduler;
 pub mod scope;
 pub(crate) mod scope_elision;
+pub mod scope_kernel;
 pub mod scope_synth;
 pub mod scope_tree;
 pub mod session;
