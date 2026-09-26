@@ -2153,9 +2153,6 @@ async fn run_execution(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     drop(declared);
-    // Whether the workload names the session clock's origin, asked of the
-    // whole model before its parts are taken apart below.
-    let session_clock = crate::bindings::workload_names_session_start(&workload);
     let mut phases = workload.phases;
     // Inline-expression rewrite per phase. The
     // `rewrite_inline_exprs` call later in this function (around
@@ -2850,7 +2847,6 @@ async fn run_execution(
                 cursor_limit,
                 &workload_params,
                 workload_level_polydat.as_deref(),
-                session_clock,
             )
             .map_err(|e| format!("outer workload bindings: {e}"))?,
         );

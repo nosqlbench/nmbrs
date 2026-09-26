@@ -358,21 +358,6 @@ pub(crate) fn prepend_effective_pragmas(
 /// workload root (see [`build_workload_root_kernel`]).
 pub const SESSION_START: &str = "session_start";
 
-/// Whether `workload` names the session clock's origin anywhere — a
-/// binding, an op field, a scenario — as an identifier, not merely as
-/// part of a longer one (`session_start_millis` does not count).
-pub fn workload_names_session_start(workload: &nmbrs_workload::model::Workload) -> bool {
-    let Ok(text) = serde_json::to_string(workload) else {
-        return false;
-    };
-    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
-    text.match_indices(SESSION_START).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + SESSION_START.len()..].chars().next();
-        !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
-    })
-}
-
 /// Build the workload-root [`ScopeKernel`] as a subscope of the
 /// workload-params kernel.
 ///
@@ -412,7 +397,6 @@ pub fn build_workload_root_kernel(
     cursor_limit: Option<u64>,
     workload_params: &std::collections::HashMap<String, String>,
     workload_level_polydat: Option<&str>,
-    session_clock: bool,
 ) -> Result<ScopeKernel, String> {
     // Build the workload-root scope. workload_params get
     // injected as `const` bindings so descendants resolve them
@@ -437,17 +421,16 @@ pub fn build_workload_root_kernel(
     {
         scope.ingest_polydat_source(extra, crate::scope::BindingOrigin::Inherited);
     }
-    // The session clock's origin, for a workload that names it: a const
-    // over a volatile reading, captured once when the workload root
-    // initializes. It has no inputs, so scope synthesis inlines that one
-    // captured value into every descendant that names it, and
-    // session-elapsed time — `current_epoch_millis() - session_start` —
-    // reads one origin in every scope, fiber, and engine. Only a
-    // workload that names it gets it: the capture reads the clock, which
-    // strict mode refuses unless acknowledged. A workload param or
-    // binding of the same name is the author's own origin and wins.
-    let session_clock = session_clock
-        && !workload_params.contains_key(SESSION_START)
+    // The session clock's origin: a const over a volatile reading,
+    // captured once when the workload root initializes. It has no
+    // inputs, so scope synthesis inlines that one captured value into
+    // every descendant that names it, and session-elapsed time —
+    // `current_epoch_millis() - session_start` — reads one origin in
+    // every scope, fiber, and engine. The capture reads the clock, and a
+    // const capture is its own acknowledgment, so strict mode accepts it.
+    // A workload param or binding of the same name is the author's own
+    // origin and wins.
+    let session_clock = !workload_params.contains_key(SESSION_START)
         && !scope.defined_names().contains(SESSION_START);
     if session_clock {
         scope.ingest_polydat_source(
