@@ -273,13 +273,12 @@ Per SRD 15 §"Pragma Scope":
 
 - Each scope carries its own `PragmaSet` (parsed from its own
   source / config).
-- At each compose step (parent scope → child scope), the child
-  calls `PragmaSet::attach_to(parent_pragmas)`. The chain walk
-  on `strict_types()` / `strict_values()` / etc. resolves through
-  parent pointers.
-- Conflicts surface as advisories (non-strict) or errors
-  (`--strict`) at the boundary where the inner scope is
-  constructed.
+- At each compose step (parent scope → child scope), the child's
+  set is the parent's entries followed by its own
+  (`PragmaSet::nested`, polydat 0.6.0), so `strict_types()` /
+  `strict_values()` / etc. answer for every pragma in force.
+- There are no conflicts between an outer and an inner pragma:
+  an inner declaration adds to the set in force.
 - A `for_each` declaring `pragma strict_values` applies that
   contract to its *own* scope's externs and outputs, *and* to
   every child scope that doesn't override it. A nested phase
@@ -1088,7 +1087,7 @@ retiring. Better to land (1) first and keep the runner thin.
 
 Pragmas ride along with their scope. The `pragmas: PragmaSet`
 field is on every `ScopeNode` directly; chain-walking is built
-into `PragmaSet` (parent pointer + `attach_to`). Once the tree
+into `PragmaSet` (each set nests its parent's entries). Once the tree
 exists (step 1) and we compile each scope's kernel against its
 parent (step 2), pragma propagation is just *populating the
 field* and *querying it through the chain*. No separate

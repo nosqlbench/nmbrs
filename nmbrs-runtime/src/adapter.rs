@@ -424,7 +424,7 @@ pub trait DriverAdapter: Send + Sync + 'static {
 
     /// SRD-104 — the adapter's **accessor payload**: a type-erased handle
     /// (`Arc<dyn Any + Send + Sync>`) a kernel node can obtain by fingerprint
-    /// via [`polydat::resource_lookup`]. The resource pool surfaces this
+    /// through its kernel tree's resource scope (`ResourceScope::lookup`). The resource pool surfaces this
     /// through [`crate::resource_pool::SharedResource::accessor_payload`]
     /// (the pool-shared wrapper delegates here) and stores it on the entry at
     /// init. Default `None` — an adapter opts in only when it wants kernels

@@ -300,11 +300,23 @@ fn scope_source_and_options(
 /// options when it can stand in for that program, and the interpreter
 /// kernel otherwise ([`ScopeKernel::root`]). Children are bound under it
 /// through the engine-neutral `Kernel` surface. Every root scope is
-/// compiled here, in one place.
+/// compiled here, in one place, and resolves resources through the pool
+/// ([`crate::resource_pool::pool_resources`]) unless `options` names a
+/// scope of its own; every kernel bound beneath it joins that scope.
 pub fn compile_scope_kernel(
     source: &str,
     options: &polydat::dsl::compile::CompileOptions,
 ) -> Result<ScopeKernel, String> {
+    let options = polydat::dsl::compile::CompileOptions {
+        resources: Some(
+            options
+                .resources
+                .clone()
+                .unwrap_or_else(crate::resource_pool::pool_resources),
+        ),
+        ..options.clone()
+    };
+    let options = &options;
     let interpreter =
         polydat::dsl::compile::compile_polydat_interpreter_with_options(source, options, None)
             .map_err(|e| e.to_string())?;
@@ -793,7 +805,6 @@ mod tests {
                 args: vec![],
                 line: 1,
             }],
-            parent: None,
         };
         let body = "id := cycle\n";
         let out = prepend_effective_pragmas(&pragmas, body);
@@ -810,7 +821,6 @@ mod tests {
                 args: vec![],
                 line: 1,
             }],
-            parent: None,
         };
         let out = prepend_effective_pragmas(&pragmas, "x := cycle");
         assert!(out.starts_with("pragma strict_values\n"));
@@ -827,22 +837,17 @@ mod tests {
     #[test]
     fn prepend_pragmas_walks_parent_chain() {
         // Parent declares strict_values. Child declares nothing.
-        // The child's effective state (via chain walk) still
-        // produces the prepended directive — that's the
-        // load-bearing behavior for SRD 18b cross-scope
-        // propagation.
-        let parent = std::sync::Arc::new(PragmaSet {
+        // The child's nested set still produces the prepended
+        // directive — that's the load-bearing behavior for SRD 18b
+        // cross-scope propagation.
+        let parent = PragmaSet {
             entries: vec![Pragma {
                 name: "strict_values".into(),
                 args: vec![],
                 line: 1,
             }],
-            parent: None,
-        });
-        let child = PragmaSet {
-            entries: vec![],
-            parent: Some(parent),
         };
+        let child = parent.nested(&[]);
         let out = prepend_effective_pragmas(&child, "x := cycle");
         assert!(
             out.starts_with("pragma strict_values\n"),

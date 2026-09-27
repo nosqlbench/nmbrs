@@ -867,7 +867,6 @@ fn bench_single_expr(expr: &str, args: &BenchArgs) -> Option<ExprResult> {
 
         let mut p1_ns: Option<f64> = None;
 
-        let run_raw = compare_provenance;
         let run_deplist = args.engine.as_deref().is_none()
             || args.engine.as_deref() == Some("dependent_list")
             || args.engine.as_deref() == Some("all")
@@ -914,24 +913,6 @@ fn bench_single_expr(expr: &str, args: &BenchArgs) -> Option<ExprResult> {
                                 }))
                             })
                         };
-
-                    if run_raw {
-                        let mut samples = bench_p1(|p| Box::new(p.create_raw_state()));
-                        if !samples.is_empty() {
-                            let stats =
-                                adjust_stats(&compute_stats(&mut samples), driver_ns_per_cycle);
-                            p1_ns = Some(stats.min);
-                            println!(
-                                "  {:<16} {:>8.1}ns {:>8.1}ns {:>8.1}ns {:>7.1}x {:>12.0}",
-                                "P1",
-                                stats.min,
-                                stats.median,
-                                stats.p99,
-                                1.0,
-                                1e9 / stats.min
-                            );
-                        }
-                    }
 
                     if run_deplist {
                         let mut samples = bench_p1(|p| Box::new(p.create_state()));
@@ -1155,15 +1136,6 @@ trait P1Engine {
 }
 
 impl P1Engine for polydat::kernel::PolydatState {
-    fn set_inputs(&mut self, coords: &[u64]) {
-        self.set_inputs(coords);
-    }
-    fn pull_discard(&mut self, program: &PolydatProgram, name: &str) {
-        let _ = self.pull(program, name);
-    }
-}
-
-impl P1Engine for polydat::kernel::RawState {
     fn set_inputs(&mut self, coords: &[u64]) {
         self.set_inputs(coords);
     }

@@ -16,7 +16,7 @@
 //! steps of SRD 18b §"Migration":
 //!
 //! 1. *(this module)* introduce the data structure
-//! 2. wire `PragmaSet::attach_to` at scope-tree construction
+//! 2. nest each scope's `PragmaSet` in its parent's at scope-tree construction
 //!    (M2 follow-up)
 //! 3. replace text-substitution of iteration vars with extern
 //!    binding (compile leaf phases once)
@@ -732,7 +732,7 @@ impl ScopeTree {
 
     /// Walk from `idx` up through its ancestors to the root,
     /// inclusive of `idx` itself. Use this to compute effective
-    /// pragmas (chain `attach_to`) or to render a path label.
+    /// pragmas or to render a path label.
     pub fn ancestors(&self, idx: ScopeNodeIdx) -> AncestorsIter<'_> {
         AncestorsIter {
             tree: self,
@@ -1121,24 +1121,18 @@ impl ScopeTree {
 
     /// Populate `pragmas` on every phase-leaf scope by scanning
     /// each phase's `BindingsDef::PolydatSource` strings for `pragma`
-    /// statements, then walk the tree to chain each scope's
-    /// `PragmaSet` onto its parent's. After this call, querying
-    /// `node.pragmas.strict_values()` walks the chain through
-    /// every ancestor.
+    /// statements, then walk the tree so each scope's set holds its
+    /// ancestors' pragmas followed by its own, as polydat nests a
+    /// scope's pragmas (`PragmaSet::nested`). After this call,
+    /// `node.pragmas.strict_values()` answers for every pragma in force
+    /// at the node.
     ///
     /// SRD 18b §"Pragma chain along the scope tree". Idempotent
     /// per call (replaces any prior `pragmas` content).
-    ///
-    /// Returns the list of conflicts surfaced during chain
-    /// attachment (today: empty for presence-only pragmas; the
-    /// list exists for forward compatibility). Caller decides
-    /// whether to log or fail on conflicts based on strict mode.
     pub fn populate_pragmas(
         &mut self,
         phases: &std::collections::HashMap<String, nmbrs_workload::model::WorkloadPhase>,
-    ) -> Vec<crate::scope_tree::PragmaConflict> {
-        let mut conflicts = Vec::new();
-
+    ) {
         // Pass 1: extract phase-local pragmas. Iterate by
         // `phase_leaves` (which already does the kind filter)
         // and walk each phase's ops for Polydat source strings to
@@ -1154,40 +1148,18 @@ impl ScopeTree {
             }
         }
 
-        // Pass 2: attach each scope to its parent. Walk in
-        // depth order so a parent's `Arc<PragmaSet>` is finalised
-        // before its children pin to it.
+        // Pass 2: nest each scope in its parent. Walk in depth order
+        // so a parent's set is complete before its children take it.
         let order: Vec<ScopeNodeIdx> = self.iter_dfs().map(|(i, _)| i).collect();
         for idx in order {
             if let Some(parent) = self.nodes[idx].parent {
-                let parent_arc = std::sync::Arc::new(self.nodes[parent].pragmas.clone());
-                let local = std::mem::take(&mut self.nodes[idx].pragmas);
-                let (attached, mut local_conflicts) = local.attach_to(parent_arc);
-                self.nodes[idx].pragmas = attached;
-                for c in &mut local_conflicts {
-                    conflicts.push(PragmaConflict {
-                        scope_idx: idx,
-                        name: c.name.clone(),
-                        outer_line: c.outer_line,
-                        inner_line: c.inner_line,
-                    });
-                }
+                let local = std::mem::take(&mut self.nodes[idx].pragmas.entries);
+                let mut entries = self.nodes[parent].pragmas.entries.clone();
+                entries.extend(local);
+                self.nodes[idx].pragmas = PragmaSet { entries };
             }
         }
-
-        conflicts
     }
-}
-
-/// One pragma conflict surfaced when attaching a scope to its
-/// parent. Reports the offending scope index so the caller can
-/// turn it into a structured diagnostic with a path label.
-#[derive(Debug, Clone)]
-pub struct PragmaConflict {
-    pub scope_idx: ScopeNodeIdx,
-    pub name: String,
-    pub outer_line: usize,
-    pub inner_line: usize,
 }
 
 /// Extract pragmas from a phase's source by walking every op's
@@ -1218,10 +1190,7 @@ fn extract_phase_pragmas(phase: &nmbrs_workload::model::WorkloadPhase) -> Pragma
         let local = polydat::dsl::pragmas::collect_from_ast(&ast);
         entries.extend(local.entries);
     }
-    PragmaSet {
-        entries,
-        parent: None,
-    }
+    PragmaSet { entries }
 }
 
 /// Ride-along visitor for kernel-installation events. Set by
@@ -1469,19 +1438,15 @@ mod tests {
             make_phase_with_source("pragma strict_values\n id := cycle\n"),
         )]);
         let mut tree = ScopeTree::build("default", &[phase("p")]);
-        let conflicts = tree.populate_pragmas(&phases);
-        assert!(conflicts.is_empty());
+        tree.populate_pragmas(&phases);
         let phase_idx = tree.phase_leaves()[0];
         assert!(tree.nodes[phase_idx].pragmas.strict_values());
     }
 
     #[test]
     fn populate_pragmas_chain_walk_through_attach() {
-        // Build a small tree where the phase declares strict_values
-        // and verify that querying through `attach_to` resolves it
-        // even from sibling scopes that don't declare it. Sibling
-        // queries are valid because every scope's `parent` chain
-        // ultimately reaches the workload root.
+        // Build a small tree where the phase, nested in a for_each,
+        // declares strict and verify the nested set resolves it.
         let phases = std::collections::HashMap::from([(
             "p".to_string(),
             make_phase_with_source("pragma strict\n id := cycle\n"),

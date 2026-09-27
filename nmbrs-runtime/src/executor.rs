@@ -2406,14 +2406,34 @@ fn runtime_iterate(
     parent_coords: &[ScopeCoord],
     comprehension: &polydat::iteration::comprehension::Comprehension,
 ) -> Result<Vec<IterationStep>, String> {
-    use polydat::iteration::comprehension::evaluate_for_iteration_reported;
+    use polydat::iteration::comprehension::{NoneRead, evaluate_for_iteration_with_none_reads};
     use polydat::kernel::ScopeCoord;
 
     // The evaluator reads names through `Lookup` — the parent kernel
     // is the scope; the canonical program is only needed below, to
     // materialise each tuple's per-iteration kernel.
-    let evaluated = evaluate_for_iteration_reported(comprehension, parent.as_ref())
-        .map_err(|e| e.to_string())?;
+    let (evaluated, none_reads) =
+        evaluate_for_iteration_with_none_reads(comprehension, parent.as_ref())
+            .map_err(|e| e.to_string())?;
+
+    // A source that reads a name nothing binds yields nothing (polydat's
+    // none semantics). nmbrs holds naming an unbound value in a for_each
+    // spec as an error, so a typo is not a silently empty loop; polydat
+    // reports each such read by the name as read, after composition.
+    for (i, clause) in evaluated.clauses.iter().enumerate() {
+        if let Some(NoneRead::Unbound(name)) = none_reads
+            .clause(i)
+            .iter()
+            .find(|read| matches!(read, NoneRead::Unbound(_)))
+        {
+            let spec = clause.source.as_deref().unwrap_or("?");
+            return Err(format!(
+                "unresolved placeholder '{{{name}}}' in for_each clause '{var} in {spec}': \
+                 no workload param, outer iter-var, or inherited binding is named '{name}'",
+                var = clause.var
+            ));
+        }
+    }
 
     // Empty-clause policy: polydat reports what each leaf clause
     // yielded and leaves the decision here. Only a clause that was

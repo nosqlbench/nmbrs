@@ -60,6 +60,12 @@ fn cql_timeuuid(seed: u64) -> String {
     format!("{time_low:08x}-{time_mid:04x}-{time_hi:04x}-{clock_seq:04x}-{node:012x}")
 }
 
+/// The resource scope of the kernel tree a node is built in: `cql_session`
+/// keeps it from setup and resolves its key through it when it evaluates.
+fn capture_resources(ctx: &polydat::dsl::factory::BuildContext) -> polydat::ResourceScope {
+    ctx.resources().clone()
+}
+
 /// `cql_session(key: str) -> Handle` — resolve the pooled CQL session handle
 /// for fingerprint `key` through the SRD-104 accessor.
 ///
@@ -73,8 +79,12 @@ fn cql_timeuuid(seed: u64) -> String {
     category = RealData,
     purity = Nondeterministic("resolves a live pool-owned session by fingerprint")
 )]
-fn cql_session(key: &str) -> Arc<CqlSessionHandle> {
-    polydat::resource_lookup(key)
+fn cql_session(
+    key: &str,
+    #[poly_const(capture_resources, from = ctx)] resources: &polydat::ResourceScope,
+) -> Arc<CqlSessionHandle> {
+    resources
+        .lookup(key)
         .and_then(|payload| payload.downcast::<CqlSessionHandle>().ok())
         .unwrap_or_else(|| Arc::new(CqlSessionHandle::unresolved("unknown")))
 }

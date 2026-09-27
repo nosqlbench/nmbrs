@@ -5,7 +5,7 @@
 //!
 //! The session is owned by the SRD-35 resource pool; this module adds a
 //! **driver-agnostic handle** ([`CqlSessionHandle`]) that a polydat kernel
-//! reaches through the SRD-104 accessor (`polydat::resource_lookup`). The
+//! reaches through its tree's SRD-104 resource scope (`ResourceScope::lookup`). The
 //! handle carries an async [`CqlSettingsSource`] over the pooled session and
 //! a session-scoped memo, so a kernel node can ask the cluster "what is your
 //! configured batch-size limit" without polydat depending on the runtime and
@@ -235,7 +235,7 @@ pub async fn resolve_max_batch_bytes(
             "max_batch_size: expected a byte magnitude or a GK expression, got {param}"
         ));
     };
-    prime_referenced_settings(session_key, expr).await;
+    prime_referenced_settings(parent, session_key, expr).await;
     let bytes = eval_batch_expr(parent, session_key, expr)?;
     Ok(nonzero(bytes))
 }
@@ -280,7 +280,7 @@ pub async fn resolve_batch_count(
             "batch: expected an integer or a GK expression, got {param}"
         ));
     };
-    prime_referenced_settings(session_key, expr).await;
+    prime_referenced_settings(parent, session_key, expr).await;
     let value = eval_batch_field_expr(parent, session_key, expr, "batch")?;
     let n = value_to_u64(&value).ok_or_else(|| {
         format!("batch '{expr}' did not resolve to a non-negative number (got {value:?})")
@@ -299,11 +299,15 @@ fn literal_batch_count(param: &serde_json::Value) -> Option<usize> {
 }
 
 /// Look up the pooled [`CqlSessionHandle`] for `session_key` through the
-/// SRD-104 accessor and downcast it. `None` when the fingerprint isn't
-/// attached (the miss is handled upstream — the expression's `cql_session`
-/// node yields an unresolved handle).
-pub fn lookup_handle(session_key: &str) -> Option<Arc<CqlSessionHandle>> {
-    polydat::resource_lookup(session_key)?
+/// kernel tree's resource scope (SRD-104) and downcast it. `None` when
+/// the fingerprint isn't attached (the miss is handled upstream — the
+/// expression's `cql_session` node yields an unresolved handle).
+pub fn lookup_handle(
+    resources: &polydat::ResourceScope,
+    session_key: &str,
+) -> Option<Arc<CqlSessionHandle>> {
+    resources
+        .lookup(session_key)?
         .downcast::<CqlSessionHandle>()
         .ok()
 }
@@ -316,8 +320,8 @@ pub fn lookup_handle(session_key: &str) -> Option<Arc<CqlSessionHandle>> {
 /// literal appearing in the expression (the explicit `cql_read_*(session,
 /// "NAME")` argument). When the expression uses `cql_read_current`, the prime
 /// is a fresh refresh; otherwise it is the memoised cached prime.
-async fn prime_referenced_settings(session_key: &str, expr: &str) {
-    let Some(handle) = lookup_handle(session_key) else {
+async fn prime_referenced_settings(parent: &dyn Kernel, session_key: &str, expr: &str) {
+    let Some(handle) = lookup_handle(parent.resources(), session_key) else {
         return;
     };
     let force_fresh = expr.contains("cql_read_current");
@@ -375,7 +379,13 @@ fn eval_batch_field_expr(
     // expression's `cql_session(...)` / `cql_server_batch_limit(...)` resolve.
     let output = format!("__nmbrs_{label}");
     let source = format!("extern cql_session_key: str\n{output} := {expr}\n");
-    let image = nmbrs_runtime::bindings::compile_scope_kernel(&source, &Default::default())
+    // An empty resource scope: bound under `parent`, the expression joins
+    // the parent tree's scope and resolves its session through it.
+    let options = polydat::dsl::compile::CompileOptions {
+        resources: Some(polydat::ResourceScope::new()),
+        ..Default::default()
+    };
+    let image = nmbrs_runtime::bindings::compile_scope_kernel(&source, &options)
         .map_err(|e| format!("{label} '{expr}': {e}"))?
         .image()
         .clone();
@@ -533,12 +543,11 @@ mod tests {
 
     /// End-to-end: `max_batch_size` resolution through a MOCK settings source
     /// (no live cluster) yields the backed-off byte budget the dispenser
-    /// stores as `max_batch_bytes` (SRD-103 §3–4). The single process-global
-    /// accessor install is guarded so this is the only setter in the binary.
+    /// stores as `max_batch_bytes` (SRD-103 §3–4). The mock accessor is
+    /// installed on the parent kernel's own resource scope, which the
+    /// expression kernel joins when it is bound under the parent.
     #[tokio::test]
     async fn max_batch_size_resolves_through_mock_source() {
-        use polydat::dsl::compile::compile_polydat_interpreter;
-
         let key = "cql{driver=scylla,hosts=testhost,keyspace=,port=9042}";
         let mut values = HashMap::new();
         values.insert(BATCH_FAIL_THRESHOLD.to_string(), 51_200u64); // 50 KiB
@@ -549,12 +558,20 @@ mod tests {
                 values,
             }),
         ));
-        let _ = polydat::RESOURCE_ACCESSOR.set(Arc::new(MockAccessor {
-            key: key.to_string(),
-            handle,
-        }));
-
-        let parent = compile_polydat_interpreter("__seed := 0").expect("compile parent kernel");
+        let parent = polydat::dsl::compile::compile_polydat_interpreter_with_options(
+            "__seed := 0",
+            &polydat::dsl::compile::CompileOptions {
+                resources: Some(polydat::ResourceScope::with_accessor(Arc::new(
+                    MockAccessor {
+                        key: key.to_string(),
+                        handle,
+                    },
+                ))),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("compile parent kernel");
 
         // Literal magnitude → no cluster read, byte-identical to Phase 1a.
         let literal = resolve_max_batch_bytes(&parent, key, Some(&serde_json::json!("64KB")))

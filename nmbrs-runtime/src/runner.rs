@@ -2955,23 +2955,7 @@ async fn run_execution(
             // source and chain each scope's `PragmaSet` to its
             // parent's. SRD 18b §"Pragma chain along the scope
             // tree"; SRD 15 §"Pragma Scope".
-            let conflicts = t.populate_pragmas(&phases);
-            for c in &conflicts {
-                let path = t
-                    .ancestors(c.scope_idx)
-                    .map(|(_, n)| n.kind.label())
-                    .collect::<Vec<_>>()
-                    .join(" ← ");
-                let msg = format!(
-                    "pragma '{}' conflict at {path}: outer (line {}) overrides inner (line {})",
-                    c.name, c.outer_line, c.inner_line,
-                );
-                if strict {
-                    return Err(msg);
-                } else {
-                    crate::diag!(crate::observer::LogLevel::Warn, "{msg}");
-                }
-            }
+            t.populate_pragmas(&phases);
             // Validate iter-var name uniqueness against workload
             // params and enclosing iter vars. Aliasing creates an
             // unambiguous spec-evaluation case the runtime can't
@@ -3589,10 +3573,10 @@ async fn run_execution(
             }
         };
         let resource_pool = Arc::new(crate::resource_pool::ResourcePool::new());
-        // SRD-104 — install the process-global resource-accessor bridge and
-        // point it at this session's pool, so kernel nodes can reach a live
+        // SRD-104 — point the resource bridge every kernel tree resolves
+        // through at this session's pool, so kernel nodes can reach a live
         // pool-owned resource (e.g. a CQL session handle) by fingerprint via
-        // `polydat::resource_lookup`. The pool stays the definitive owner.
+        // their tree's resource scope. The pool stays the definitive owner.
         crate::resource_pool::install_accessor(&resource_pool);
         let initial_scene_tree_path = vec![crate::checkpoint::PathSegment::Scenario(
             scenario_name.to_string(),

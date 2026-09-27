@@ -315,6 +315,7 @@ fn describe_source(s: &polydat::iteration::comprehension::Source) -> String {
             .iter()
             .map(|v| match v {
                 LiteralValue::Int(i) => i.to_string(),
+                LiteralValue::UInt(u) => u.to_string(),
                 LiteralValue::Float(f) => f.to_string(),
                 LiteralValue::String(st) => st.clone(),
                 LiteralValue::Bool(b) => b.to_string(),

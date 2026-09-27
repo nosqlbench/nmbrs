@@ -482,36 +482,33 @@ The Rust-side surface is [`PragmaSet`]:
 
 ```rust
 pub struct PragmaSet {
+    /// The pragmas in force, the enclosing scopes' first, in order.
     pub entries: Vec<Pragma>,
-    pub parent: Option<Arc<PragmaSet>>,
 }
 
 impl PragmaSet {
-    pub fn contains(&self, name: &str) -> bool;          // walks parent chain
-    pub fn strict_types(&self) -> bool;                  // walks parent chain
-    pub fn strict_values(&self) -> bool;                 // walks parent chain
-    pub fn unknown(&self) -> impl Iterator<Item = &Pragma>;  // local only
-    pub fn attach_to(self, outer: Arc<PragmaSet>)
-        -> (PragmaSet, Vec<PragmaConflict>);
+    pub fn host(strict: bool) -> PragmaSet;              // a program's top-scope start
+    pub fn contains(&self, name: &str) -> bool;
+    pub fn strict_types(&self) -> bool;
+    pub fn strict_values(&self) -> bool;
+    pub fn strict_names(&self) -> bool;
+    pub fn unknown(&self) -> impl Iterator<Item = &Pragma>;
+    pub fn nested(&self, statements: &[Statement]) -> PragmaSet;
 }
 ```
 
-Callers at scope boundaries (`nmbrs-runtime` for workload → phase →
-iteration) build the inner `PragmaSet`, call `attach_to(outer)`,
-log/raise on the returned conflicts, and feed the attached
-result into the inner kernel's compile.
+A nested scope's set is its enclosing set followed by its own pragmas
+(`nested`); there is no parent pointer and no conflict between an outer
+and an inner declaration (polydat 0.6.0). A module compiles under its
+own pragmas only, and `strict` is a pragma of its own that implies
+`strict_values` and `strict_types` and adds name checking.
 
 ### Status
 
-- **Today:** pragma scope and conflict-detection API in place
-  (`PragmaSet { parent }` + `attach_to`). Single-scope use is
-  fully wired: the lib reads pragmas from each kernel's source
-  AST, applies strict-wire flags, walks the chain at lookup.
-- **Pending:** `nmbrs-runtime` adoption — the workload runner does
-  not yet call `attach_to` at phase / iteration boundaries. Until
-  it does, every kernel sees only its own pragmas. The conflict-
-  detection path is unit-tested but not yet exercised end-to-end
-  across an `nmbrs-runtime` scope chain.
+- **Implemented.** `nmbrs-runtime` nests each scope-tree node's set in
+  its parent's at construction (`ScopeTree::populate_pragmas`), and
+  prepends each scope's effective pragmas to the source it compiles
+  (`bindings::prepend_effective_pragmas`).
 
 ---
 
@@ -692,6 +689,6 @@ the meaning of each parameter.
 | Strict wire mode (single-scope) | Implemented | `GkAssembler::set_strict_wires(types, values)`. Pragma-driven via `pragma strict_values` / `strict_types` / `strict`. Compiler auto-inserts `AssertValue` for wires whose sink declares a `Port::with_constraint(...)` and whose source isn't a constant or upstream assertion. |
 | Skip-rules: const source, upstream assertion | Implemented | The compiler skips the assertion when the source is a no-wire-input constant node or an existing assertion. Static type match is handled by the existing adapter pass. |
 | `AssertionInserted` / `AssertionSkipped` events | Implemented | Symmetric advisories alongside `TypeAdapterInserted`; reason field names which skip rule applied. |
-| Pragma scope stack + `PragmaSet { parent }` | Implemented | Lookups walk the chain; `attach_to(outer)` returns conflicts. Single-scope today; `nmbrs-runtime` adoption at phase / iteration boundaries is pending. |
+| Pragma scope nesting (`PragmaSet::nested`) | Implemented | A nested scope's set is its enclosing set plus its own pragmas (polydat 0.6.0); `nmbrs-runtime` nests every scope-tree node in its parent's. |
 | Skip-rule: fusion-derived bound | Design target | The fusion pass doesn't yet expose its inferred output ranges, so `mod(x, 1000)` feeding a constraint of u64 ∈ [0, 10000) still gets an assertion under strict_values. Wiring this is a follow-up. |
 | First wire-typed dynamic divisor (`mod_wire` / `div_wire`) | Implemented | Nodes in `nodes::arithmetic` declare a `NonZeroU64` constraint on the divisor wire. End-to-end fuzz test confirms strict_values inserts the assertion when the source isn't a const. |

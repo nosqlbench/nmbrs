@@ -153,10 +153,9 @@ async fn fiber_writes_control_via_control_set_and_reads_back() {
     with_fiber_context(phase, snapshot_controls(&root), async {
         // Issue a write from inside the fiber, via the same factory route
         // the compiler uses, under a binding scope (for attribution).
-        let _scope =
-            polydat::dsl::factory::compile_ctx::scoped_binding("integration_feedback_loop");
+        let ctx = polydat::dsl::factory::BuildContext::with_binding("integration_feedback_loop");
         let consts = [polydat::dsl::factory::ConstArg::Str("concurrency".into())];
-        let writer = polydat::dsl::factory::build_node("control_set", &[], &[], &consts)
+        let writer = polydat::dsl::factory::build_node(&ctx, "control_set", &[], &[], &consts)
             .expect("build control_set");
         let mut write_out = [Value::None];
         writer.eval(&[Value::F64(42.0)], &mut write_out);
@@ -205,8 +204,14 @@ async fn control_set_out_of_range_leaves_value_unchanged() {
     let phase: Arc<str> = Arc::from("rampup");
     with_fiber_context(phase, snapshot_controls(&root), async {
         let consts = [polydat::dsl::factory::ConstArg::Str("concurrency".into())];
-        let writer = polydat::dsl::factory::build_node("control_set", &[], &[], &consts)
-            .expect("build control_set");
+        let writer = polydat::dsl::factory::build_node(
+            &polydat::dsl::factory::BuildContext::default(),
+            "control_set",
+            &[],
+            &[],
+            &consts,
+        )
+        .expect("build control_set");
         let mut write_out = [Value::None];
         // The f64_setter rejects values outside [0, 10_000].
         writer.eval(&[Value::F64(99_999.0)], &mut write_out);

@@ -196,11 +196,13 @@ fn task_cycle() -> u64 {
 /// Capture the enclosing DSL binding name at node construction, for write
 /// attribution (`ControlOrigin::Polydat { binding }` — surfaces in control
 /// logs so operators attribute a change to a specific binding, not just
-/// "from GK"). The DSL compiler installs the current binding into the
-/// compile context before each builder runs; falls back to the control name
-/// when no binding scope is active (e.g. a library test).
-fn capture_binding(name: &str) -> String {
-    polydat::dsl::factory::compile_ctx::current_binding().unwrap_or_else(|| name.to_string())
+/// "from GK"). The build context names the binding the node is built for;
+/// falls back to the control name when it names none (a node built outside
+/// a binding, e.g. a library test).
+fn capture_binding(ctx: &polydat::dsl::factory::BuildContext, name: &str) -> String {
+    ctx.binding()
+        .map(str::to_string)
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// Polydat write node: submit an f64 write against the named control via the
@@ -228,7 +230,7 @@ fn capture_binding(name: &str) -> String {
 )]
 fn control_set(
     name: Const<&str>,
-    #[poly_const(capture_binding, from = name)] binding: &String,
+    #[poly_const(capture_binding, from = (ctx, name))] binding: &String,
     value: f64,
 ) -> u64 {
     // SRD-89 — a workload's `control_set(...)` must write to ITS OWN phase-tier
@@ -695,9 +697,9 @@ mod tests {
 
         // Issue the write through the macro-authored node, built via the same
         // factory route the compiler uses (under a binding scope).
-        let _scope = polydat::dsl::factory::compile_ctx::scoped_binding("feedback_loop");
+        let ctx = polydat::dsl::factory::BuildContext::with_binding("feedback_loop");
         let consts = [polydat::dsl::factory::ConstArg::Str("concurrency".into())];
-        let node = polydat::dsl::factory::build_node("control_set", &[], &[], &consts)
+        let node = polydat::dsl::factory::build_node(&ctx, "control_set", &[], &[], &consts)
             .expect("control_set should build");
         let mut out = [Value::None];
         node.eval(&[Value::F64(64.0)], &mut out);
@@ -851,9 +853,9 @@ mod tests {
         // factory path directly, so reach into the nodes
         // registration helper via the same build-by-name route
         // the compiler uses.
-        let _scope = polydat::dsl::factory::compile_ctx::scoped_binding("rate_adj");
+        let ctx = polydat::dsl::factory::BuildContext::with_binding("rate_adj");
         let consts = [polydat::dsl::factory::ConstArg::Str("rate".into())];
-        let node = polydat::dsl::factory::build_node("control_set", &[], &[], &consts)
+        let node = polydat::dsl::factory::build_node(&ctx, "control_set", &[], &[], &consts)
             .expect("control_set should build");
         let mut out = [Value::None];
         node.eval(&[Value::F64(4242.0)], &mut out);
@@ -885,8 +887,14 @@ mod tests {
         *SESSION_ROOT.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         let consts = [polydat::dsl::factory::ConstArg::Str("anything".into())];
-        let node = polydat::dsl::factory::build_node("control_set", &[], &[], &consts)
-            .expect("control_set should build");
+        let node = polydat::dsl::factory::build_node(
+            &polydat::dsl::factory::BuildContext::default(),
+            "control_set",
+            &[],
+            &[],
+            &consts,
+        )
+        .expect("control_set should build");
         let mut out = [Value::None];
         node.eval(&[Value::F64(1.0)], &mut out);
         assert_eq!(out[0].as_u64(), 0);

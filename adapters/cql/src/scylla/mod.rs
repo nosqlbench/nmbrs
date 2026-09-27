@@ -61,7 +61,7 @@ pub struct ScyllaCqlAdapter {
     /// `map_op` can derive the phase's own SRD-35 fingerprint
     /// (`config.to_resource_key("scylla").render_key()`) and bind it as the
     /// `cql_session_key` scope constant for GK-resolved `max_batch_size`
-    /// (SRD-103 §3–4). Matches the pool entry's key, so `resource_lookup` hits.
+    /// (SRD-103 §3–4). Matches the pool entry's key, so the resource lookup hits.
     config: CqlConfig,
     consistency: Consistency,
 }

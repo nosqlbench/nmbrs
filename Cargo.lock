@@ -3715,9 +3715,9 @@ dependencies = [
 
 [[package]]
 name = "polydat"
-version = "0.5.4"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d076ff65b3f4a079e86938bf21b42787bca03f40c779a557c4476b7eff0a295"
+checksum = "a92d5b6ad1161704bd6a08abf36e3eb23b5e275142f6da5b7c0bd952580a718c"
 dependencies = [
  "clap",
  "polydat-core",
@@ -3730,9 +3730,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-core"
-version = "0.5.3"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a05a48215e0c6f6089d2fad7f4c7435a71cd65d587764a278c9c98f4966c24b0"
+checksum = "386be37ec7cc1056149d7d206ace3625d1cc799ae0894de9880247a48bf76a85"
 dependencies = [
  "base64",
  "cranelift-codegen",
@@ -3759,9 +3759,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-derive"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "701e856d3fb395832adedc0f5a491f944aadcda8784d3fb7ffd85101f3f70fd7"
+checksum = "b7b40b41815330ad38b9a181bccc4f51ed58039da44eba2e75b0d25e05a6132c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3770,9 +3770,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-grammar"
-version = "0.5.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e690a3188eaab6e0fd78b3f4a870a7369d29b452b7412a841b19e77319622575"
+checksum = "0a64c1c624acc57996ca65bf2408da49e9e44bcfc0e15965a92e5a87ed703513"
 dependencies = [
  "layout-rs",
  "serde",
@@ -3782,9 +3782,9 @@ dependencies = [
 
 [[package]]
 name = "polydat-nodes"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99bc254695c1132273c79ac6588219b9ce31a608e865e84bcfee31b157f2440e"
+checksum = "c5227cd37cf978e309efff7f66477ef87621f438efb0caf5f898a1918e70a67e"
 dependencies = [
  "base64",
  "data-encoding",

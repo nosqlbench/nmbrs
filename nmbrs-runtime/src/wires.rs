@@ -119,6 +119,7 @@ impl From<HostWriteError> for WriteOutcome {
             }
             HostWriteError::Write(WriteError::ConstSlot { .. }) => WriteOutcome::Const { reason },
             HostWriteError::Write(WriteError::TypeMismatch { .. })
+            | HostWriteError::Write(WriteError::FromParent { .. })
             | HostWriteError::Convert { .. } => WriteOutcome::TypeMismatch { reason },
         }
     }
@@ -1322,48 +1323,39 @@ mod tests {
         // This test mirrors that chain: parent kernel has
         // `optimize_for` as an extern input declaration with a
         // populated value; child kernel declares the same name;
-        // verify the value propagates through `build_subscope`
-        // and is visible via `CycleWires::get`.
+        // verify the value propagates when the child is bound under
+        // the parent, as every scope is, and is visible via
+        // `CycleWires::get`.
         use polydat::ast::Value;
-        use polydat::dsl::compile::compile_polydat_interpreter;
-        use polydat::kernel::subcontext::PolydatMatter;
 
         // Parent: declares `optimize_for` as extern + auto-passthrough
         // output via `final` — same pattern the phase synthesizer
         // uses for iter-var cascade.
-        let mut parent = compile_polydat_interpreter(
+        let mut parent = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              extern optimize_for: String\n",
         )
         .unwrap();
         // Populate the input slot the way the phase kernel does
-        // after `materialize_wiring_from_outer` from the for_each bound_kernel.
+        // after binding under the for_each bound_kernel.
         let opt_idx = parent
             .program()
             .find_input("optimize_for")
             .expect("optimize_for input slot");
         parent
-            .state()
-            .set_input(opt_idx, Value::Str("RECALL".into()));
+            .set_input_at(opt_idx, Value::Str("RECALL".into()))
+            .expect("write optimize_for");
 
         // Child: program declares the same name as an extern.
         // Mimics the per-op canonical the dispenser owns.
-        let child_program = compile_polydat_interpreter(
+        let child_scope = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
              extern optimize_for: String\n",
         )
-        .unwrap()
-        .program()
-        .clone();
-
-        let mut child = parent
-            .build_subscope(
-                PolydatMatter::builder()
-                    .program(child_program)
-                    .build()
-                    .unwrap(),
-            )
-            .expect("subscope build is infallible");
+        .unwrap();
+        let mut child = child_scope
+            .bind_under(parent.kernel(), &[])
+            .expect("the child binds under the parent");
 
         let cw = CycleWires::new(&mut child);
         let wires: &dyn WireSource = &cw;
@@ -1375,7 +1367,7 @@ mod tests {
             wires.get("optimize_for").map(|v| v.as_str().to_string()),
             Some("RECALL".to_string()),
             "iter-var input populated on parent should propagate \
-             through build_subscope to child's WireSource",
+             through binding to child's WireSource",
         );
     }
 

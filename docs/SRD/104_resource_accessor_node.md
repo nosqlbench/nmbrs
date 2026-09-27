@@ -9,6 +9,17 @@
   walker), SRD-80b (`#[polydat_node]` authoring), SRD-103 (CQL session handle —
   first consumer), dataset-handle precedent (`polydat/src/library/vectors.rs`)
 
+> **polydat 0.6.0 install model.** polydat 0.6.0 removed the process-wide
+> `RESOURCE_ACCESSOR` and `resource_lookup`. The accessor is now installed per
+> kernel tree: every root nmbrs compiles (`bindings::compile_scope_kernel`) gets
+> a `ResourceScope` carrying the pool bridge (`resource_pool::pool_resources`),
+> and a kernel bound under the tree joins that scope. A node captures
+> `ctx.resources()` at setup (`#[poly_const(…, from = ctx)]`) and looks its key
+> up when it evaluates, as `cql_session` does; host code looks up through the
+> kernel it holds (`kernel.resources().lookup(key)`). The bridge still resolves
+> against the session's pool (`install_accessor` re-points it per session). The
+> global-install sections below record the original 0.5 design.
+
 ---
 
 ## What this SRD is for

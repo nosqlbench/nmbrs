@@ -298,7 +298,7 @@ pub struct CqlAdapter {
     /// the `cql_session_key` scope constant for GK-resolved `max_batch_size`
     /// (SRD-103 §3–4). The stored config equals the one the pool's
     /// `SharedDriverRegistration.resource_key` used, so the render-key matches
-    /// the pool entry's key exactly and `resource_lookup` is a sync hit.
+    /// the pool entry's key exactly and the resource lookup is a sync hit.
     config: CqlConfig,
     consistency: cass::Consistency,
     /// Per-execute tracing probability (0.0–1.0). Stored as

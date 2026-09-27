@@ -369,7 +369,7 @@ pub trait SharedResource: Send + Sync + 'static {
 
     /// SRD-104 — the resource's **accessor payload**: a type-erased handle
     /// (`Arc<dyn Any + Send + Sync>`) a kernel node can obtain by
-    /// fingerprint via [`polydat::resource_lookup`]. The pool stores it on
+    /// fingerprint through its kernel tree's resource scope. The pool stores it on
     /// the entry right after a successful init, and its
     /// [`polydat::ResourceAccessor`] impl hands out clones. Default `None`
     /// — a resource opts in only when it wants kernels to reach a live
@@ -1597,11 +1597,11 @@ pub fn pre_map_pending_uses(
 /// install.
 static ACTIVE_POOL: Mutex<Weak<ResourcePool>> = Mutex::new(Weak::new());
 
-/// The stable bridge object installed once into
-/// [`polydat::RESOURCE_ACCESSOR`]. It carries no state itself — it resolves
-/// against the swappable [`ACTIVE_POOL`] — so a host process that runs
-/// several sessions (TUI, `metrics watch`) re-points the pool without
-/// re-installing (the `OnceLock` accepts only one object).
+/// The bridge every nmbrs kernel tree resolves resources through
+/// ([`pool_resources`]). It carries no state itself — it resolves against
+/// the swappable [`ACTIVE_POOL`] — so a host process that runs several
+/// sessions (TUI, `metrics watch`) re-points the pool without touching the
+/// trees built before.
 struct PoolAccessorView;
 
 impl polydat::ResourceAccessor for PoolAccessorView {
@@ -1614,22 +1614,25 @@ impl polydat::ResourceAccessor for PoolAccessorView {
     }
 }
 
-/// SRD-104 — install the process-global resource-accessor bridge and point
-/// it at `pool`. Called once at session start where the [`ResourcePool`] is
-/// created.
+/// SRD-104 — point the resource bridge at `pool`. Called once at session
+/// start where the [`ResourcePool`] is created.
 ///
-/// The bridge *object* is installed exactly once into polydat's `OnceLock`;
-/// the pool it resolves against is swappable ([`ACTIVE_POOL`]), so a second
-/// session in the same host process re-points the SAME bridge at its own
-/// pool rather than stranding on the first session's (now-closed) one —
-/// avoiding the silent-miss a plain one-shot `set` would cause across
-/// sessions. Idempotent per session.
+/// Every kernel tree resolves through the same bridge ([`pool_resources`]),
+/// and the pool it resolves against is swappable ([`ACTIVE_POOL`]), so a
+/// second session in the same host process re-points the bridge at its own
+/// pool rather than stranding on the first session's (now-closed) one.
+/// Idempotent per session.
 pub fn install_accessor(pool: &Arc<ResourcePool>) {
     *ACTIVE_POOL.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(pool);
-    // First session installs the bridge object; later sessions' `set`
-    // returns Err (already installed) — expected, the swappable ACTIVE_POOL
-    // above already re-pointed it.
-    let _ = polydat::RESOURCE_ACCESSOR.set(Arc::new(PoolAccessorView));
+}
+
+/// A resource scope with the pool bridge installed: what every nmbrs
+/// kernel tree is compiled with at its root
+/// ([`crate::bindings::compile_scope_kernel`]). A kernel bound under the
+/// tree joins its scope, so a node anywhere in it that captured
+/// `ctx.resources()` resolves pool resources by key.
+pub fn pool_resources() -> polydat::ResourceScope {
+    polydat::ResourceScope::with_accessor(Arc::new(PoolAccessorView))
 }
 
 // =================================================================
