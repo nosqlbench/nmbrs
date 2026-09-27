@@ -1258,15 +1258,21 @@ pub fn build_do_loop_scope_kernel(
         source.push_str("const __empty := 0\n");
     }
 
-    // SRD-67 — finalize through the SubcontextBuilder bridge.
-    // `polydat_lib_paths` / `workload_dir` / `strict` aren't yet
-    // threaded through (the bridge uses the default `compile_ast`
-    // path); the do-loop's emitted source shape doesn't need
-    // them. Recorded as a Phase 3 follow-up.
-    let _ = (polydat_lib_paths, workload_dir, strict);
+    // The same compile options every synthesized scope takes: the
+    // workload's library paths and directory, so the condition can call
+    // library modules and name workload-relative files, and strict mode.
+    let compile_options = polydat::kernel::subcontext::CompileOptions {
+        workload_dir: workload_dir.map(|p| p.to_path_buf()),
+        polydat_lib_paths,
+        strict,
+        required_outputs: Vec::new(),
+        context_label: Some(context.to_string()),
+        cursor_limit: None,
+        ..Default::default()
+    };
     crate::scope_kernel::ScopeKernel::synthesize_under(
         parent_kernel,
-        crate::scope_kernel::SourceMatter::source(context, source, Default::default())
+        crate::scope_kernel::SourceMatter::source(context, source, compile_options)
             .inherited(inherited_names),
     )
     .map_err(|e| format!("{context}: do-loop scope synthesis: {e}"))
@@ -5928,5 +5934,72 @@ extern keyspace: String
             Some(polydat::kernel::InputKind::Coordinate),
             "phase scope's has_sai_column_indexes must NOT be Coordinate; got {phase_kind:?}"
         );
+    }
+}
+
+/// Strict mode reaches every synthesized scope, and each still compiles:
+/// strict refuses a source with no `input` declaration, and a synthesized
+/// scope's coordinates are its parent's, so they are declared for it.
+#[cfg(test)]
+mod strict_synthesis_tests {
+    use super::*;
+
+    fn parent() -> crate::scope_kernel::ScopeKernel {
+        crate::scope_kernel::ScopeKernel::compile("input cycle: u64\nconst k_values := \"1, 10\"\n")
+            .expect("parent scope")
+    }
+
+    #[test]
+    fn a_phase_scope_compiles_under_strict() {
+        let parent = parent();
+        let manifest = crate::runner::extract_manifest(parent.program());
+        let kernel = build_phase_scope_kernel(
+            &nmbrs_workload::model::BindingsDef::PolydatSource("x := cycle + 1\n".into()),
+            &manifest,
+            &parent,
+            &HashMap::new(),
+            Vec::new(),
+            None,
+            true,
+            "strict phase",
+        )
+        .expect("a phase scope compiles under strict");
+        assert!(kernel.input_names().iter().any(|n| n == "cycle"));
+    }
+
+    #[test]
+    fn a_do_loop_scope_compiles_under_strict() {
+        let parent = parent();
+        let manifest = crate::runner::extract_manifest(parent.program());
+        build_do_loop_scope_kernel(
+            Some("i"),
+            "{i} < 3",
+            &manifest,
+            &parent,
+            &HashMap::new(),
+            Vec::new(),
+            None,
+            true,
+            "strict do-loop",
+        )
+        .expect("a do-loop scope compiles under strict");
+    }
+
+    #[test]
+    fn a_for_each_scope_compiles_under_strict() {
+        let parent = parent();
+        let manifest = crate::runner::extract_manifest(parent.program());
+        crate::scope_synth::build_for_each_scope_kernel(
+            &[("k".to_string(), "{k_values}".to_string())],
+            &manifest,
+            &parent,
+            &HashMap::new(),
+            Vec::new(),
+            None,
+            true,
+            "strict for_each",
+            None,
+        )
+        .expect("a for_each scope compiles under strict");
     }
 }

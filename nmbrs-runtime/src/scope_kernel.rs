@@ -120,7 +120,11 @@ impl ScopeKernel {
             .context(SourceContext::new(label.clone()))
             .mark_inherited_outputs(inherited_outputs)
             .with_compile_options(options)
-            .body(body);
+            .body(if strict {
+                declare_chain_coordinates(parent, body)
+            } else {
+                body
+            });
         if let Some(src) = result_bindings {
             builder
                 .add_result_bindings(&src)
@@ -379,5 +383,75 @@ impl SourceMatter {
     pub fn results(mut self, source: impl Into<String>) -> Self {
         self.result_bindings = Some(source.into());
         self
+    }
+}
+
+/// A synthesized scope's source with its coordinates declared, for strict
+/// mode. Strict mode compiles no source without an explicit `input`
+/// declaration, and a synthesized scope's coordinates are its parent's,
+/// positioned through the kernel chain: what non-strict inference gives a
+/// scope from the names it leaves unbound. A body that declares its own
+/// inputs, or a parent with no coordinates, is left as it is; the
+/// declarations follow any leading `pragma` lines.
+fn declare_chain_coordinates(
+    parent: &dyn Kernel,
+    body: polydat::kernel::subcontext::BodyFragment,
+) -> polydat::kernel::subcontext::BodyFragment {
+    use polydat::kernel::subcontext::BodyFragment;
+    let BodyFragment::PolydatSource(source) = body else {
+        return body;
+    };
+    let coords = parent.coord_count();
+    if coords == 0 || source.lines().any(|l| l.trim_start().starts_with("input ")) {
+        return BodyFragment::PolydatSource(source);
+    }
+    let declarations: String = parent.input_names()[..coords]
+        .iter()
+        .map(|name| format!("input {name}: u64\n"))
+        .collect();
+    let pragmas: String = source
+        .lines()
+        .take_while(|l| l.trim_start().starts_with("pragma ") || l.trim().is_empty())
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let rest: String = source
+        .lines()
+        .skip(pragmas.lines().count())
+        .map(|l| format!("{l}\n"))
+        .collect();
+    BodyFragment::PolydatSource(format!("{pragmas}{declarations}{rest}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use polydat::kernel::subcontext::BodyFragment;
+
+    fn source(body: BodyFragment) -> String {
+        match body {
+            BodyFragment::PolydatSource(s) => s,
+            _ => panic!("expected source"),
+        }
+    }
+
+    #[test]
+    fn strict_declares_the_parents_coordinates_after_any_pragmas() {
+        let parent = ScopeKernel::compile("input cycle: u64\nx := 1\n").expect("parent");
+        let body = BodyFragment::PolydatSource("pragma strict\ny := cycle\n".into());
+        assert_eq!(
+            source(declare_chain_coordinates(parent.kernel(), body)),
+            "pragma strict\ninput cycle: u64\ny := cycle\n"
+        );
+    }
+
+    #[test]
+    fn a_body_that_declares_its_inputs_is_left_alone() {
+        let parent = ScopeKernel::compile("input cycle: u64\nx := 1\n").expect("parent");
+        let own = "input n: u64\ny := n\n";
+        let body = BodyFragment::PolydatSource(own.into());
+        assert_eq!(
+            source(declare_chain_coordinates(parent.kernel(), body)),
+            own
+        );
     }
 }
