@@ -7,9 +7,8 @@ description: text and file kinds demo
 
 params:
   k_values: "10"
-
-# Some metrics — single phase so this can run end-to-end.
-adapter: stdout
+  # Some metrics — single phase so this can run end-to-end.
+  adapter: stdout
 
 ops:
   - op: "id={{cycle}}"
@@ -49,4 +48,4 @@ report:
       label "No file scope, lands in summary.md"
 
 # ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
-#@ requires the `plot:` block reads sessions/latest/metrics.db, which --session-path redirects away; the report itself renders clean when run bare
+#@ expect completed, 0 failed
