@@ -388,7 +388,14 @@ impl DriverAdapter for StdoutAdapter {
             // SRD-40b §9: per-op-template channel routing. The
             // op-template parameter `stdout: <channel>` selects where
             // rendered output goes for this template. Absent → terminal.
-            let channel = match template.params.get("stdout") {
+            // Written on an op, the key stays among its op fields (the
+            // parser moves only core keys into params); written in a
+            // workload's `params:` block, it arrives in params.
+            let channel = match template
+                .op
+                .get("stdout")
+                .or_else(|| template.params.get("stdout"))
+            {
                 None => StdoutChannel::Terminal,
                 Some(serde_json::Value::String(s)) => StdoutChannel::parse(s)
                     .map_err(|e| format!("op '{}' params.stdout: {e}", template.name))?,
@@ -406,9 +413,11 @@ impl DriverAdapter for StdoutAdapter {
             // `substitute_via_wires` for embedded references). No
             // synthesis-layer ResolvedFields needed — wires answers
             // every name directly.
+            // The channel selector routes output; it isn't output.
             let op_fields: Vec<(String, serde_json::Value)> = template
                 .op
                 .iter()
+                .filter(|(k, _)| k.as_str() != "stdout")
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
             Ok(Box::new(StdoutDispenser {
@@ -1077,6 +1086,79 @@ mod tests {
             matched,
             "expected eventlog channel to emit through the observer log; \
              captured: {logs:?}"
+        );
+    }
+
+    /// `stdout: <channel>` written on an op in workload YAML, as users
+    /// write it. The parser leaves the key among the op fields (it moves
+    /// only core keys into params), so the channel must be read there.
+    #[tokio::test]
+    async fn op_level_channel_from_yaml_is_honored() {
+        let sink = install_capturing_observer();
+        let yaml =
+            "ops:\n  quiet:\n    stdout: silent\n    stmt: must_not_appear_yaml_marker_zx41\n";
+        let workload = nmbrs_workload::parse::parse_workload(yaml, &Default::default()).unwrap();
+        let template = &workload.ops[0];
+
+        let path = std::env::temp_dir().join("nb_yaml_channel_test.txt");
+        let adapter = StdoutAdapter::with_config(StdoutConfig {
+            filename: path.to_str().unwrap().into(),
+            format: StdoutFormat::Readout,
+            ..Default::default()
+        });
+        let dispenser = adapter.map_op(template, test_kernel()).await.unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
+        let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
+        let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
+        let empty = ResolvedFields::new(Vec::new(), Vec::new());
+        let ctx = nmbrs_runtime::adapter::ExecCtx::with_wires(&empty, &pulls, &cw);
+        dispenser.execute(0, &ctx).await.unwrap();
+
+        let file_contents = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            file_contents.is_empty(),
+            "an op-level `stdout: silent` must not write: {file_contents:?}"
+        );
+        let logs = sink.lock().unwrap().clone();
+        assert!(
+            !logs
+                .iter()
+                .any(|(_, msg)| msg.contains("must_not_appear_yaml_marker_zx41")),
+            "an op-level `stdout: silent` must not emit through the observer; logs: {logs:?}"
+        );
+    }
+
+    /// The channel selector routes the output; it is not a field of it.
+    #[tokio::test]
+    async fn channel_selector_is_not_rendered() {
+        let yaml = "ops:\n  shown:\n    stdout: terminal\n    stmt: visible_marker_kq27\n";
+        let workload = nmbrs_workload::parse::parse_workload(yaml, &Default::default()).unwrap();
+        let path = std::env::temp_dir().join("nb_channel_selector_test.txt");
+        let adapter = StdoutAdapter::with_config(StdoutConfig {
+            filename: path.to_str().unwrap().into(),
+            format: StdoutFormat::Readout,
+            ..Default::default()
+        });
+        let dispenser = adapter
+            .map_op(&workload.ops[0], test_kernel())
+            .await
+            .unwrap();
+        let mut k =
+            polydat::dsl::compile::compile_polydat_interpreter("input cycle: u64\n").unwrap();
+        let cw = nmbrs_runtime::wires::CycleWires::new(&mut k);
+        let pulls = nmbrs_runtime::fixture::ResolvedPulls::empty();
+        let empty = ResolvedFields::new(Vec::new(), Vec::new());
+        let ctx = nmbrs_runtime::adapter::ExecCtx::with_wires(&empty, &pulls, &cw);
+        dispenser.execute(0, &ctx).await.unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        assert!(written.contains("visible_marker_kq27"), "{written:?}");
+        assert!(
+            !written.contains("stdout"),
+            "selector rendered: {written:?}"
         );
     }
 
