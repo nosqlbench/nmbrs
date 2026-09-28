@@ -2346,9 +2346,10 @@ fn execute_node<'a>(
 ///
 /// Activity-side adapter over the GK
 /// [`polydat::iteration::comprehension::iterate_scope`] driver:
-/// applies strict-vs-warn empty-clause policy with diag emission
-/// honoring `ExecCtx::quiet()`. The runtime executor and the
-/// pre-map walker both go through `iterate_scope`; `runtime_iterate`
+/// applies strict-vs-warn empty-clause and unbound-name policy with
+/// diag emission (which writes session.log and routes display
+/// itself). The runtime executor and the pre-map walker both go
+/// through `iterate_scope`; `runtime_iterate`
 /// just adds the activity-layer concerns (warn-level logging) to
 /// each iteration request.
 ///
@@ -2408,9 +2409,11 @@ fn runtime_iterate(
             .map_err(|e| e.to_string())?;
 
     // A source that reads a name nothing binds yields nothing (polydat's
-    // none semantics). nmbrs holds naming an unbound value in a for_each
-    // spec as an error, so a typo is not a silently empty loop; polydat
-    // reports each such read by the name as read, after composition.
+    // none semantics), and polydat reports each such read by the name as
+    // read, after composition. As polydat intends, that is an error under
+    // strict and a warning naming it otherwise, so a typo is never a
+    // silently empty loop.
+    let mut reported = std::collections::HashSet::new();
     for (i, clause) in evaluated.clauses.iter().enumerate() {
         if let Some(NoneRead::Unbound(name)) = none_reads
             .clause(i)
@@ -2418,11 +2421,23 @@ fn runtime_iterate(
             .find(|read| matches!(read, NoneRead::Unbound(_)))
         {
             let spec = clause.source.as_deref().unwrap_or("?");
-            return Err(format!(
+            let msg = format!(
                 "unresolved placeholder '{{{name}}}' in for_each clause '{var} in {spec}': \
                  no workload param, outer iter-var, or inherited binding is named '{name}'",
                 var = clause.var
-            ));
+            );
+            if ctx.strict {
+                return Err(format!("strict: {msg}"));
+            }
+            // `diag!` writes session.log and routes display itself; the
+            // pre-map pass leaves the warning to the run that follows it.
+            if !ctx.pre_map_only {
+                crate::diag!(
+                    crate::observer::LogLevel::Warn,
+                    "warning: {msg}; the clause yields no values"
+                );
+            }
+            reported.insert(i);
         }
     }
 
@@ -2430,9 +2445,10 @@ fn runtime_iterate(
     // yielded and leaves the decision here. Only a clause that was
     // reached and produced nothing is named — one never evaluated
     // (`evaluations == 0`) is empty because an outer clause was, and
-    // naming it would bury the cause.
-    for clause in &evaluated.clauses {
-        if clause.evaluations == 0 || clause.values > 0 {
+    // naming it would bury the cause. A clause already reported above
+    // for its unbound name is not reported twice.
+    for (i, clause) in evaluated.clauses.iter().enumerate() {
+        if clause.evaluations == 0 || clause.values > 0 || reported.contains(&i) {
             continue;
         }
         let label = match &clause.source {

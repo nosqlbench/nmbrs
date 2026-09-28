@@ -6,7 +6,8 @@
 #
 # `{undeclared_thing}` is referenced in the for_each spec but is
 # neither a workload param, an outer iter var, nor an inherited
-# binding — interpolation surfaces "unresolved placeholder".
+# binding. Under --strict that is an "unresolved placeholder" error;
+# outside strict it is a warning and the clause yields no values.
 
 scenarios:
   default:
@@ -23,4 +24,5 @@ phases:
         stmt: "iteration"
 
 # ─── example-walker test directives (nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run --strict
 #@ expect-fail unresolved placeholder
