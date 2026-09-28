@@ -8,6 +8,7 @@ keywords = ["nosqlbench", "workload", "benchmark", "plot"]
 categories = ["command-line-utilities", "visualization"]
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
 
 [dependencies]
 nmbrs-runtime = { workspace = true }

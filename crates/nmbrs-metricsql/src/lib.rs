@@ -15,7 +15,7 @@
 //!   the Rust parser → AST → prettifier with the same output
 //!   the Go implementation produces.
 //! - **Pluggable data source**: the evaluator never touches
-//!   storage directly; consumers implement [`DataSource`] to
+//!   storage directly; consumers implement [`MetricAccess`] to
 //!   feed time series into the engine. nmbrs's `metrics.db`
 //!   reader is one such implementation.
 //! - **Subset evaluator**: the function table starts with the
@@ -25,8 +25,10 @@
 //!
 //! ## Status
 //!
-//! Foundation phase. Lexer + parser + AST in flight. The
-//! evaluator is a stub that returns empty results.
+//! The parser and prettifier pass upstream's parser and
+//! prettifier fixtures (`tests/parity.rs`, under
+//! `RUN_METRICSQL_PARITY=count` or `strict`). The evaluator
+//! ([`evaluate`], [`evaluate_range`]) covers the subset above.
 //!
 //! ## Module layout
 //!
@@ -36,12 +38,11 @@
 //! - [`prettifier`] — AST → canonical query string (used by
 //!   the round-trip parity tests)
 //! - [`eval`]  — AST → query plan → result, against a
-//!   [`DataSource`]
+//!   [`MetricAccess`]
 //!
 //! ## See also
 //!
 //! - Upstream Go: <https://github.com/VictoriaMetrics/metricsql>
-//! - Linked in this repo at `links/metricsql/`
 //! - Test fixtures: `tests/fixtures/*.json`, harvested from
 //!   the upstream `_test.go` files via
 //!   `scripts/extract_fixtures.go`.

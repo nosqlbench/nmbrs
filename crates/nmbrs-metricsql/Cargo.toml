@@ -6,6 +6,9 @@ license.workspace = true
 description = "MetricsQL parser/evaluator (Rust port). Compatibility-tested against VictoriaMetrics' upstream test suite."
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
+keywords = ["metricsql", "promql", "victoriametrics", "metrics", "query"]
+categories = ["parser-implementations", "database"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -8,6 +8,7 @@ keywords = ["nosqlbench", "openapi", "rest", "benchmark", "workload"]
 categories = ["command-line-utilities", "web-programming::http-client"]
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
 
 [dependencies]
 nmbrs-workload = { workspace = true }

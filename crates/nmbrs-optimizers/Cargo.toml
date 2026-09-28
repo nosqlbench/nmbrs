@@ -8,6 +8,7 @@ keywords = ["nosqlbench", "optimization", "black-box", "derivative-free", "bench
 categories = ["algorithms", "science", "simulation"]
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
 
 [dependencies]
 # The algorithm core is dependency-free (SRD-86 A2) — it depends on no nmbrs

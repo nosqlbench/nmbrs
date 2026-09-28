@@ -22,9 +22,11 @@
 //! | **Algebraic** | Bounded-size accumulator richer than the result. | `avg`, `stddev`, `rate`, `increase`, `delta`, `avg_over_time` |
 //! | **Holistic** | Bounded-size *exact* accumulator does not exist. | `quantile`, `topk`, `bottomk`, `count_values`, `mad`, `median` |
 //!
-//! This module ships the **distributive** subset. Algebraic
-//! and holistic reducers ride the same trait and land in
-//! their own focused pushes.
+//! This module ships the distributive reducers, the algebraic
+//! ones (`avg`, `stddev`, `stdvar`, `rate`, `increase`,
+//! `delta`), and one holistic reducer, `quantile_over_time`
+//! ([`ReducerKind`]); the other holistic reducers ride the
+//! same trait when they land.
 //!
 //! # The load-bearing guarantee
 //!
