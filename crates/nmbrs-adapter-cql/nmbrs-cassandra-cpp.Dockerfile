@@ -98,6 +98,12 @@ RUN cargo chef prepare --recipe-path recipe.json
 # invalidate it.
 FROM rust-base AS deps
 COPY --from=planner /src/recipe.json recipe.json
+# The recipe skeletonizes workspace members only, and the vendored
+# cassandra-cpp fork is excluded from the workspace, yet nmbrs and the
+# cql adapter depend on it by path. Its whole source goes in here (it is
+# a dependency to compile, not workspace code); the layer changes only
+# when the fork does.
+COPY vendor/cassandra-cpp vendor/cassandra-cpp
 RUN cargo chef cook --release --recipe-path recipe.json \
         -p nmbrs --no-default-features --features engine-cassandra-cpp
 
