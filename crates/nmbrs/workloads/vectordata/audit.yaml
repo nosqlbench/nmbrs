@@ -1,0 +1,183 @@
+# vectordata/audit.yaml — Audit a label-partitioned filtered-kNN
+# dataset for internal consistency.
+#
+# A label-partitioned dataset carries a base profile (every base and
+# query vector, the metadata value of each base vector, the predicate
+# of each query, and each query's filtered ground truth in global
+# ordinals) and one `label_NN` profile per value (that value's base
+# vectors, its queries, and their ground truth in label-local
+# ordinals). Recall measured against such a dataset is only as good as
+# the dataset: a label profile built from the wrong rows, or ground
+# truth translated through the wrong ordinal map, reads as a database
+# recall problem that no tuning will fix. This workload checks the
+# dataset before anyone blames the database.
+#
+# Every check is a named assertion binding (`is_positive(...)`). The
+# first one that fails stops the run with a non-zero exit, naming the
+# check, the phase, and the row it failed on — each per-row phase
+# declares its own coordinate: the base vector, the query, or the
+# label-local query.
+#
+# Checks:
+#   predicate_has_metadata          every query's predicate is some base
+#                                   vector's metadata value
+#   metadata_has_predicate          every base vector's value is some
+#                                   query's predicate
+#   filtered_gt_rows_match_queries  one filtered ground-truth row per query
+#   filtered_gt_not_negative,       every filtered ground-truth index is a
+#   filtered_gt_in_range            base ordinal
+#   label_profile_names_a_value     each label profile's name ends in its value
+#   label_base_rows_match_metadata  a label profile has one base vector per
+#                                   base vector carrying its value
+#   label_query_rows_match_predicates  ... and one query per query carrying it
+#   label_gt_rows_match_queries     ... and one ground-truth row per query
+#   label_gt_not_negative,          every label ground-truth index is a
+#   label_gt_in_range               label-local base ordinal
+#
+# Usage:
+#   nmbrs run workload=vectordata/audit dataset=<name>
+#   nmbrs run workload=vectordata/audit dataset=<name> base=default prefix=label_
+#
+# `dataset` is a vectordata catalog name (`nmbrs` resolves it through
+# the catalogs in `$VECTORDATA_HOME`, else `~/.config/vectordata`).
+
+description: |
+  Audit a label-partitioned filtered-kNN dataset for internal
+  consistency: predicates against metadata, the filtered ground truth,
+  and every label profile's row counts and ground-truth ranges.
+params:
+  adapter: stdout
+  dataset: example
+  # The profile carrying the whole dataset: all base and query vectors,
+  # metadata_content, metadata_predicates, and filtered_neighbor_indices.
+  base: default
+  # Label profiles are the profiles whose names start with this prefix
+  # and end in their value (`label_00`, `label_07`, …).
+  prefix: label_
+
+scenarios:
+  default:
+    - dataset_overview
+    - predicate_has_metadata
+    - metadata_has_predicate
+    - filtered_gt_rows
+    - filtered_gt_ranges
+    - for_each: "profile in matching_profiles('{dataset}', '{prefix}')"
+      phases:
+        - label_rows
+        - label_gt_ranges
+    - audit_passed
+
+phases:
+
+  dataset_overview:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      base_rows  := vector_count("{dataset}:{base}")
+      query_rows := query_count("{dataset}:{base}")
+      labels     := matching_profiles("{dataset}", "{prefix}")
+    ops:
+      banner:
+        stmt: "auditing {dataset}: {base_rows} base vectors, {query_rows} queries; label profiles: {labels}"
+
+  # ── The base profile ───────────────────────────────────────────
+
+  # One row per query: its predicate names a value some base vector has.
+  predicate_has_metadata:
+    cycles: "{query_rows}"
+    concurrency: 1
+    bindings: |
+      input query: u64
+      query_rows := query_count("{dataset}:{base}")
+      predicate  := to_i64(str_to_u64(predicate_value_at("{dataset}:{base}", query)))
+      predicate_has_metadata := is_positive(metadata_count_of("{dataset}:{base}", predicate))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{predicate_has_metadata}"
+
+  # One row per base vector: its value is some query's predicate.
+  metadata_has_predicate:
+    cycles: "{base_rows}"
+    concurrency: 1
+    bindings: |
+      input base_vector: u64
+      base_rows := vector_count("{dataset}:{base}")
+      value     := to_i64(str_to_u64(metadata_value_at("{dataset}:{base}", base_vector)))
+      metadata_has_predicate := is_positive(predicate_count_of("{dataset}:{base}", value))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{metadata_has_predicate}"
+
+  filtered_gt_rows:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      gt_rows    := vector_count(dataset_open("{dataset}:{base}", "filtered_neighbor_indices"))
+      query_rows := query_count("{dataset}:{base}")
+      filtered_gt_rows_match_queries := is_positive(u64_eq(gt_rows, query_rows))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{filtered_gt_rows_match_queries}"
+
+  # One row per query: every index of its filtered ground truth is a
+  # base ordinal.
+  filtered_gt_ranges:
+    cycles: "{query_rows}"
+    concurrency: 1
+    bindings: |
+      input query: u64
+      query_rows := query_count("{dataset}:{base}")
+      base_rows  := vector_count("{dataset}:{base}")
+      row        := filtered_neighbor_indices_at("{dataset}:{base}", query)
+      filtered_gt_not_negative := is_positive(u64_eq(vec_count_below_i32(row, to_i64(0)), 0))
+      filtered_gt_in_range := is_positive(u64_eq(vec_count_below_i32(row, to_i64(base_rows)), vec_len_i32(row)))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{filtered_gt_not_negative} {filtered_gt_in_range}"
+
+  # ── Each label profile ─────────────────────────────────────────
+
+  label_rows:
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      label_profile_names_a_value := is_positive(regex_match("{profile}", "[0-9]+$"))
+      value := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      label_base_rows_match_metadata := is_positive(u64_eq(vector_count("{dataset}:{profile}"), metadata_count_of("{dataset}:{base}", value)))
+      label_query_rows_match_predicates := is_positive(u64_eq(query_count("{dataset}:{profile}"), predicate_count_of("{dataset}:{base}", value)))
+      label_gt_rows_match_queries := is_positive(u64_eq(vector_count(dataset_open("{dataset}:{profile}", "neighbor_indices")), query_count("{dataset}:{profile}")))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{label_profile_names_a_value} {label_base_rows_match_metadata} {label_query_rows_match_predicates} {label_gt_rows_match_queries}"
+
+  # One row per label query: every index of its ground truth is a
+  # label-local base ordinal.
+  label_gt_ranges:
+    cycles: "{label_queries}"
+    concurrency: 1
+    bindings: |
+      input label_query: u64
+      label_queries := query_count("{dataset}:{profile}")
+      label_rows    := vector_count("{dataset}:{profile}")
+      row           := neighbor_indices_at("{dataset}:{profile}", label_query)
+      label_gt_not_negative := is_positive(u64_eq(vec_count_below_i32(row, to_i64(0)), 0))
+      label_gt_in_range := is_positive(u64_eq(vec_count_below_i32(row, to_i64(label_rows)), vec_len_i32(row)))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{label_gt_not_negative} {label_gt_in_range}"
+
+  audit_passed:
+    cycles: 1
+    concurrency: 1
+    ops:
+      verdict:
+        stmt: "audit passed: {dataset}"
+
+#@ requires dataset (a vectordata catalog; covered by crates/nmbrs/tests/vectordata_audit_workload.rs)
