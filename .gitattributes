@@ -8,23 +8,21 @@
 # is what eliminates the "LF will be replaced by CRLF" warnings.
 * text=auto eol=lf
 
-# Known binaries — never normalize, never diff as text.
+# Binaries — never normalize, never diff as text. `text=auto` already
+# detects common binaries (images, archives, libraries) by content, so
+# only the formats this project actually carries or handles are pinned:
+# the bundled report font, and the vector / columnar dataset formats the
+# workloads read, whose raw numeric payloads shouldn't be left to a
+# content sniff.
 *.ttf     binary
-*.otf     binary
-*.woff    binary
-*.woff2   binary
-*.a       binary
-*.so      binary
-*.dll     binary
-*.lib     binary
-*.png     binary
-*.jpg     binary
-*.jpeg    binary
-*.gif     binary
-*.ico     binary
-*.pdf     binary
-*.gz      binary
-*.zip     binary
+*.fvec    binary
+*.fvecs   binary
+*.ivec    binary
+*.ivecs   binary
+*.bvec    binary
+*.bvecs   binary
+*.dvec    binary
+*.dvecs   binary
 *.parquet binary
 
 # (No .bat/.cmd/.ps1 are tracked. If Windows-only batch scripts are ever
