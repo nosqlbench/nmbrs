@@ -16,7 +16,7 @@ serde_json = "1"
 # (the `Vector` result shape, `MetricAccess`, selector matching) and
 # owns no result types of its own. metricsql sits ABOVE metrics now —
 # it is no longer a standalone leaf, by design.
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.0" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.2.0" }
 # HDR histogram for the holistic-class streaming reducers
 # (`quantile_over_time` and friends). Mergeable sketch with
 # bounded relative error — see SRD-47 §"Holistic-function
