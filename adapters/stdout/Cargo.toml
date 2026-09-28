@@ -11,7 +11,7 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.2.1" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.3.0" }
 nmbrs-workload = { path = "../../nmbrs-workload", version = "0.2.1" }
 inventory = "0.3.24"
 # `ParsedOp.params` is `HashMap<String, serde_json::Value>`; the

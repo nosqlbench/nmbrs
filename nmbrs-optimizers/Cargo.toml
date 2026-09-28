@@ -17,7 +17,7 @@ readme.workspace = true
 # stays independently extractable. The optional `runtime` feature adds ONLY
 # the inventory bridge (`src/bridge.rs`) that registers these optimizers
 # against the core `nmbrs-runtime` contract; the algorithms never touch it.
-nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.2.1", optional = true }
+nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.3.0", optional = true }
 inventory = { version = "0.3.24", optional = true }
 
 [features]

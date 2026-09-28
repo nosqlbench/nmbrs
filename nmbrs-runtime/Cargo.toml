@@ -16,8 +16,8 @@ flamegraph = ["pprof"]
 
 [dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "signal"] }
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.2.1", features = ["victoriametrics", "sqlite"] }
-nmbrs-rate = { path = "../nmbrs-rate", version = "0.2.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.3.0", features = ["victoriametrics", "sqlite"] }
+nmbrs-rate = { path = "../nmbrs-rate", version = "0.3.0" }
 nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.2.1" }
 nmbrs-workload = { path = "../nmbrs-workload", version = "0.2.1" }
 polydat = { version = "0.6.2", features = ["vectordata"] }

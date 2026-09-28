@@ -35,8 +35,8 @@ engine-cassandra-cpp = ["dep:cassandra-cpp", "dep:cassandra-cpp-sys", "dep:uuid"
 all-engines = ["engine-scylla", "engine-cassandra-cpp"]
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.2.1", default-features = false }
-nmbrs-metrics = { path = "../../nmbrs-metrics", version = "0.2.1" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.3.0", default-features = false }
+nmbrs-metrics = { path = "../../nmbrs-metrics", version = "0.3.0" }
 polydat = "0.6.2"
 # IEEE 754 half-precision floats — used by the cassandra-cpp
 # CUSTOM (vector) binder's `Float16Type` / `HalfFloatType` path

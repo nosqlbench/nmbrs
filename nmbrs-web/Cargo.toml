@@ -18,9 +18,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 askama = "0.15"
 askama-derive-axum = "0.1"
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.2.1" }
+nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.3.0" }
 polydat = "0.6.2"
-nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.2.1" }
+nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.3.0" }
 socket2 = "0.5"
 
 [dev-dependencies]
