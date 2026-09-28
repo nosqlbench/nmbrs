@@ -19,7 +19,7 @@ resolver = "3"
 # crates unchanged since their last tag while their inherited version still
 # moves. Each crate names its own `readme`.
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/nosqlbench/nmbrs"
@@ -38,21 +38,21 @@ homepage = "https://github.com/nosqlbench/nmbrs"
 # and nmbrs-adapter-cql lets the members that ask for it get it; a member
 # can't turn off defaults its workspace entry leaves on.
 [workspace.dependencies]
-nmbrs-errorhandler = { path = "crates/nmbrs-errorhandler", version = "0.3.0" }
-nmbrs-metrics = { path = "crates/nmbrs-metrics", version = "0.3.0" }
-nmbrs-metricsql = { path = "crates/nmbrs-metricsql", version = "0.3.0" }
-nmbrs-optimizers = { path = "crates/nmbrs-optimizers", version = "0.3.0" }
-nmbrs-rate = { path = "crates/nmbrs-rate", version = "0.3.0" }
-nmbrs-runtime = { path = "crates/nmbrs-runtime", version = "0.3.0", default-features = false }
-nmbrs-tui = { path = "crates/nmbrs-tui", version = "0.3.0" }
-nmbrs-web = { path = "crates/nmbrs-web", version = "0.3.0" }
-nmbrs-workload = { path = "crates/nmbrs-workload", version = "0.3.0" }
-nmbrs-adapter-cql = { path = "crates/nmbrs-adapter-cql", version = "0.3.0", default-features = false }
-nmbrs-adapter-http = { path = "crates/nmbrs-adapter-http", version = "0.3.0" }
-nmbrs-adapter-openapi = { path = "crates/nmbrs-adapter-openapi", version = "0.3.0" }
-nmbrs-adapter-plotter = { path = "crates/nmbrs-adapter-plotter", version = "0.3.0" }
-nmbrs-adapter-stdout = { path = "crates/nmbrs-adapter-stdout", version = "0.3.0" }
-nmbrs-adapter-testkit = { path = "crates/nmbrs-adapter-testkit", version = "0.3.0" }
+nmbrs-errorhandler = { path = "crates/nmbrs-errorhandler", version = "0.4.0" }
+nmbrs-metrics = { path = "crates/nmbrs-metrics", version = "0.4.0" }
+nmbrs-metricsql = { path = "crates/nmbrs-metricsql", version = "0.4.0" }
+nmbrs-optimizers = { path = "crates/nmbrs-optimizers", version = "0.4.0" }
+nmbrs-rate = { path = "crates/nmbrs-rate", version = "0.4.0" }
+nmbrs-runtime = { path = "crates/nmbrs-runtime", version = "0.4.0", default-features = false }
+nmbrs-tui = { path = "crates/nmbrs-tui", version = "0.4.0" }
+nmbrs-web = { path = "crates/nmbrs-web", version = "0.4.0" }
+nmbrs-workload = { path = "crates/nmbrs-workload", version = "0.4.0" }
+nmbrs-adapter-cql = { path = "crates/nmbrs-adapter-cql", version = "0.4.0", default-features = false }
+nmbrs-adapter-http = { path = "crates/nmbrs-adapter-http", version = "0.4.0" }
+nmbrs-adapter-openapi = { path = "crates/nmbrs-adapter-openapi", version = "0.4.0" }
+nmbrs-adapter-plotter = { path = "crates/nmbrs-adapter-plotter", version = "0.4.0" }
+nmbrs-adapter-stdout = { path = "crates/nmbrs-adapter-stdout", version = "0.4.0" }
+nmbrs-adapter-testkit = { path = "crates/nmbrs-adapter-testkit", version = "0.4.0" }
 
 # Profile settings (debug, frame pointers, etc.) live in
 # `.cargo/config.toml` so they layer cleanly with the existing
