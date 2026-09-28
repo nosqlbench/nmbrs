@@ -10,7 +10,7 @@ endpoints, programmatic API). This SRD specifies that
 runtime.
 
 The first consumer of this design is
-[`nmbrs metrics watch`](../../nmbrs/src/metricsql_cmd.rs) —
+[`nmbrs metrics watch`](../../crates/nmbrs/src/metricsql_cmd.rs) —
 already shipping a polling-loop CLI demo of the streaming
 engine. The runtime generalises that pattern to
 multi-query orchestration: one sample feed fanning out to
@@ -505,7 +505,7 @@ infrastructure cleanly. Followups are ordered by code dep:
   ArcSwap reads; runtime wiring should look familiar to
   anyone who's read SRD-23.
 - **`nmbrs metrics watch`**: the polling-loop CLI in
-  `nmbrs/src/metricsql_cmd.rs::watch` is the proto-runtime;
+  `crates/nmbrs/src/metricsql_cmd.rs::watch` is the proto-runtime;
   this SRD generalises that pattern.
 - **OLAP algebra background** (Gray et al. 1997) — same
   reference SRD-47 cites; the partition law that makes

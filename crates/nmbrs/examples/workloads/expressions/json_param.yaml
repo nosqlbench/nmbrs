@@ -1,0 +1,36 @@
+#!/usr/bin/env nmbrs
+# json_param.yaml — minimal repro for JSON-shaped workload param values
+# referenced in op templates (CQL-style replication map, JSON literal,
+# nested maps, etc).
+
+description: |
+  A workload param whose value is a JSON / map literal must
+  round-trip through `{name}` substitution unchanged — the
+  outer braces are content, not a placeholder.
+
+params:
+  cql_replication: "{'class': 'SimpleStrategy', 'replication_factor': '1'}"
+  json_object: '{"a": 1, "b": [2, 3]}'
+  scalar_string: "plain"
+
+bindings: |
+  input cycle: u64
+
+scenarios:
+  default:
+    - emit
+
+phases:
+  emit:
+    cycles: 1
+    concurrency: 1
+    ops:
+      cql_line:
+        stmt: "json_param/cql_replication value={cql_replication}"
+      json_line:
+        stmt: "json_param/json_object value={json_object}"
+      scalar_line:
+        stmt: "json_param/scalar_string value={scalar_string}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

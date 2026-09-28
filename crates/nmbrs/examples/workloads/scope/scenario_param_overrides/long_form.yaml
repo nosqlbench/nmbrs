@@ -1,0 +1,36 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scenario-tree `bindings:` — the long form behind `set:`.
+#
+# `set: { mode: ..., size: ... }` is sugar for a `bindings:` block of
+# `const NAME := <value>` lines. Writing the block directly is useful
+# when the body needs a feature the sugar doesn't cover (derived
+# bindings, shared cells). This is equivalent to the multi_shadow demo.
+# Output: set/verbose/bulk.
+
+params:
+  mode: default
+  size: small
+
+scenarios:
+  default:
+    - bindings: |
+        const mode := "verbose"
+        const size := "bulk"
+      phases:
+        - announce
+
+phases:
+  announce:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      msg:
+        stmt: "set/{mode}/{size}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect set/verbose/bulk
+#@ expect 0 failed

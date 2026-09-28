@@ -1,7 +1,7 @@
 # 24: Component Lookup by Label Predicate
 
 > **Status.** Design committed and shipping in code
-> (`nmbrs-metrics/src/selector.rs`: `Selector` grammar, glob
+> (`crates/nmbrs-metrics/src/selector.rs`: `Selector` grammar, glob
 > patterns, and the component-tree lookup helpers
 > `find` / `find_one` / `any` / `count`). Consumed by SRD 23's
 > `ControlTarget` and by the metrics query layer.

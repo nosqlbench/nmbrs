@@ -2,7 +2,7 @@
 
 **Status:** normative
 **Owner:** runtime / runner
-**Implementation:** `nmbrs-runtime/src/session.rs`
+**Implementation:** `crates/nmbrs-runtime/src/session.rs`
 **Cross-refs:** SRD-04 (umbrella options), SRD-40 (metrics),
   SRD-44 (checkpointing)
 

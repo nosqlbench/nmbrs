@@ -1,0 +1,65 @@
+#!/usr/bin/env nmbrs
+# service_model.yaml — Simulated multi-table service workload
+#
+# Demonstrates: multi-table access, weighted operation ratios,
+# GK-driven latency injection (delay: field), conditional ops,
+# workload params, and mixed read/write patterns.
+#
+# Usage:
+#   nmbrs run workload=examples/service_model.yaml cycles=20
+#   nmbrs run workload=examples/service_model.yaml cycles=100 threads=4 rate=1000
+
+params:
+  keyspace: service
+  user_count: "100000"
+  product_count: "5000"
+
+bindings: |
+  input cycle: u64
+
+  // User table bindings
+  user_id := mod_wire(hash(cycle), user_count)
+  user_name := number_to_words(mod(hash(hash(cycle)), 1000))
+
+  // Product table bindings (different hash chain)
+  product_seed := hash(hash(hash(cycle)))
+  product_id := mod_wire(product_seed, product_count)
+  product_price := to_f64(mod(product_seed, 9999)) / 100.0 + 0.01
+
+  // Order bindings
+  order_id := format_u64(hash(cycle), 16)
+  quantity := mod(hash(hash(cycle)), 10) + 1
+
+  // Conditional: only run analytics every 5th cycle
+  is_analytics := mod(cycle, 5)
+
+  // GK-driven latency: simulate variable think time (0-5ms)
+  // based on a hash of the cycle number
+  think_time := to_f64(mod(hash(hash(hash(hash(cycle)))), 5))
+
+ops:
+  read_user:
+    ratio: 5
+    tags: { type: read, table: users }
+    stmt: "SELECT * FROM {keyspace}.users WHERE id={user_id}"
+
+  read_product:
+    ratio: 3
+    tags: { type: read, table: products }
+    stmt: "SELECT * FROM {keyspace}.products WHERE id={product_id}"
+
+  write_order:
+    ratio: 2
+    delay: think_time
+    tags: { type: write, table: orders }
+    stmt: "INSERT INTO {keyspace}.orders (id, user_id, product_id, qty, price) VALUES ('{order_id}', {user_id}, {product_id}, {quantity}, {product_price})"
+
+  analytics_query:
+    if: is_analytics
+    ratio: 1
+    tags: { type: read, table: analytics }
+    stmt: "SELECT count(*), avg(price) FROM {keyspace}.orders WHERE user_id={user_id}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run cycles=22
+#@ expect completed, 0 failed

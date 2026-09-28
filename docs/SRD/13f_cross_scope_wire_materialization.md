@@ -286,7 +286,7 @@ intersection.
 
 ### Push A — Workload-param cascade as `const` *(shipped)*
 
-Scope: `nmbrs-runtime/src/scope.rs::build_op_template_scope_kernel`.
+Scope: `crates/nmbrs-runtime/src/scope.rs::build_op_template_scope_kernel`.
 
 Change: emit each workload param as `const {name} := {literal}`
 (folded constant) on every op-template kernel's synthesized
@@ -303,8 +303,8 @@ with the cascade-as-`const` form.
 
 ### Push B.1 — Construction-time slot wiring + per-cycle refresh *(shipped)*
 
-Scope: `nmbrs-runtime/src/scope.rs::build_op_template_scope_kernel`
-and `nmbrs-runtime/src/synthesis.rs::FiberBuilder::set_inputs`.
+Scope: `crates/nmbrs-runtime/src/scope.rs::build_op_template_scope_kernel`
+and `crates/nmbrs-runtime/src/synthesis.rs::FiberBuilder::set_inputs`.
 
 Change:
 
@@ -337,9 +337,9 @@ O(num_extern_slots × num_per_op_kernels) — small in practice
 
 ### Push C — Single-kernel-handle wires *(shipped)*
 
-Scope: `nmbrs-runtime/src/wires.rs`,
-`nmbrs-runtime/src/activity.rs`,
-`nmbrs-runtime/src/synthesis.rs`.
+Scope: `crates/nmbrs-runtime/src/wires.rs`,
+`crates/nmbrs-runtime/src/activity.rs`,
+`crates/nmbrs-runtime/src/synthesis.rs`.
 
 Change:
 
@@ -481,7 +481,7 @@ stale reads, the new wiring fixes them.
 
 ### Push D — Parser-merge removal *(shipped)*
 
-Scope: `nmbrs-workload/src/parse.rs::merge_bindings` and the
+Scope: `crates/nmbrs-workload/src/parse.rs::merge_bindings` and the
 call sites that thread workload-level and phase-level bindings
 into per-op bindings (`parse.rs:889-907`, `1240`,
 `1750-1769`).
@@ -579,7 +579,7 @@ actually carries phase bindings); D.2 is independent of B.2.
 
 ### Push E — Combined `for_each:` + `bindings:` phase support *(shipped)*
 
-Scope: `nmbrs-runtime/src/runner.rs` install-spec loop, plus
+Scope: `crates/nmbrs-runtime/src/runner.rs` install-spec loop, plus
 the polydat-side comprehension synthesis path (the public API
 that materializes a comprehension's scope; see polydat spec
 §9.5 consumption surfaces).
@@ -614,7 +614,7 @@ combined-case workloads on legacy behavior until E lands.
 ### Push F — `bind_outer_scope` rename *(shipped — chose `materialize_wiring_from_outer`)*
 
 Scope: `polydat/src/kernel/polydatkernel.rs::bind_outer_scope`
-and every caller in `nmbrs-runtime/src/scope.rs` and
+and every caller in `crates/nmbrs-runtime/src/scope.rs` and
 `polydat/src/subcontext/`.
 
 The operation is matter-AST interpretation, not "bind to outer

@@ -3,7 +3,7 @@
 **Status:** design (not yet implemented)
 **Owner:** polydat (trait + node) + nmbrs-runtime (pool impl + install)
 **Implementation target:** `polydat/src/` (accessor trait + global install
-  point + generic node), `nmbrs-runtime/src/resource_pool.rs` (implement the
+  point + generic node), `crates/nmbrs-runtime/src/resource_pool.rs` (implement the
   trait, populate per-entry accessor payload, install at session start)
 **Cross-refs:** SRD-35 (resource pool — the definitive store + pre-map
   walker), SRD-80b (`#[polydat_node]` authoring), SRD-103 (CQL session handle —

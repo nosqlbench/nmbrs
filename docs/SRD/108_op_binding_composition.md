@@ -1,8 +1,8 @@
 # SRD-108 — Blueprint/Implementation Op Composition
 
-Status: IMPLEMENTED. Coverage: `nmbrs-workload/src/implements.rs`
-unit tests (binder rules), `nmbrs/tests/tag_composition.rs` (Part
-A e2e), `nmbrs/tests/implements_binding.rs` (Part B e2e — both
+Status: IMPLEMENTED. Coverage: `crates/nmbrs-workload/src/implements.rs`
+unit tests (binder rules), `crates/nmbrs/tests/tag_composition.rs` (Part
+A e2e), `crates/nmbrs/tests/implements_binding.rs` (Part B e2e — both
 invocation forms, unbound-slot load error, target mismatch). Two
 composition forms for binding a **blueprint** — a
 protocol-agnostic workload carrying phases with concurrency,
@@ -182,7 +182,7 @@ typed abstract slots) bound by `cql/vector_suite/vector_suite_cql_impl`
 (literal CQL) or a web driver library (`drivers/vendorx`). The
 direct-bound monolith `cql/vector_suite/vector_suite_cql_direct` is kept as
 the testing reference, and
-`nmbrs/tests/vector_suite_equivalence.rs` proves the pair
+`crates/nmbrs/tests/vector_suite_equivalence.rs` proves the pair
 model-equivalent to it — same scenario trees, phase scaffolding,
 op bodies, and effective params, modulo only the pair's `connect`
 phase (SRD-109 session establishment).
@@ -253,9 +253,9 @@ Semantics (all load time):
   replace individual templates.
 - A library runs nothing by itself: templates are not ops.
 
-Coverage: `nmbrs-workload/src/op_templates.rs` unit tests, and the
+Coverage: `crates/nmbrs-workload/src/op_templates.rs` unit tests, and the
 examples-verified library/workload pair in
-`nmbrs/examples/workloads/openapi/`.
+`crates/nmbrs/examples/workloads/openapi/`.
 
 ### Provenance interaction (SRD-106/107)
 

@@ -1,0 +1,28 @@
+#!/usr/bin/env nmbrs
+# diag_unresolved.yaml — minimal repro for an unresolved-placeholder
+# error inside a for_each spec. Used to verify that runtime errors
+# carry a `<path>:<line>:<col>:` prefix so the user can jump to
+# the source.
+#
+# `{undeclared_thing}` is referenced in the for_each spec but is
+# neither a workload param, an outer iter var, nor an inherited
+# binding. Under --strict that is an "unresolved placeholder" error;
+# outside strict it is a warning and the clause yields no values.
+
+scenarios:
+  default:
+    - for_each: "color in {undeclared_thing}"
+      phases:
+        - show
+
+phases:
+  show:
+    cycles: 1
+    concurrency: 1
+    ops:
+      line:
+        stmt: "iteration"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run --strict
+#@ expect-fail unresolved placeholder

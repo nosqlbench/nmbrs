@@ -9,8 +9,8 @@ needs.
 Canonical references: SRD-82 Part 3b (the tries wrapper and its
 companion knobs), SRD-83 Part 9 (the throttle governor), SRD-23
 (dynamic controls). Runnable demonstrations:
-`nmbrs/examples/workloads/controls/retry_visibility.yaml` and
-`nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.
+`crates/nmbrs/examples/workloads/controls/retry_visibility.yaml` and
+`crates/nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.
 
 ## The problem shape
 
@@ -237,16 +237,16 @@ control write away.
 
 ## Test anchors (for review)
 
-- `nmbrs-runtime/src/exec_events.rs` — sampler, gate, and format
+- `crates/nmbrs-runtime/src/exec_events.rs` — sampler, gate, and format
   unit tests (determinism, squelch accounting, cap).
-- `nmbrs-runtime/src/throttle.rs` — pure AIMD decision tests
+- `crates/nmbrs-runtime/src/throttle.rs` — pure AIMD decision tests
   (floor/ceiling containment, dead band).
-- `nmbrs/tests/retry_exemplars.rs` — e2e: default-off sampling,
+- `crates/nmbrs/tests/retry_exemplars.rs` — e2e: default-off sampling,
   exact per-retry sampling, squelch, live arming via
   `control_set`, advisory-per-phase, advisory opt-out.
-- `nmbrs/tests/throttle_governor.rs` — e2e: measured overload
+- `crates/nmbrs/tests/throttle_governor.rs` — e2e: measured overload
   walked down until failures stop, visible adjustments.
-- `nmbrs/examples/workloads/controls/retry_visibility.yaml`,
-  `nmbrs/examples/workloads/controls/throttle_backpressure.yaml` —
+- `crates/nmbrs/examples/workloads/controls/retry_visibility.yaml`,
+  `crates/nmbrs/examples/workloads/controls/throttle_backpressure.yaml` —
   walker-pinned runnable demonstrations of every line format shown
   above.

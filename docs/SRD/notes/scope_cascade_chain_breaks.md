@@ -8,7 +8,7 @@ documented in one place.
 
 ## Reproducer
 
-`nmbrs/workloads/cql/full_cql_vector.yaml`, scenario
+`crates/nmbrs/workloads/cql/full_cql_vector.yaml`, scenario
 `test_oracles`. Three nested `for_each` levels:
 
 ```

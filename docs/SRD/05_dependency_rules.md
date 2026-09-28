@@ -3,7 +3,7 @@
 Authoritative rules for which crates and modules may depend on which, and how.
 This is **Pillar 5 (Enforced edges)** of the [Subsystem Treatment Standard](00b_subsystem_standard.md)
 made system-wide: workspace-applicable edges are machine-checked by
-[`nmbrs/tests/architecture_rules.rs`](../../nmbrs/tests/architecture_rules.rs) and run in CI;
+[`crates/nmbrs/tests/architecture_rules.rs`](../../crates/nmbrs/tests/architecture_rules.rs) and run in CI;
 Polydat-owned rules are enforced in its repository.
 A proposal that contradicts a rule here is wrong, not the rule.
 
@@ -113,4 +113,4 @@ depend on).
 ## See also
 - [SRD 00b — Subsystem Treatment Standard](00b_subsystem_standard.md) (Pillar 5)
 - [SRD 01 — System Overview](01_system_overview.md) (crate map, data flow)
-- [`nmbrs/tests/architecture_rules.rs`](../../nmbrs/tests/architecture_rules.rs) (the gate)
+- [`crates/nmbrs/tests/architecture_rules.rs`](../../crates/nmbrs/tests/architecture_rules.rs) (the gate)

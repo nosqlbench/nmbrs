@@ -16,7 +16,7 @@
 > defect and reverting the global-flag prototype), the **status** bucket,
 > and the **log** bucket; producers (the activity status line, the
 > observer's synchronous log writes) submit through the channel; the
-> behavioral harness (`nmbrs/tests/output_channel_harness.rs`) pins all
+> behavioral harness (`crates/nmbrs/tests/output_channel_harness.rs`) pins all
 > three contexts. **Stage C reframed:** reading the code showed
 > `DisplaySink` is a *pull* fold-drainer (per its own trait doc — "events
 > flow through the actor; the sink drains"), so the original "make the
@@ -359,9 +359,9 @@ sink-agreement:
    route through the log channel — the plotter's render-rate warning and
    the testkit `diagnose=` diagnostics now `nmbrs_runtime::diag!` instead
    of raw `eprintln!`. The **A1 no-bypass gate** is
-   `nmbrs/tests/architecture_rules.rs::a1_output_channel_no_fd_bypass`: it
+   `crates/nmbrs/tests/architecture_rules.rs::a1_output_channel_no_fd_bypass`: it
    asserts the op-output / raster / readout *producer* paths
-   (`adapters/{stdout,plotter,testkit}`, `nmbrs-runtime/src/readouts`)
+   (`adapters/{stdout,plotter,testkit}`, `crates/nmbrs-runtime/src/readouts`)
    contain zero raw terminal-write macros, proven to fail on an injected
    write. Scope is the producers that race the live display, NOT every
    `eprintln!` — the carve-outs (the channel itself, bootstrap/session

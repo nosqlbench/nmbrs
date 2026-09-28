@@ -1043,7 +1043,7 @@ Each phase is a single change set: every caller of the
 type/path being deleted gets rewritten in the same diff.
 
 6. **Phase 6 — Snapshot data model is the only data model.**
-   `nmbrs-metrics/src/snapshot.rs` (the OpenMetrics-shaped
+   `crates/nmbrs-metrics/src/snapshot.rs` (the OpenMetrics-shaped
    `MetricSet`/`MetricFamily`/`Metric`/`MetricPoint` types) is
    the single in-memory representation of metric values. The
    `Sample` enum in `frame.rs` and its consumers are deleted

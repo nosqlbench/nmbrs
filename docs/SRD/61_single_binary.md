@@ -32,10 +32,10 @@ toolchains.
 | Feature | Default | Adds |
 |---------|---------|------|
 | `engine-scylla` | yes | Pure-Rust ScyllaDB driver. `cqldriver=scylla`. |
-| `engine-cassandra-cpp` | no | Apache Cassandra C++ driver. `cqldriver=cassandra-cpp`. Requires `libcassandra` + libuv + openssl on the host or via `adapters/cql/build.sh`. |
+| `engine-cassandra-cpp` | no | Apache Cassandra C++ driver. `cqldriver=cassandra-cpp`. Requires `libcassandra` + libuv + openssl on the host or via `crates/nmbrs-adapter-cql/build.sh`. |
 | `all-engines` | no | Both CQL engines linked; runtime selection via `cqldriver=`. |
 | `openapi` | no | Adds `describe-openapi` and `run-openapi` subcommands that synthesize ops from an OpenAPI 3.x spec. |
-| `flamegraph` | no | Forwards to `nmbrs-runtime/flamegraph` for built-in CPU profiling. |
+| `flamegraph` | no | Forwards to `crates/nmbrs-runtime/flamegraph` for built-in CPU profiling. |
 
 ---
 
@@ -50,10 +50,10 @@ cargo build --release -p nmbrs
 ### Opt-in: cassandra-cpp engine
 
 The Cassandra C++ driver isn't on crates.io; build infrastructure
-lives under `adapters/cql/`:
+lives under `crates/nmbrs-adapter-cql/`:
 
 ```bash
-cd adapters/cql
+cd crates/nmbrs-adapter-cql
 
 # Full build: builds C driver in Docker, extracts to sysroot/, then cargo
 bash build.sh
@@ -102,7 +102,7 @@ User-facing names (registered in inventory):
 - `adapter=cql`
 
 `adapter=cql` is a meta-adapter that resolves to a concrete
-engine via [`AliasResolverEntry`](../../nmbrs-runtime/src/adapter.rs).
+engine via [`AliasResolverEntry`](../../crates/nmbrs-runtime/src/adapter.rs).
 The user picks the engine with `cqldriver=scylla` /
 `cqldriver=cassandra-cpp`. Direct dispatch by engine name is
 intentionally not exposed — engines stay an internal concept.
@@ -150,6 +150,6 @@ nmbrs run adapter=cql cqldriver=cassandra-cpp
 | Redis | `nmbrs-adapter-redis` (planned) | `redis` | Planned |
 
 Each new driver follows the same pattern: a library crate that
-implements [`DriverAdapter`](../../nmbrs-runtime/src/adapter.rs)
+implements [`DriverAdapter`](../../crates/nmbrs-runtime/src/adapter.rs)
 or registers an `AliasResolverEntry`, plus a feature flag on
 `nmbrs` that pulls it in.

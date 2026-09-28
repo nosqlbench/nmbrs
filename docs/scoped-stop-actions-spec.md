@@ -2,13 +2,13 @@
 
 Status: design, ready to implement. Lineage: continues **SRD-83** (stop-condition shell
 distribution) and relates to **SRD-101** (`continue_if`). This is the "shell-evaluation
-follow-up" named in `nmbrs-runtime/src/activity.rs:2299-2302`.
+follow-up" named in `crates/nmbrs-runtime/src/activity.rs:2299-2302`.
 
 ## Problem
 
 A `stop_when` condition is *detected* at one scope but its *action* is hard-wired to that
 same scope. The single `each:` selector is consumed as an **evaluation-placement filter** and
-then discarded (`nmbrs-runtime/src/stop_conditions.rs:304-315`; gather at
+then discarded (`crates/nmbrs-runtime/src/stop_conditions.rs:304-315`; gather at
 `executor.rs:4820-4839`, `runner.rs:2826`), so a condition cannot say "detect at the phase,
 stop the workload." The phase trip site hard-codes the phase action
 (`activity.rs:2380-2428`, `activity.stop_flag.store(true)`). `continue_if` conflates the two

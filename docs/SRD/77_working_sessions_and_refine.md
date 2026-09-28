@@ -407,7 +407,7 @@ surface usable.
 
 ### Push 2 — Execution entity
 
-- New `Execution` struct in `nmbrs-runtime/src/session.rs`
+- New `Execution` struct in `crates/nmbrs-runtime/src/session.rs`
   alongside `Session`.
 - `executions` sqlite table with the schema above.
 - Lifecycle: at runner start, INSERT a row; at shutdown

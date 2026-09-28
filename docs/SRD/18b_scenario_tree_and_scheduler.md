@@ -392,7 +392,7 @@ The contract is load-bearing enough to deserve more than
 documentation:
 
 1. **Doc-comment at the walker entry point** in
-   `nmbrs-runtime/src/executor.rs` repeats this contract verbatim
+   `crates/nmbrs-runtime/src/executor.rs` repeats this contract verbatim
    and redirects to this SRD section.
 2. **Regression test**: an integration test runs the same workload
    at `depth=Phase` and at `depth=Cycle` (with a no-op stub
@@ -559,7 +559,7 @@ migration is incremental:
    a new `ScopeTree` mirroring `ScenarioNode` 1:1 plus parent
    pointers, depth, scope-level pragma sets, and slots for
    per-node compiled kernels. Build it lazily at first; existing
-   code continues to work. *Done — `nmbrs-runtime/src/scope_tree.rs`.*
+   code continues to work. *Done — `crates/nmbrs-runtime/src/scope_tree.rs`.*
 
 2. **Wire scope-aware compilation** —
    - Per-phase pragma extraction + chain attach
@@ -633,7 +633,7 @@ internal-only constructors.
      same rule at `depth + 1`, so `schedule=1/4` parallelizes
      four iterations of an outer for_each while keeping
      scenarios serial.
-   - Integration coverage: `nmbrs/tests/concurrent_scheduler.rs`
+   - Integration coverage: `crates/nmbrs/tests/concurrent_scheduler.rs`
      proves order-based concurrency at the stderr-log level
      (serial completes phase A before announcing phase B; both
      `schedule=2` and `schedule=*` interleave the entry lines).
@@ -1047,27 +1047,27 @@ retiring. Better to land (1) first and keep the runner thin.
 
 ### Test coverage map (M3.1-3.6)
 
-- `nmbrs-runtime/src/scope_tree.rs::tests::install_kernel_seeds_canonical_state`
+- `crates/nmbrs-runtime/src/scope_tree.rs::tests::install_kernel_seeds_canonical_state`
   — install primitive + cached canonical via standard GK
   `get_constant`. (M3.1)
-- `nmbrs-runtime/src/scope_tree.rs::tests::install_is_idempotent_via_oncelock`
+- `crates/nmbrs-runtime/src/scope_tree.rs::tests::install_is_idempotent_via_oncelock`
   — `OnceLock` semantics. (M3.1)
-- `nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_inherits_parent_via_bind_outer_scope`
+- `crates/nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_inherits_parent_via_bind_outer_scope`
   — synthesis + chain inheritance through extern auto-passthrough. (M3.2)
-- `nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_uses_native_type_for_numeric_iter_var`
+- `crates/nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_uses_native_type_for_numeric_iter_var`
   — native-type detection from non-dependent clause pre-eval. (M3.2)
-- `nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_recursive_probe_for_dependent_clause`
+- `crates/nmbrs-runtime/src/scope_tree.rs::tests::for_each_scope_kernel_recursive_probe_for_dependent_clause`
   — recursive probe types `limit` as `u64` via `k=1` →
   `k_1_limits` chain. (M3.2)
-- `nmbrs-runtime/src/interpolate.rs::tests::kernel_*` — four
+- `crates/nmbrs-runtime/src/interpolate.rs::tests::kernel_*` — four
   tests covering `interpolate_via_kernel` lookup
   (`get_constant`, `get_input`, unresolved error, nested
   fixed-point). (M3.3a, M3.5)
-- `nmbrs/tests/m3_dependent_for_each.rs` — three full-pipeline
+- `crates/nmbrs/tests/m3_dependent_for_each.rs` — three full-pipeline
   integration tests exercising the dispatcher end-to-end:
   dependent-tuple `{k_{k}_limits}`, multi-clause Cartesian
   product, `for_each_union` across sub-spaces. (M3.3c+d, M3.4)
-- `nmbrs/tests/workload_examples.rs` — fourteen integration
+- `crates/nmbrs/tests/workload_examples.rs` — fourteen integration
   tests covering the full M3.4-3.6 surface end-to-end:
   phased + non-phased workloads, scenario filtering, workload
   param overrides via CLI, Polydat / legacy / inline binding modes,
@@ -1077,7 +1077,7 @@ retiring. Better to land (1) first and keep the runner thin.
   params flowing as `final` bindings on the workload kernel
   (M3.6) into both op-template substitution and binding-RHS
   literal injection.
-- `nmbrs-runtime/src/bindings.rs::tests::compile_provides_cycle_output`
+- `crates/nmbrs-runtime/src/bindings.rs::tests::compile_provides_cycle_output`
   — declared inputs auto-expose as kernel outputs (parity
   with `extern`); user-written `cycle := identity(cycle)`
   shim no longer required. (M3.4b prerequisite for the

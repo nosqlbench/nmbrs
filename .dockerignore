@@ -4,5 +4,5 @@ target/
 .idea/
 .vscode/
 *.log
-adapters/cql/sysroot/
-adapters/cql/nmbrs
+crates/nmbrs-adapter-cql/sysroot/
+crates/nmbrs-adapter-cql/nmbrs

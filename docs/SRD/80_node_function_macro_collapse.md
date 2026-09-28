@@ -406,7 +406,7 @@ The contributor running the follow-on session should:
 - Survey the state-bearing nodes in
   `polydat/src/library/probability.rs` (PRNG state),
   `polydat/src/library/vectors.rs` (source readers), and
-  `nmbrs-runtime/src/polydat_nodes/*` (runtime-context-
+  `crates/nmbrs-runtime/src/polydat_nodes/*` (runtime-context-
   bearing nodes) — these are the escape-hatch shapes the
   macro vocabulary needs to cover.
 - Prototype the `FromValue` / `IntoValue` trait surface for

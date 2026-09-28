@@ -63,4 +63,4 @@ never be const-folded ([SRD 40c](40c_metric_query_api.md) MQ4).
 [SRD 49](49_metricsql_supported_scope.md) (supported scope + drift tests).
 
 ## See also
-`nmbrs-metricsql/src/lib.rs`; [SRD 40c](40c_metric_query_api.md); [SRD 47](47_metricsql_streaming.md); [SRD 48](48_metricsql_continuous_query.md); [SRD 49](49_metricsql_supported_scope.md).
+`crates/nmbrs-metricsql/src/lib.rs`; [SRD 40c](40c_metric_query_api.md); [SRD 47](47_metricsql_streaming.md); [SRD 48](48_metricsql_continuous_query.md); [SRD 49](49_metricsql_supported_scope.md).

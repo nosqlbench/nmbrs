@@ -1,4 +1,4 @@
-# 90: Cadence-Aware Hybrid Metric Store    (owning crate: nmbrs-metrics; modules: cadence_reporter, queryapi/{mod,live,sqlite,hybrid,sample_view}, scheduler; new traits: MetricSink (write) + MetricAccess (read); tests: cadence_reporter, queryapi/*, nmbrs/tests/example_workloads_in_process)
+# 90: Cadence-Aware Hybrid Metric Store    (owning crate: nmbrs-metrics; modules: cadence_reporter, queryapi/{mod,live,sqlite,hybrid,sample_view}, scheduler; new traits: MetricSink (write) + MetricAccess (read); tests: cadence_reporter, queryapi/*, crates/nmbrs/tests/example_workloads_in_process)
 
 Windowed metric reads (`rate(errors_total[400ms])`, `increase(...[W])`, every
 `metricsql_*` reader, the SRD-86 optimizer settle objective) source their data
@@ -390,7 +390,7 @@ fix that must land first carries no write-path risk.**
 
 ## See also
 
-- crate `nmbrs-metrics/src/lib.rs`; modules `cadence_reporter`, `queryapi/*`,
+- crate `crates/nmbrs-metrics/src/lib.rs`; modules `cadence_reporter`, `queryapi/*`,
   `scheduler`, `snapshot`, `component`; tests as named above.
 - **SRD-42** Windowed Metrics — the cadence cascade this builds on (M1 extends the
   smallest tier; A5 preserves the rest).

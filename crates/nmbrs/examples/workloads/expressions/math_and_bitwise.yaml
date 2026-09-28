@@ -1,0 +1,44 @@
+# math_and_bitwise.yaml — Demonstrates Polydat infix operators
+#
+# Covers: arithmetic (+, -, *, /, %, **), bitwise (&, |, ^, <<, >>),
+# type-aware dispatch (u64 vs f64), auto-widening, parenthesized
+# grouping, and operator precedence.
+#
+# Usage:
+#   nmbrs run workload=examples/math_and_bitwise.yaml cycles=5
+
+bindings: |
+  input cycle: u64
+
+  // Arithmetic (u64)
+  doubled := cycle * 2
+  offset := cycle + 1000
+  tenth := cycle / 10
+
+  // Arithmetic (f64) with auto-widening
+  wave := sin(to_f64(cycle) * 0.1)
+  decay := 1.0 / (to_f64(cycle) + 1.0)
+  amplitude := wave ** 2.0
+
+  // Bitwise
+  low_byte := hash(cycle) & 0xFF
+  high_nybble := (hash(cycle) >> 60) & 0xF
+  packed := (cycle << 32) | mod(hash(cycle), 0xFFFFFFFF)
+  flipped := hash(cycle) ^ 0xDEADBEEF
+
+  // Parenthesized grouping
+  grouped := (cycle + 1) * (cycle + 2)
+
+ops:
+  arithmetic:
+    stmt: "cycle={cycle} doubled={doubled} offset={offset} tenth={tenth}"
+  float_ops:
+    stmt: "wave={wave} decay={decay} amplitude={amplitude}"
+  bitwise:
+    stmt: "low_byte={low_byte} high_nybble={high_nybble} packed={packed} flipped={flipped}"
+  grouping:
+    stmt: "grouped=(cycle+1)*(cycle+2)={grouped}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run cycles=8
+#@ expect completed, 0 failed

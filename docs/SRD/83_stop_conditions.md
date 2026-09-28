@@ -281,7 +281,7 @@ fired condition aborts in-flight siblings via the same cooperative path
 > (phase ends Failed) and a `stop` halts cleanly (phase ends Completed);
 > at the workload shell a `fail` returns `Err` (session exits non-zero)
 > and a `stop` requests the graceful walk-halt. Tested:
-> `stop_conditions` unit set + `nmbrs/tests/{stop_conditions,workload_shell_e2e}`.
+> `stop_conditions` unit set + `crates/nmbrs/tests/{stop_conditions,workload_shell_e2e}`.
 >
 > **Completed 2026-08-04 — the phase shell adopts the declared effect.**
 > The trip site latches the condition's Outcome on the activity
@@ -294,10 +294,10 @@ fired condition aborts in-flight siblings via the same cooperative path
 > persisted outcome row, and the checkpoint logs `phase_completed`.
 > Only a `stop_when` trip latches the outcome — an error-router `stop`
 > verb, a walk-stop broadcast, a poll timeout, or Ctrl-C still derive
-> failure. Tested: `nmbrs/tests/stop_conditions.rs`
+> failure. Tested: `crates/nmbrs/tests/stop_conditions.rs`
 > `phase_graceful_stop_exits_zero_and_keeps_metrics` over the
 > `phase_graceful_stop` scenario in
-> `nmbrs/examples/workloads/controls/stop_conditions_coverage.yaml`.
+> `crates/nmbrs/examples/workloads/controls/stop_conditions_coverage.yaml`.
 >
 > **Completed 2026-08-05 — governance `timeout:` + reason classes (C3).**
 > `WorkloadPhase.timeout` (duration / bare seconds / `{param}`)
@@ -336,7 +336,7 @@ ErrorPolicy (SRD-82)         StopConditions (this SRD)
 Reconciling the landed SRD-82 work:
 
 - **The error-rate breach moves out of `ErrorPolicy`.** The
-  `AggregateGuard` (`nmbrs-errorhandler/src/aggregate.rs`) is retired;
+  `AggregateGuard` (`crates/nmbrs-errorhandler/src/aggregate.rs`) is retired;
   the breach becomes a default stop condition
   `when: "op_count > 50 && error_rate > 0.1"`, `trigger: settle`,
   `effect: fail`. `ErrorPolicy` keeps only its `router`; its `guard`
@@ -376,7 +376,7 @@ workload on a failed phase" without any `stop_when:` in the workload.
 
 ## Part 8 — Migration
 
-1. **Runtime-state wires.** ✅ DONE (`nmbrs-runtime/src/stop_conditions.rs`).
+1. **Runtime-state wires.** ✅ DONE (`crates/nmbrs-runtime/src/stop_conditions.rs`).
    `RuntimeState { op_count, error_count, elapsed_ms, children_* }` +
    `error_rate()` + the `wire::*` name vocabulary +
    `inject_into<D: Dataflow>` (per-wire `find_input` + `set_wire_idx`,
@@ -436,7 +436,7 @@ the rest reuses SRD-82's abort and SRD-18b's per-scope kernel.
 ## Part 9 — `throttle:` — the adaptive backpressure governor
 
 > **Implemented 2026-08-13** (`nmbrs-runtime::throttle`, phase field
-> `throttle:`, e2e `nmbrs/tests/throttle_governor.rs`).
+> `throttle:`, e2e `crates/nmbrs/tests/throttle_governor.rs`).
 
 Stop conditions decide when a shell must END; the throttle governor
 decides how hard a shell may PUSH. A saturated target converts client
@@ -520,5 +520,5 @@ User-facing walkthrough of the layered system (counters → advisory
 → exemplars → tracing → governor → stop conditions):
 `docs/guide/retry_visibility_and_throttle.md`. Runnable,
 walker-pinned demonstrations:
-`nmbrs/examples/workloads/controls/retry_visibility.yaml` and
-`nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.
+`crates/nmbrs/examples/workloads/controls/retry_visibility.yaml` and
+`crates/nmbrs/examples/workloads/controls/throttle_backpressure.yaml`.

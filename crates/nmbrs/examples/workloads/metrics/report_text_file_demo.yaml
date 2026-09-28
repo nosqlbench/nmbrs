@@ -1,0 +1,51 @@
+# SRD-46 demonstration: report block with text and file kinds.
+# Shows the order-based file scope rule — items declared after
+# a `file` directive flow into that file; items before any
+# file go to the default summary.md.
+
+description: text and file kinds demo
+
+params:
+  k_values: "10"
+  # Some metrics — single phase so this can run end-to-end.
+  adapter: stdout
+
+ops:
+  - op: "id={{cycle}}"
+
+phases:
+  warmup:
+    cycles: 100
+    ops: ["id={{cycle}}"]
+
+scenarios:
+  default:
+    - warmup
+
+# Two output files plus an orphan plot. Notice the indentation
+# is purely cosmetic — the `file` directive's scope is order-
+# based, not indentation-based (SRD-46).
+report:
+  intro_section: |
+    file overview.md as 'Overview'
+      text This is the operational summary
+       for the demo workload. It contains a
+       short narrative followed by a single chart.
+
+      plot quick_view
+        recall@10.mean over limit
+        label "Quick recall@10 sweep"
+
+  details_section: |
+    file deep_dive.md as 'Detailed Findings'
+      text Detailed analysis follows.
+      table key_metrics
+        recall; mean(recall) over profile~label
+
+  legacy_block: |
+    plot orphan_chart
+      recall@10.mean over limit
+      label "No file scope, lands in summary.md"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

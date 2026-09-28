@@ -2,10 +2,10 @@
 
 **Status:** normative
 **Owner:** runtime / runner / nmbrs-workload
-**Implementation:** `nmbrs-workload/src/report.rs` (parser),
-  `nmbrs/src/report.rs` (markdown assembly),
-  `nmbrs/src/plot_metrics.rs` (plot rendering),
-  `nmbrs/src/summary.rs` (table rendering)
+**Implementation:** `crates/nmbrs-workload/src/report.rs` (parser),
+  `crates/nmbrs/src/report.rs` (markdown assembly),
+  `crates/nmbrs/src/plot_metrics.rs` (plot rendering),
+  `crates/nmbrs/src/summary.rs` (table rendering)
 **Cross-refs:** SRD-04 (umbrella options), SRD-15 (strict mode),
   SRD-20 (workload model), SRD-40 (metrics), SRD-45 (sessions)
 
@@ -604,8 +604,8 @@ and the report renderers (`plot_metrics.rs` /
 giving operators **one query language across the whole
 system**. The legacy DSL keywords (`over` / `by` / `where`
 / `agg=`) still parse for back-compat with un-migrated
-workloads in `nmbrs/examples/workloads/` and
-`nmbrs/workloads/cql/backup.yaml`; their removal is the
+workloads in `crates/nmbrs/examples/workloads/` and
+`crates/nmbrs/workloads/cql/backup.yaml`; their removal is the
 remaining Push C work.
 
 ### Why
@@ -651,11 +651,11 @@ selecting from a fan-out of per-`k` family names. The
 `recall_at_<N>_<stat>` shape was scoped out and never
 shipped; the bare-family + labels shape is canonical.
 
-The change lives in `nmbrs-runtime/src/validation.rs`
+The change lives in `crates/nmbrs-runtime/src/validation.rs`
 (`ValidationMetrics::new` builds the labelled stats family),
 the recall observer in
-`nmbrs-runtime/src/observer.rs`, and the control reporter
-in `nmbrs-metrics/src/controls.rs`. Stored summary-vs-gauge
+`crates/nmbrs-runtime/src/observer.rs`, and the control reporter
+in `crates/nmbrs-metrics/src/controls.rs`. Stored summary-vs-gauge
 model is unchanged; only the family-name shape canonicalizes.
 
 **Migration policy:** existing `metrics.db` files written
@@ -733,7 +733,7 @@ migrated to the new shape.
 
 **What's shipped:**
 
-- `nmbrs/workloads/cql/full_cql_vector.yaml` — the
+- `crates/nmbrs/workloads/cql/full_cql_vector.yaml` — the
   canonical workload — is fully migrated to the new
   metricsql + `y:` / `x:` / `series:` shape. No legacy
   `over` / `by` / `where` / `agg=` directives remain in
@@ -746,23 +746,23 @@ migrated to the new shape.
 
 **What's left:**
 
-- Migrate the back-compat workloads — `nmbrs/examples/workloads/
-  summary.yaml`, `nmbrs/examples/workloads/metrics/summary/gk_context.yaml`,
-  `nmbrs/examples/workloads/metrics/summary/aggregates.yaml`,
-  `nmbrs/examples/workloads/metrics/report_text_file_demo.yaml`,
-  `nmbrs/workloads/cql/backup.yaml` — off the legacy DSL.
+- Migrate the back-compat workloads — `crates/nmbrs/examples/workloads/
+  summary.yaml`, `crates/nmbrs/examples/workloads/metrics/summary/gk_context.yaml`,
+  `crates/nmbrs/examples/workloads/metrics/summary/aggregates.yaml`,
+  `crates/nmbrs/examples/workloads/metrics/report_text_file_demo.yaml`,
+  `crates/nmbrs/workloads/cql/backup.yaml` — off the legacy DSL.
   These workloads are example/test scaffolding rather than
   shipping configurations; they're the last live consumers
   of `over` / `by` / `where`.
 - Once those migrate, **delete the legacy DSL parser** at
-  `nmbrs/src/plot_metrics.rs:128-449` (the
+  `crates/nmbrs/src/plot_metrics.rs:128-449` (the
   `parse_spec`/`parse_over` walkers and the
   `over`/`by`/`where`/`agg=` directive matchers in the
   per-line dispatch loop). The SRD's original "delete at
-  `nmbrs-workload/src/report.rs:121-300`" location was
+  `crates/nmbrs-workload/src/report.rs:121-300`" location was
   wrong — the DSL parsing always lived in the renderer
   (plot_metrics), not in the workload chunker. The chunker
-  in `nmbrs-workload/src/report.rs::parse_group` (line 467)
+  in `crates/nmbrs-workload/src/report.rs::parse_group` (line 467)
   stays; it only splits items by kind keyword.
 
 **Translation reference for the remaining migrations:**

@@ -12,7 +12,7 @@ and **SRD-63 §5.2** (readout body color grammar).
 ## Color is on by default
 
 The runtime decides whether to emit ANSI escapes by checking
-[`crate::observer::use_color()`](../../nmbrs-runtime/src/observer.rs)
+[`crate::observer::use_color()`](../../crates/nmbrs-runtime/src/observer.rs)
 once per process. It returns `true` when **both**:
 
 - `stderr` is a TTY (interactive terminal, not a pipe / CI
@@ -45,7 +45,7 @@ the three common forms of color-vision deficiency
 on both light and dark backgrounds.
 
 The 8 entries are defined once in
-[`nmbrs/src/palette.rs::PALETTES`](../../nmbrs/src/palette.rs):
+[`crates/nmbrs/src/palette.rs::PALETTES`](../../crates/nmbrs/src/palette.rs):
 
 | Name      | sRGB                | Used for             |
 |-----------|---------------------|----------------------|
@@ -69,7 +69,7 @@ only use Wong; future revisions may add a runtime selector.
 
 Inside readouts, **use semantic names, not raw colors**.
 The mapping lives in
-[`nmbrs-runtime/src/readouts/color.rs::StyleName::resolve`](../../nmbrs-runtime/src/readouts/color.rs).
+[`crates/nmbrs-runtime/src/readouts/color.rs::StyleName::resolve`](../../crates/nmbrs-runtime/src/readouts/color.rs).
 
 | Style      | Meaning                              | Wong-derived ANSI      |
 |------------|--------------------------------------|------------------------|
@@ -119,9 +119,9 @@ colors at the call site.
 
 Existing readouts that already follow this (good
 references):
-- `nmbrs-runtime/src/readouts/builtins/phase_done.rs`
-- `nmbrs-runtime/src/readouts/builtins/phase_status.rs`
-- `nmbrs-runtime/src/readouts/builtins/scope_open.rs`
+- `crates/nmbrs-runtime/src/readouts/builtins/phase_done.rs`
+- `crates/nmbrs-runtime/src/readouts/builtins/phase_status.rs`
+- `crates/nmbrs-runtime/src/readouts/builtins/scope_open.rs`
 
 ---
 
@@ -129,7 +129,7 @@ references):
 
 The async log sink colorizes by severity (independent of the
 readout color grammar). Mapping is in
-[`colorize_log_line`](../../nmbrs-runtime/src/observer.rs):
+[`colorize_log_line`](../../crates/nmbrs-runtime/src/observer.rs):
 
 | Level | Style                              |
 |-------|------------------------------------|

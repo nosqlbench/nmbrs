@@ -1,0 +1,51 @@
+[package]
+name = "nmbrs-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal UI for nmbrs: live metrics dashboard, progress, op throughput"
+keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
+categories = ["command-line-utilities", "simulation"]
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+libc = "0.2"
+nmbrs-metrics = { workspace = true }
+nmbrs-runtime = { workspace = true }
+# Needed for SRD 23 §"TUI surface" — session-root lookup and
+# runtime-context globals that back the control-edit affordance.
+polydat = "0.6.2"
+# tokio::spawn needed for non-blocking control writes from the
+# event loop; `rt` feature supplies the handle.
+tokio = { version = "1", features = ["sync", "time", "rt"] }
+throbber-widgets-tui = "0.11"
+# arc-swap publishes immutable RunState snapshots from the
+# RunState actor (see SRD-02 §"Display and Diagnostic
+# Decoupling"). The TUI / web / OOB surfaces all read via
+# `snapshot.load()` — a single atomic op that cannot wait on
+# any writer.
+arc-swap = "1"
+# parking_lot::Mutex for the few intra-TUI cells (reporter
+# ownership, mpsc receiver claim) — never used to share state
+# with the core machine, which goes through the actor handle
+# instead. See SRD-02.
+parking_lot = "0.12"
+# rustyline: just `LineBuffer` + `DefaultHistory` for the
+# nb-shell prompt at the bottom of the inline status surface.
+# `with-file-history` is disabled — we don't persist history
+# to a file by default. `derive` is unused.
+rustyline = { version = "14", default-features = false, features = ["custom-bindings"] }
+
+# Windows supports AF_UNIX sockets (Windows 10 1803+) but std
+# doesn't expose them there; uds_windows fills in the
+# UnixListener/UnixStream surface the inspector uses. See
+# inspector_server.rs / inspector_repl.rs imports.
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1"
+
+[dev-dependencies]
+hdrhistogram = "7"

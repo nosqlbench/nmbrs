@@ -1,11 +1,11 @@
 # SRD-103 — CQL Session Handle + Byte-Bounded Batching
 
 **Status:** design (not yet implemented)
-**Owner:** adapters/cql + polydat (handle nodes) + nmbrs-runtime (accessor payload)
-**Implementation target:** `adapters/cql/src/common/` (session handle, size
-  estimator, server-limit query), `adapters/cql/src/{cassandra_cpp,scylla}/`
+**Owner:** crates/nmbrs-adapter-cql + polydat (handle nodes) + nmbrs-runtime (accessor payload)
+**Implementation target:** `crates/nmbrs-adapter-cql/src/common/` (session handle, size
+  estimator, server-limit query), `crates/nmbrs-adapter-cql/src/{cassandra_cpp,scylla}/`
   (batch dispensers, connect-time query, accessor-payload registration),
-  `adapters/cql/src/common/nodes.rs` (accessor nodes)
+  `crates/nmbrs-adapter-cql/src/common/nodes.rs` (accessor nodes)
 **Cross-refs:** SRD-104 (generic resource-pool accessor node — the mechanism
   by which the handle is reached; **read first**), SRD-35 (driver resource
   lifecycle — session is a pooled resource), SRD-30 (adapter interface / known
@@ -56,7 +56,7 @@ Three coupled needs:
   (`vector_at`, `vector_dim`, …) take the handle wire and call methods on the
   live resource. Authored via `handle_indexed_node!` / `handle_metadata_node!`.
 - **Layering constraint (load-bearing).** `polydat` (GK) sits *below*
-  `adapters/cql`, which sits *below* `nmbrs-runtime` (the resource pool). A
+  `crates/nmbrs-adapter-cql`, which sits *below* `nmbrs-runtime` (the resource pool). A
   workload-author resolver node runs in the GK and **cannot reach the runtime
   pool**. And `#[polydat_node] eval` is **synchronous** — it cannot await a
   Cassandra query.
@@ -81,7 +81,7 @@ generic accessor is resource-agnostic; this SRD is its first consumer.
 
 ### 2. `CqlSessionHandle`
 
-A driver-agnostic handle type in `adapters/cql/src/common`, registered as the
+A driver-agnostic handle type in `crates/nmbrs-adapter-cql/src/common`, registered as the
 session's SRD-104 pool-entry accessor payload at connect:
 
 ```rust
@@ -129,7 +129,7 @@ with the adapter's canonical name (`cql_…`, `http_…`) so provenance is expli
 and two adapters can't collide on a bare name; core polydat nodes stay
 unprefixed. Hence `cql_read_cached`/`cql_read_current`, not bare `read_*`.
 
-Two inventory `#[polydat_node]`s in `adapters/cql/src/common/nodes.rs` — the
+Two inventory `#[polydat_node]`s in `crates/nmbrs-adapter-cql/src/common/nodes.rs` — the
 same authoring path as `cql_timeuuid`, so they are simply known functions
 visible in scope (no extern/deferral machinery; how they source their value is
 the node's own business, §5):
@@ -175,7 +175,7 @@ blocking of benchmark workers; polydat only ever sees the resolved `u64`.
 
 ### 6. Byte-bounded batching
 
-A shared **CQL-type-aware size estimator** in `adapters/cql/src/common`
+A shared **CQL-type-aware size estimator** in `crates/nmbrs-adapter-cql/src/common`
 approximates a bound row's encoded size from its `Value`s (fixed widths;
 2-byte-length-prefixed variable-length; **vector slices = n × elem-width**, the
 dominant term for vector workloads). Both dispensers gain a `max_batch_bytes:

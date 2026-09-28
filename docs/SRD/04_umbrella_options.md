@@ -2,7 +2,7 @@
 
 **Status:** normative
 **Owner:** runtime / CLI
-**Implementation:** `nmbrs-runtime/src/session.rs::parse_session_kv` (pilot)
+**Implementation:** `crates/nmbrs-runtime/src/session.rs::parse_session_kv` (pilot)
 
 ---
 

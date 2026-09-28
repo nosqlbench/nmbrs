@@ -1,0 +1,82 @@
+#!/usr/bin/env nmbrs
+# Summary Report Aggregates
+#
+# Demonstrates aggregate expressions in the summary report DSL.
+# Aggregates compute mean/min/max over gauge columns across rows
+# matching a label pattern.
+#
+# Syntax: <func>(<column_pattern>) over <label_key>~<label_pattern>
+#
+# The aggregate row appears at the bottom of the summary table,
+# separated from detail rows by a blank line. Only gauge columns
+# whose name matches the column_pattern are aggregated; others
+# show "-" in the aggregate row.
+#
+# Usage:
+#   nmbrs run workload=examples/summary_aggregates.yaml
+#   nmbrs run workload=examples/summary_aggregates.yaml scenario=details_hidden
+#   nmbrs run workload=examples/summary_aggregates.yaml scenario=multiple_aggregates
+
+params:
+  adapter: stdout
+  profiles: "fast_hash,fast_tree,slow_linear,slow_scan"
+  k_values: "10,100"
+  query_count: "200"
+
+# Show recall columns + mean aggregate across "fast" profiles.
+# All detail rows are visible; the aggregate appears at the
+# bottom. (SRD-46)
+report:
+  default: |
+    table default
+      recall
+      mean(recall) over profile~fast
+
+bindings: |
+  input cycle: u64
+
+scenarios:
+  # Default: show detail rows + one mean aggregate for "fast" profiles
+  default:
+    - for_each: "profile in {profiles}"
+      phases:
+        - for_each: "k in {k_values}"
+          phases:
+            - search
+
+  # Hide detail rows — only the aggregate is shown.
+  # Override from CLI:
+  #   nmbrs run workload=examples/summary_aggregates.yaml \
+  #     summary="recall; mean(recall) over profile~fast; details=hide"
+  details_hidden:
+    - for_each: "profile in {profiles}"
+      phases:
+        - for_each: "k in {k_values}"
+          phases:
+            - search
+
+  # Multiple aggregate expressions — compare fast vs slow.
+  # Override from CLI:
+  #   nmbrs run workload=examples/summary_aggregates.yaml \
+  #     summary="recall; mean(recall) over profile~fast; mean(recall) over profile~slow"
+  multiple_aggregates:
+    - for_each: "profile in {profiles}"
+      phases:
+        - for_each: "k in {k_values}"
+          phases:
+            - search
+
+phases:
+  search:
+    cycles: "{query_count}"
+    concurrency: 1
+    bindings: |
+      input cycle: u64
+      query_id := zero_pad_u64(mod(hash(cycle), 1000), 6)
+      result := zero_pad_u64(mod(hash(hash(cycle)), 10000), 6)
+    ops:
+      query:
+        stmt: "profile={profile} k={k} query={query_id} result={result}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

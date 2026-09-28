@@ -10,29 +10,29 @@ in = "install --path nmbrs"
 [env]
 TMPDIR = { value = "target/test-tmp", relative = true }
 # Widen the example-workload sweep's in-process concurrency for workspace
-# test runs. The sweep (nmbrs/tests/example_workloads_in_process.rs) reads
+# test runs. The sweep (crates/nmbrs/tests/example_workloads_in_process.rs) reads
 # this and defaults to 10; this box has 64 cores and the examples are
 # grouped for serial isolation where they need it, so the cap — not the
 # work — was the wall time. `force = false` (default): an explicit
 # NMBRS_TEST_CONCURRENCY in the environment still wins.
 NMBRS_TEST_CONCURRENCY = "24"
 # Linker search path for the vendored libcassandra static
-# archive. Built once via `bash adapters/cql/build.sh driver`
+# archive. Built once via `bash crates/nmbrs-adapter-cql/build.sh driver`
 # — Docker pulls the C++ driver source, builds, extracts to
-# adapters/cql/target/sysroot/lib. With these in scope every
+# crates/nmbrs-adapter-cql/target/sysroot/lib. With these in scope every
 # workspace build — including `cargo test --workspace`, which
 # pulls in vendor/cassandra-cpp's tests/examples — finds
 # `-lcassandra` without the developer needing build.sh's env
 # exports. `relative = true` resolves against the workspace
 # root. `force = false` (default) preserves any existing
 # user setting, so a host-installed libcassandra still wins.
-LIBRARY_PATH = { value = "adapters/cql/target/sysroot/lib", relative = true }
-C_INCLUDE_PATH = { value = "adapters/cql/target/sysroot/include", relative = true }
+LIBRARY_PATH = { value = "crates/nmbrs-adapter-cql/target/sysroot/lib", relative = true }
+C_INCLUDE_PATH = { value = "crates/nmbrs-adapter-cql/target/sysroot/include", relative = true }
 # The cassandra-cpp-sys build.rs reads these to emit
 # `cargo:rustc-link-search=native=…` and to point bindgen
 # at the headers.
-CASSANDRA_SYS_LIB_PATH = { value = "adapters/cql/target/sysroot/lib", relative = true }
-CASSANDRA_SYS_INCLUDE_PATH = { value = "adapters/cql/target/sysroot/include", relative = true }
+CASSANDRA_SYS_LIB_PATH = { value = "crates/nmbrs-adapter-cql/target/sysroot/lib", relative = true }
+CASSANDRA_SYS_INCLUDE_PATH = { value = "crates/nmbrs-adapter-cql/target/sysroot/include", relative = true }
 
 # Use mold linker for final binaries — dramatically faster than ld for
 # large binaries (~350 MB debug). mold parallelizes across all cores.
@@ -58,7 +58,7 @@ CASSANDRA_SYS_INCLUDE_PATH = { value = "adapters/cql/target/sysroot/include", re
 # that don't actually use it, so adding it globally is free for
 # non-cassandra builds and lets `cargo test --workspace` link the
 # vendor/cassandra-cpp test bins against the sysroot prepared by
-# `bash adapters/cql/build.sh driver`.
+# `bash crates/nmbrs-adapter-cql/build.sh driver`.
 [target.'cfg(target_os = "linux")']
 linker = "clang"
 rustflags = [

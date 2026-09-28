@@ -133,7 +133,7 @@ A metric created at the Op node still carries the *full*
 composed set `{session, exec_id, workload, profile, phase,
 stage, k, op}` — the tree recomposes it from the ancestor chain
 — but every name appears exactly once and is contributed by its
-owning tier. [`component::attach`](../../nmbrs-metrics/src/component.rs)
+owning tier. [`component::attach`](../../crates/nmbrs-metrics/src/component.rs)
 **enforces** this at attach time: a child whose own labels
 collide with an ancestor's is a construction bug and panics,
 rather than letting the composition silently pick a winner. See

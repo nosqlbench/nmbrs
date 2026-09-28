@@ -140,8 +140,8 @@ nmbrs run workload=fknn.yaml watch=report,plot:recall,plot:throughput
 - When no `watch=` is given the registry is empty and the
   worker thread is never spawned — zero overhead.
 
-Implementation: `nmbrs/src/watch_trigger.rs` (subprocess
-trigger), `nmbrs-runtime/src/phase_end_triggers.rs`
+Implementation: `crates/nmbrs/src/watch_trigger.rs` (subprocess
+trigger), `crates/nmbrs-runtime/src/phase_end_triggers.rs`
 (content-agnostic registry the executor fires into after
 every `phase_completed` / `phase_failed`).
 

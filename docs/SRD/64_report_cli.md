@@ -503,9 +503,9 @@ explicitly rejected (cf. memory: "Never Ignore Silently").
     `Directive { flag, yaml_directive, value_provider, ... }`
   - `value_vocabulary(kind, flag) -> ValueProvider`
   consumed by:
-  - `nmbrs/src/completion.rs::report_node()` for completion,
-  - `nmbrs/src/report_cmd.rs` for arg parsing,
-  - `nmbrs-workload/src/report.rs` for YAML parsing,
+  - `crates/nmbrs/src/completion.rs::report_node()` for completion,
+  - `crates/nmbrs/src/report_cmd.rs` for arg parsing,
+  - `crates/nmbrs-workload/src/report.rs` for YAML parsing,
   - the `--add` emitter for YAML round-trip.
 
 - **Workload mutation primitive.** `nmbrs-workload::edit`

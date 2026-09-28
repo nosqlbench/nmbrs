@@ -39,7 +39,7 @@ service targets using composable data generation kernels.
 The crate/module dependency rules — the 7-layer workspace DAG, the per-crate Contract
 Registry, external Polydat boundary, no-upward-imports, no-cross-adapter edges — are
 specified in [SRD 05 — Dependency Rules](05_dependency_rules.md), with workspace-applicable
-edges **CI-enforced** by `nmbrs/tests/architecture_rules.rs`. In one line: internal dependencies flow
+edges **CI-enforced** by `crates/nmbrs/tests/architecture_rules.rs`. In one line: internal dependencies flow
 strictly downward, workspace crates consume published `polydat 0.2`, `nmbrs-runtime` is the
 integration hub above the foundation crates, adapters implement the
 `nmbrs_runtime::adapter` contract, and `nmbrs` is the composition root.
@@ -49,14 +49,14 @@ integration hub above the foundation crates, adapters implement the
 ```
 nmbrs/
 ├── nmbrs/                   single user-facing binary
-├── nmbrs-workload/         YAML workload parser
-├── nmbrs-runtime/         execution engine
-├── nmbrs-metrics/          metrics instruments and reporters
-├── nmbrs-metricsql/        MetricsQL parser / evaluator (atop nmbrs-metrics queryapi)
-├── nmbrs-rate/             rate limiter
-├── nmbrs-errorhandler/     error routing
-├── nmbrs-web/              web UI
-├── nmbrs-tui/              terminal UI + TuiObserver
+├── crates/nmbrs-workload/         YAML workload parser
+├── crates/nmbrs-runtime/         execution engine
+├── crates/nmbrs-metrics/          metrics instruments and reporters
+├── crates/nmbrs-metricsql/        MetricsQL parser / evaluator (atop nmbrs-metrics queryapi)
+├── crates/nmbrs-rate/             rate limiter
+├── crates/nmbrs-errorhandler/     error routing
+├── crates/nmbrs-web/              web UI
+├── crates/nmbrs-tui/              terminal UI + TuiObserver
 ├── adapters/
 │   ├── stdout/            text output
 │   ├── http/              HTTP client
@@ -81,7 +81,7 @@ only the nmbrs-side integration and Polydat contract surface. See
 [Subsystem Treatment Standard](00b_subsystem_standard.md).
 
 The cassandra-cpp engine isn't on crates.io and needs a system
-toolchain; build it via `adapters/cql/build.sh` (Docker-based
+toolchain; build it via `crates/nmbrs-adapter-cql/build.sh` (Docker-based
 sysroot) and link it with `cargo build -p nmbrs --features
 engine-cassandra-cpp`.
 
@@ -150,7 +150,7 @@ need:
 
 - **engine-scylla** (default) — pure-Rust ScyllaDB driver
 - **engine-cassandra-cpp** (opt-in) — Apache Cassandra C++
-  driver via `adapters/cql/build.sh`-built sysroot
+  driver via `crates/nmbrs-adapter-cql/build.sh`-built sysroot
 - **all-engines** — both CQL engines, runtime-selected via
   `cqldriver=`
 - **openapi** — OpenAPI 3.x workload synthesis (adds

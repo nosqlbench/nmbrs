@@ -1,0 +1,28 @@
+# Conditional op execution via `if:` field.
+#
+# The `if` field names a Polydat binding that is evaluated per cycle.
+# If the binding is falsy (0, false, empty string), the op is skipped.
+#
+# Usage:
+#   nmbrs run workload=examples/conditional_ops.yaml cycles=10
+
+bindings: |
+  input cycle: u64
+  is_even := mod(cycle, 2)
+  is_third := mod(cycle, 3)
+
+ops:
+  always:
+    stmt: "cycle={cycle} (always)"
+
+  even_only:
+    if: is_even
+    stmt: "cycle={cycle} (even: mod!=0)"
+
+  every_third:
+    if: is_third
+    stmt: "cycle={cycle} (third: mod!=0)"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run cycles=18
+#@ expect completed, 0 failed

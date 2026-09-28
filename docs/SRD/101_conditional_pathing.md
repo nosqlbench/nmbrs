@@ -160,7 +160,7 @@ different values at different evaluation points.
 
 ## 6. Walker integration (single walker — no new path)
 
-All inside the existing `execute_tree_at` (`nmbrs-runtime/src/executor.rs`):
+All inside the existing `execute_tree_at` (`crates/nmbrs-runtime/src/executor.rs`):
 
 ```
 execute_tree_at (executor.rs:825)            ── THE walker (SRD-18b)

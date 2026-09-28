@@ -1,0 +1,33 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# all(<cursor>) + where — enumerate a filtered subset of a cursor.
+#
+# The `all(row)` named generator composes with a `where` predicate:
+# `for: "xval in all(row) where {xval} % 10 == 0"` keeps only the
+# ordinals divisible by ten. Over `range(0, 50)` that is
+# {0, 10, 20, 30, 40} — five iterations of the inner phase.
+
+bindings: |
+  cursor row = range(0, 50)
+
+scenarios:
+  default:
+    # `where` is a sibling field of `for:` — it filters the
+    # generated ordinals, keeping only those where the predicate holds.
+    - for: "xval in all(row)"
+      where: "{xval} % 10 == 0"
+      phases: [print]
+
+phases:
+  print:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      info:
+        stmt: "xval={xval}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect 5 completed, 0 failed

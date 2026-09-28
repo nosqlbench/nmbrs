@@ -41,7 +41,7 @@ Cross-refs:
 ### 1.1 Parser corpus
 
 **Authoritative artefact:**
-`nmbrs-metricsql/tests/fixtures/parser_round_trip.json` plus
+`crates/nmbrs-metricsql/tests/fixtures/parser_round_trip.json` plus
 the matching `prettifier_round_trip.json`.
 
 Inputs in these fixtures are guaranteed to:
@@ -55,14 +55,14 @@ fixture entry. Removing support means deleting one (with
 explicit rationale in the commit).
 
 **Aggregate-name surface:** the parser's `is_aggr_func`
-function (`nmbrs-metricsql/src/parser.rs`) is the closed list
+function (`crates/nmbrs-metricsql/src/parser.rs`) is the closed list
 of names that take aggregate-modifier syntax (`by` / `without`).
 Editing this list edits the language surface.
 
 ### 1.2 Evaluator dispatch
 
 **Authoritative artefact:** the dispatch enums in
-`nmbrs-metricsql/src/eval.rs`:
+`crates/nmbrs-metricsql/src/eval.rs`:
 
 | Enum                            | Names it handles                              |
 |---------------------------------|----------------------------------------------|
@@ -76,7 +76,7 @@ time — they're **parser-supported, evaluator-deferred**.
 
 ### 1.3 Tooling registry
 
-**Authoritative artefact:** `nmbrs-metricsql/src/grammar.rs`
+**Authoritative artefact:** `crates/nmbrs-metricsql/src/grammar.rs`
 ([`AGGREGATE_OPS`], [`ROLLUP_FUNCTIONS`], [`BINARY_OPS`],
 modifier constants). Each entry carries:
 - the canonical name as the parser expects it,
@@ -117,7 +117,7 @@ sources:
    widens without a registry update) fails here.
 
 The fixture harnesses
-(`nmbrs-metricsql/tests/parity.rs`) close the loop on the
+(`crates/nmbrs-metricsql/tests/parity.rs`) close the loop on the
 parser side: any input the harness exercises is by
 definition in-scope for parsing + round-trip.
 
@@ -262,12 +262,12 @@ storage convention against the catalog reader's
 interpretation:
 
 - Writer side
-  (`nmbrs-metrics/src/reporters/sqlite.rs::tests`):
+  (`crates/nmbrs-metrics/src/reporters/sqlite.rs::tests`):
   `write_native_sample_round_trips_*` for histogram + le
   buckets, info, stateset, gaugehistogram, unknown, plus a
   family/instance-dedup test.
 - Reader side
-  (`nmbrs-metricsql/src/adapters/sqlite.rs::tests`):
+  (`crates/nmbrs-metricsql/src/adapters/sqlite.rs::tests`):
   `catalog_round_trip_*` for histogram, gaugehistogram,
   info, stateset, summary, plus
   `catalog_default_column_for_type_covers_all_eight_types`

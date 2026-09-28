@@ -330,14 +330,14 @@ registered render hook the workload-end report block can invoke with the
 4. **Consumers.** Re-point the example walker (`verify_path`) and any
    batch path at `run_executions` for in-process concurrency instead of
    subprocess fan-out where it pays. **SHIPPED** for the example walker:
-   `nmbrs/tests/example_workloads_in_process.rs` checks the whole
-   `nmbrs/examples/workloads` tree as concurrent in-process executions sharing
+   `crates/nmbrs/tests/example_workloads_in_process.rs` checks the whole
+   `crates/nmbrs/examples/workloads` tree as concurrent in-process executions sharing
    one session (≤10), with the **same** `#@`/`verify:` rules and
    `check_case_output` checker the `nmbrs check` CLI uses. Each case
    captures op stdout via its own `CaptureChannel`. This **retired** the
-   subprocess-per-case walker (`nmbrs/tests/workloads.rs`); the `nmbrs
+   subprocess-per-case walker (`crates/nmbrs/tests/workloads.rs`); the `nmbrs
    check` CLI still drives the subprocess `verify_target`/`run_case` path
-   (`nmbrs/tests/check_cli.rs` is its smoke test).
+   (`crates/nmbrs/tests/check_cli.rs` is its smoke test).
 
    **Load-bearing finding — the rule-matched phase count must come from
    the `RunState`, not the observer callbacks.** A dynamic loop

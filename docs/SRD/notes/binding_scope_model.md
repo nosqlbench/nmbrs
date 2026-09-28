@@ -218,14 +218,14 @@ string hacking that happens after.
 
 | File | Change |
 |---|---|
-| `nmbrs-runtime/src/bindings.rs` | Add `BindingScope`, `ScopedBinding`, `BindingOrigin`. Move scope assembly logic from string ops to typed construction. `compile_bindings_with_libs_excluding` accepts `BindingScope` instead of raw ops. |
-| `nmbrs-runtime/src/executor.rs` | `run_phase()` builds `BindingScope` instead of mutating op bindings strings. Remove init prepend, extern prepend, string dedup/shadow check. |
-| `nmbrs-runtime/src/runner.rs` | `generate_auto_externs()` returns `Vec<(String, String)>` (name, type) instead of a string. `expand_polydat_bindings()` returns param bindings as `Vec<ScopedBinding>` instead of mutating strings. |
+| `crates/nmbrs-runtime/src/bindings.rs` | Add `BindingScope`, `ScopedBinding`, `BindingOrigin`. Move scope assembly logic from string ops to typed construction. `compile_bindings_with_libs_excluding` accepts `BindingScope` instead of raw ops. |
+| `crates/nmbrs-runtime/src/executor.rs` | `run_phase()` builds `BindingScope` instead of mutating op bindings strings. Remove init prepend, extern prepend, string dedup/shadow check. |
+| `crates/nmbrs-runtime/src/runner.rs` | `generate_auto_externs()` returns `Vec<(String, String)>` (name, type) instead of a string. `expand_polydat_bindings()` returns param bindings as `Vec<ScopedBinding>` instead of mutating strings. |
 
 ### Files Not Modified
 
-- `nmbrs-workload/src/parse.rs` — `merge_bindings()` stays as-is
-- `nmbrs-workload/src/model.rs` — `BindingsDef`, `ParsedOp` stay as-is
+- `crates/nmbrs-workload/src/parse.rs` — `merge_bindings()` stays as-is
+- `crates/nmbrs-workload/src/model.rs` — `BindingsDef`, `ParsedOp` stay as-is
 - `polydat/src/dsl/*` — Polydat compiler stays as-is (it receives a string)
 
 ### Backward Compatibility

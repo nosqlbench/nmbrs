@@ -1,0 +1,26 @@
+# module_test.yaml — Demonstrates Polydat module resolution
+#
+# References hashed_id() which is resolved from hashed_id.polydat
+# in the same directory.
+#
+# Usage:
+#   nmbrs run workload=examples/module_test.yaml cycles=10
+
+description: Test Polydat module loading from adjacent .gk files.
+
+bindings: |
+  user_id := hashed_id(input: cycle, bound: 1000000)
+  device_id := hashed_id(input: cycle, bound: 50000)
+
+blocks:
+  main:
+    ops:
+      insert:
+        stmt: "INSERT INTO data (user, device) VALUES ({user_id}, {device_id});"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+# Proves adjacent-file Polydat module resolution: `hashed_id(input, bound)`
+# resolves from hashed_id.polydat in this directory and renders two bounded ids.
+#@ run cycles=5
+#@ expect INSERT INTO data \(user, device\) VALUES \([0-9]+, [0-9]+\);
+#@ expect 0 failed

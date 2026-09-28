@@ -1,0 +1,158 @@
+[package]
+name = "nmbrs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust rewrite of nosqlbench: a pluggable workload generation and benchmarking engine"
+keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
+categories = ["command-line-utilities", "simulation"]
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "nmbrs"
+path = "src/main.rs"
+
+[[bin]]
+name = "vectordata-audit"
+path = "src/bin/vectordata_audit.rs"
+
+[[bin]]
+name = "recall-audit"
+path = "src/bin/recall_audit.rs"
+
+[[bin]]
+name = "trace-recall"
+path = "src/bin/trace_recall.rs"
+
+[features]
+# Default: pure-Rust scylla CQL engine. Builds anywhere; needs
+# no C++ toolchain. Publishable to crates.io.
+default = ["engine-scylla"]
+
+# Pure-Rust ScyllaDB driver. Speaks the Apache Cassandra wire
+# protocol — works against both Apache Cassandra and ScyllaDB.
+engine-scylla = ["nmbrs-adapter-cql/engine-scylla"]
+
+# Apache Cassandra C++ driver via FFI. Requires the system
+# `libcassandra` plus libuv / openssl. Build locally against a
+# sysroot prepared by `crates/nmbrs-adapter-cql/build.sh driver`.
+engine-cassandra-cpp = ["nmbrs-adapter-cql/engine-cassandra-cpp", "dep:cassandra-cpp"]
+
+# Convenience: enable both engines in one binary, with runtime
+# selection via `cqldriver=scylla` / `cqldriver=cassandra-cpp`.
+# When both are linked, cassandra-cpp wins by default (lower
+# AliasResolverEntry rank); flip with `cqldriver=scylla`.
+all-engines = ["engine-scylla", "engine-cassandra-cpp"]
+
+# OpenAPI workload generation. Adds `describe-openapi` and
+# `run-openapi` subcommands that synthesize ops from an
+# OpenAPI 3.x spec and run them through the standard `http`
+# adapter (or stdout for dry-run).
+openapi = ["dep:nmbrs-adapter-openapi", "dep:openapiv3"]
+
+# Forward to nmbrs-runtime's flamegraph profiler.
+flamegraph = ["nmbrs-runtime/flamegraph"]
+
+[dependencies]
+polydat = "0.6.2"
+# The sqlite metrics-access backend now lives in nmbrs-metrics (SRD-86
+# §"The metric-reader surface"); the CLI locates it via the queryapi.
+nmbrs-metrics = { workspace = true, features = ["sqlite"] }
+nmbrs-metricsql = { workspace = true, features = ["runtime", "polydat-nodes"] }
+nmbrs-workload = { workspace = true }
+nmbrs-rate = { workspace = true }
+nmbrs-errorhandler = { workspace = true }
+nmbrs-runtime = { workspace = true }
+# Used by the `vectordata-audit` bin to scrutinise dataset
+# relationships through the catalog API (transport- and
+# cache-layout-agnostic). The generic typed surface
+# (`open_facet_typed`, `facet_manifest`, `open_facet_storage`)
+# lets the tool read any facet by name + element type without
+# baking in per-facet helpers.
+vectordata = "1.1.4"
+tokio = { version = "1", features = ["full"] }
+# parking_lot::RwLock used by `RunState` shared with TuiObserver —
+# the std RwLock is writer-preferring on Linux and deadlocks
+# nested same-thread reads, which the TUI render path uses.
+parking_lot = "0.12"
+glob = "0.3"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+nmbrs-tui = { workspace = true }
+nmbrs-web = { workspace = true }
+# SRD-86 — the optimizer algorithms are an inventory plugin (like an adapter):
+# `features = ["runtime"]` pulls in the bridge that registers them against the
+# core contract, so `nmbrs describe optimizers` and the executor seam discover
+# them at link time.
+nmbrs-optimizers = { workspace = true, features = ["runtime"] }
+nmbrs-adapter-stdout = { workspace = true }
+nmbrs-adapter-testkit = { workspace = true }
+nmbrs-adapter-http = { workspace = true }
+nmbrs-adapter-plotter = { workspace = true }
+# CQL adapter — `default-features = false` so the engine choice
+# flows through nmbrs's own feature flags (engine-scylla /
+# engine-cassandra-cpp / all-engines).
+nmbrs-adapter-cql = { workspace = true }
+# Only needed for the TUI's `set_level(LogLevel::ERROR)` shim
+# that suppresses C++ driver chatter while the TUI owns the
+# screen. Gated behind the same feature that pulls the engine.
+cassandra-cpp = { package = "nmbrs-cassandra-cpp", version = "3.0.2", path = "../../vendor/cassandra-cpp", optional = true }
+# OpenAPI workload generation — opt-in via the `openapi`
+# feature. Adapter crate carries the spec parser + workload
+# synthesis; nmbrs's `openapi` module wires the subcommands.
+nmbrs-adapter-openapi = { workspace = true, optional = true }
+openapiv3 = { version = "2", optional = true }
+reqwest = { version = "0.12", features = ["blocking"] }
+serde = { version = "1", features = ["derive"] }
+libc = "0.2"
+# Pure-Rust plotting library. Used by `nmbrs plot` to render
+# PNGs from the metrics db. Default features pull in fontconfig
+# (system dep) for system-font rendering — disable and rely on
+# the embedded ab_glyph backend so the build is hermetic.
+plotters = { version = "0.3", default-features = false, features = [
+    "bitmap_backend",
+    "bitmap_encoder",
+    "svg_backend",
+    "ab_glyph",
+    "line_series",
+    "point_series",
+    "chrono",
+    "histogram"
+] }
+# Used by `nmbrs plot` for direct queries against the metrics db.
+# `bundled` so we don't depend on system libsqlite3.
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Stratified shell-completion engine. Drives the bash-completion
+# script and the per-command tier filter. Tracks the published
+# vectordata-rs 1.0.0 release.
+veks-completion = "1"
+
+[dev-dependencies]
+regex = "1"
+# SRD-100 P2 — the `tui_display_harness` example builds a
+# `PhaseRenderHandle` (whose `memo` is an `ArcSwap<String>`) to drive the
+# consumer-side status fold without a real activity.
+arc-swap = "1"
+# Headless terminal emulator for E2E tests of the
+# `tui=terminal` ↔ `tui=on` toggle path. The toggle is
+# interactive-only — Ctrl-T isn't observable from a piped
+# stderr — so the integration test spawns `nmbrs` inside a
+# `SteppableTerminal`, sends Ctrl-T keystrokes, and reads
+# back the rendered cells to assert which sink is active.
+shadow-terminal = "0.2"
+# tempdir helper for filesystem-touching unit tests
+# (currently the `nmbrs report` index.md generation tests).
+tempfile = "3"
+libtest-mimic = "0.8.2"
+
+# Auto-discovered example-workload checks as INDIVIDUALLY SCHEDULABLE tests.
+# harness = false: the target speaks libtest's list/run protocol through
+# libtest-mimic, so nextest sees one named test per discovered workload and
+# schedules them in the general mix — instead of one 26s monolith that
+# serializes the whole sweep inside a single test.
+[[test]]
+name = "example_workload_cases"
+harness = false

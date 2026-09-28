@@ -32,7 +32,7 @@ the TUI panel, and clobbers a console-owning adapter's output.
 `OutputChannel`, which owns the fd. The intent here ("the console
 belongs to the adapter") is preserved as "the adapter's
 op-output/raster bucket owns the terminal surface." The interim
-`op_output()` half-measure (`nmbrs-runtime/src/observer.rs`) that routed
+`op_output()` half-measure (`crates/nmbrs-runtime/src/observer.rs`) that routed
 op output through the diagnostic channel — and produced the
 stdout-prints-nothing-on-an-interactive-TTY defect — is superseded by
 SRD-87.

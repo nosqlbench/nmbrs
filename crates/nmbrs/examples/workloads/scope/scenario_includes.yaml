@@ -1,0 +1,101 @@
+#!/usr/bin/env nmbrs
+# Scenario inclusion — `scenario: <name>` reuses the phases of
+# another scenario at any point in the tree.
+#
+# Includes are transparent at runtime (no extra binding scope,
+# no extra concurrency boundary) but **structural** in the
+# scope tree: each include keeps a labeled wrapper so the
+# renderer can show the operator which group of phases came
+# from which included scenario.
+#
+# See docs/SRD/18_control_flow.md §"Syntax → scenario:
+# <name> (logical inclusion)" for the design rationale and
+# resolver semantics (forward refs, cycle detection, diamond
+# inclusion).
+#
+# Usage:
+#   nmbrs run scenario_includes.yaml scenario=top_level
+#   nmbrs run scenario_includes.yaml scenario=nested_in_for_each
+#   nmbrs run scenario_includes.yaml scenario=mixed_phases
+#   nmbrs run scenario_includes.yaml scenario=composed
+
+scenarios:
+
+  # The "leaf" scenario — used both stand-alone and as an
+  # include target by the scenarios below.
+  smoke:
+    - setup
+    - rampup
+
+  # --- Top-level inclusion ---------------------------------------
+  # `scenario: smoke` at the top level of `top_level` — the smoke
+  # scenario's phases run, then `search` runs after.
+  top_level:
+    - scenario: smoke
+    - search
+
+  # --- Nested inside a for_each ----------------------------------
+  # The same include appears inside an iteration's `phases:`
+  # list. Each iteration runs setup → rampup → search with `k`
+  # bound to the current iteration value.
+  nested_in_for_each:
+    - for_each: "k in 10,100"
+      phases:
+        - scenario: smoke
+        - search
+
+  # --- Mixed list -----------------------------------------------
+  # `phases:` lists can interleave bare phase references and
+  # includes freely.
+  mixed_phases:
+    - for_each: "x in a,b"
+      phases:
+        - setup
+        - scenario: smoke
+        - search
+
+  # --- Composed scenarios ---------------------------------------
+  # Includes nest: `composed` includes `top_level`, which
+  # itself includes `smoke`. The scope tree retains every layer
+  # so the operator sees the full include hierarchy.
+  composed:
+    - scenario: top_level
+    - scenario: smoke
+
+# A trio of trivial phases. Each prints the cycle's bound
+# values so running each scenario makes the iteration shape
+# (and, for the includes, which scenario each line came from)
+# visible on stdout.
+phases:
+  setup:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      c := (cycle)
+    ops:
+      msg:
+        stmt: "[setup]"
+
+  rampup:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      c := (cycle)
+    ops:
+      msg:
+        stmt: "[rampup]"
+
+  search:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      c := (cycle)
+    ops:
+      msg:
+        stmt: "[search]"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

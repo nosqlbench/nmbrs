@@ -10,12 +10,12 @@ this SRD is reviewed against the Polydat invariants listed in
 > The synchronizer example in §"Workload surface" shows `trigger_compact`
 > as a *conditional regular op* (`if: …`, re-evaluated every poll
 > iteration). The shipped `ensure_compacted`
-> (`nmbrs/workloads/cql/full_cql_vector.yaml`) instead fires
+> (`crates/nmbrs/workloads/cql/full_cql_vector.yaml`) instead fires
 > `trigger_compact` as a **daemon op** (SRD-79).
 >
 > The load-bearing correction: a daemon op does **not** "fire once at
 > phase init". It dispatches **at its position in the cycle/op walk** —
-> `nmbrs-runtime/src/activity.rs`'s cycle loop spawns the daemon fiber
+> `crates/nmbrs-runtime/src/activity.rs`'s cycle loop spawns the daemon fiber
 > when the stanza walk reaches that op (pinned by the
 > `daemon_op_dispatches_at_cycle_pool_position` test). So daemon ordering
 > follows normal op declaration order: a regular op declared *before* a
@@ -31,14 +31,14 @@ this SRD is reviewed against the Polydat invariants listed in
 > §"Runner integration" around the daemon-based `trigger_compact`;
 > (2) state the daemon dispatch-at-op-position semantics explicitly and
 > cross-ref SRD-79; (3) fix the stale module doc in
-> `nmbrs-runtime/src/daemon_pool.rs` ("spawned at phase init" → "spawned
+> `crates/nmbrs-runtime/src/daemon_pool.rs` ("spawned at phase init" → "spawned
 > when the cycle-pool stanza walk reaches the daemon op"). Until then,
 > the shipped `ensure_compacted` phase is the source of truth, not this
 > draft's example.
 
 **Owner:** nmbrs-workload (model), nmbrs-runtime (synthesis,
 runner / executor), workloads (consumers under
-`nmbrs/workloads/cql/`).
+`crates/nmbrs/workloads/cql/`).
 
 **Cross-refs:**
 - [SRD-11](11_polydat_evaluation.md) §"Two Evaluation
@@ -279,7 +279,7 @@ the parent export carries `shared` (SRD-67 Rule 1
 ### Runner integration
 
 The change is bounded to one site:
-`nmbrs-runtime/src/runner.rs::run_phase` (or its current
+`crates/nmbrs-runtime/src/runner.rs::run_phase` (or its current
 equivalent — the function that drives a phase's cycles).
 When `phase.poll.is_some()`, the existing cycle loop is
 invoked from a `PollController` that:
@@ -425,7 +425,7 @@ same machinery the existing per-op metrics use.
 
 ### Push 1 — Workload model surface
 
-- `nmbrs-workload/src/model.rs::WorkloadPhase` gains
+- `crates/nmbrs-workload/src/model.rs::WorkloadPhase` gains
   `pub poll: Option<PhasePollSpec>`.
 - `PhasePollSpec` defined with the fields above.
 - Parser accepts `poll:` block; validates the
@@ -466,7 +466,7 @@ same machinery the existing per-op metrics use.
 
 - `docs/guide/workload_field_contexts.md` adds a
   `poll:` row under the phase-level fields.
-- `nmbrs/workloads/cql/full_cql_vector.yaml`
+- `crates/nmbrs/workloads/cql/full_cql_vector.yaml`
   migrates `jolokia_compact` + `jolokia_await_compaction`
   to a single `ensure_compacted` phase using the new
   pattern (was P6 in the planning task list).
@@ -564,5 +564,5 @@ metric_selector_resolves`. Caveat discovered in coverage: a phase
 reading its OWN activity metrics from inside its poll loop sees no
 fresh frames while holding — cross-phase reads (the coordination-gate
 pattern) are the supported shape. Tested:
-`nmbrs/tests/poll_require.rs` over
-`nmbrs/examples/workloads/controls/poll_require_smoke.yaml`.
+`crates/nmbrs/tests/poll_require.rs` over
+`crates/nmbrs/examples/workloads/controls/poll_require_smoke.yaml`.

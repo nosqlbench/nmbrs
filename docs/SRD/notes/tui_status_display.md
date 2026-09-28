@@ -220,14 +220,14 @@ Dim text:    #606060 (used for pending phases, help text)
 
 | Component | Change |
 |-----------|--------|
-| `nmbrs-tui/src/app.rs` | Replace current layout with the new design |
-| `nmbrs-tui/src/widgets.rs` | `MetricsState` gains phase info, cursor, adapter counters, sparkline history |
-| `nmbrs-tui/src/tree.rs` | NEW — `TreeState` struct, scenario tree rendering |
-| `nmbrs-tui/src/sparkline.rs` | NEW — Rolling sparkline widget with 24-bit gradient |
-| `nmbrs-tui/src/latency.rs` | NEW — Horizontal bar chart for percentiles |
-| `nmbrs-runtime/src/executor.rs` | Update `TreeState` on phase start/complete |
-| `nmbrs-runtime/src/activity.rs` | Remove single-line progress thread when TUI is active |
-| `nmbrs-runtime/src/runner.rs` | TUI activation logic, reporter registration |
+| `crates/nmbrs-tui/src/app.rs` | Replace current layout with the new design |
+| `crates/nmbrs-tui/src/widgets.rs` | `MetricsState` gains phase info, cursor, adapter counters, sparkline history |
+| `crates/nmbrs-tui/src/tree.rs` | NEW — `TreeState` struct, scenario tree rendering |
+| `crates/nmbrs-tui/src/sparkline.rs` | NEW — Rolling sparkline widget with 24-bit gradient |
+| `crates/nmbrs-tui/src/latency.rs` | NEW — Horizontal bar chart for percentiles |
+| `crates/nmbrs-runtime/src/executor.rs` | Update `TreeState` on phase start/complete |
+| `crates/nmbrs-runtime/src/activity.rs` | Remove single-line progress thread when TUI is active |
+| `crates/nmbrs-runtime/src/runner.rs` | TUI activation logic, reporter registration |
 
 ### Not Changing
 

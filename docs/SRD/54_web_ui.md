@@ -29,4 +29,4 @@ Shared concepts: [SRD 23](23_dynamic_controls.md) (controls), [SRD 81](81_event_
 (projection model).
 
 ## See also
-`nmbrs-web/src/lib.rs`; [SRD 23](23_dynamic_controls.md); [SRD 81](81_event_sourced_display.md).
+`crates/nmbrs-web/src/lib.rs`; [SRD 23](23_dynamic_controls.md); [SRD 81](81_event_sourced_display.md).

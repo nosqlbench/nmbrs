@@ -1,0 +1,34 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Distribution scatter — value vs. sample index, one lane per field.
+#
+# The default `plot` mode scatters each sample (x = sample order,
+# y = value). Vertical density reflects the probability density, so the
+# three stacked lanes read as:
+#   normal       → a band densest around the mean, thinning at the edges
+#   exponential  → densest along the bottom, thinning upward
+#   uniform      → an evenly filled band
+#
+# Every `dist_*` sampler takes a [0,1) value, so each hash is bridged
+# through `unit_interval`; re-hashing gives independent streams.
+
+params:
+  adapter: plotter
+  cycles: "4000"
+
+bindings: |
+  input cycle: u64
+  uniform     := unit_interval(hash(cycle))
+  normal      := dist_normal(unit_interval(hash(hash(cycle))), 0.5, 0.15)
+  exponential := dist_exponential(unit_interval(hash(hash(hash(cycle)))), 2.0)
+
+ops:
+  sample:
+    uniform: "{uniform}"
+    normal: "{normal}"
+    exponential: "{exponential}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

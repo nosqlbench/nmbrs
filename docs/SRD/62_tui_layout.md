@@ -201,7 +201,7 @@ which is already the behavior today and remains the rule.
 
 Per-phase sparkline storage is not a UI-side ring buffer — it's
 a **summary** (in the sense of
-[`nmbrs_metrics::summaries`](../../nmbrs-metrics/src/summaries/mod.rs)):
+[`nmbrs_metrics::summaries`](../../crates/nmbrs-metrics/src/summaries/mod.rs)):
 a retained, transforming view of instrument data, attachable to
 any scalar-valued metric (rate, gauge, counter) the same way
 other summaries like `F64Stats` and `LiveWindowHistogram` attach

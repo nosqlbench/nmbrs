@@ -1,0 +1,52 @@
+# polydat_bindings.yaml — Workload using native Polydat grammar for bindings
+#
+# This demonstrates using the full Polydat DAG syntax instead of the
+# legacy semicolon-chain binding expressions. When the `bindings:`
+# value is a string (YAML block scalar), it is parsed as Polydat grammar.
+#
+# Usage:
+#   nmbrs run workload=examples/polydat_bindings.yaml cycles=10
+#   nmbrs run workload=examples/polydat_bindings.yaml cycles=1000 format=json threads=4
+
+description: |
+  Sensor telemetry workload using native Polydat bindings.
+  Models 100 devices × 500 readings each, with temperature
+  and humidity.
+
+bindings: |
+  // Decompose cycle into device and reading dimensions
+  // 'cycle' is automatically inferred as a coordinate input
+  (device, reading) := mixed_radix(cycle, 100, 0)
+
+  // Device identity
+  device_h := hash(device)
+  device_id := mod(device_h, 100000)
+
+  // Reading quantiles — chain hashes for independence
+  combined := interleave(device_h, reading)
+  h0 := hash(combined)
+  h1 := hash(h0)
+  q_temp := unit_interval(h0)
+  q_humid := unit_interval(h1)
+
+  // Distribution sampling (all-in-one: build LUT + sample)
+  temperature := icd_normal(q_temp, 22.0, 3.0)
+  humidity := clamp_f64(icd_normal(q_humid, 55.0, 10.0), 0.0, 100.0)
+
+  // Concise nested equivalent of the above two lines:
+  // temperature := icd_normal(unit_interval(hash(interleave(device_h, reading))), 22.0, 3.0)
+  // humidity := clamp_f64(icd_normal(unit_interval(hash(hash(interleave(device_h, reading)))), 55.0, 10.0), 0.0, 100.0)
+
+  // Timestamp: base epoch + reading offset
+  timestamp := add(reading, 1710000000000)
+
+blocks:
+  main:
+    ops:
+      telemetry:
+        ratio: 1
+        stmt: "INSERT INTO telemetry (device, ts, temp, humid) VALUES ({device_id}, {timestamp}, {temperature}, {humidity});"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ run cycles=3
+#@ expect completed, 0 failed

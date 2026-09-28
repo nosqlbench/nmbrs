@@ -573,7 +573,7 @@ explicitly — without proofs, "elided == materialised in every
 observable way" is a hope, not an invariant.
 
 The test suite lives in `polydat/tests/scope_elision.rs`
-and / or `nmbrs-runtime/tests/scope_elision.rs` and proves:
+and / or `crates/nmbrs-runtime/tests/scope_elision.rs` and proves:
 
 ### 6.1 Equivalence under elision
 
@@ -744,15 +744,15 @@ SRD freezes them as decisions, not pending.
 
 | Phase | What                                                                          | Where                                      |
 |-------|-------------------------------------------------------------------------------|--------------------------------------------|
-| 1     | `HasPolydatMatter` trait + impls on `WorkloadPhase`, `ParsedOp`, `ScenarioNode`    | `nmbrs-workload/src/model.rs`               |
+| 1     | `HasPolydatMatter` trait + impls on `WorkloadPhase`, `ParsedOp`, `ScenarioNode`    | `crates/nmbrs-workload/src/model.rs`               |
 | 2     | `GkProgram::is_equivalent_to` / `is_subset_of`; redefinition-forbidden check  | `polydat/src/kernel.rs` (or sibling) |
-| 3     | Workload-init validation walk over op templates (Stage A–D, §4)               | `nmbrs-runtime/src/runner.rs`              |
-| 4     | Scope-tree node carries `materialised: bool` + `logical_name`; pre-walk sets  | `nmbrs-runtime/src/scope_tree.rs`          |
-| 5     | `nearest_materialised()` walking accessor (§5.1)                              | `nmbrs-runtime/src/scope_tree.rs`          |
-| 6     | Premap descends to op level when `materialised`                               | `nmbrs-runtime/src/scope_tree.rs`          |
-| 7     | `dryrun=op` depth + per-stage diagnostics (§4.9, §5.3)                        | `nmbrs-runtime/src/runner.rs`              |
-| 8     | `nmbrs describe polydat` elide/materialise/logical-name display                   | `nmbrs/src/describe.rs`                     |
-| 9     | Op-dispenser holds (or doesn't hold) its own kernel handle                    | `nmbrs-runtime/src/activity.rs`            |
+| 3     | Workload-init validation walk over op templates (Stage A–D, §4)               | `crates/nmbrs-runtime/src/runner.rs`              |
+| 4     | Scope-tree node carries `materialised: bool` + `logical_name`; pre-walk sets  | `crates/nmbrs-runtime/src/scope_tree.rs`          |
+| 5     | `nearest_materialised()` walking accessor (§5.1)                              | `crates/nmbrs-runtime/src/scope_tree.rs`          |
+| 6     | Premap descends to op level when `materialised`                               | `crates/nmbrs-runtime/src/scope_tree.rs`          |
+| 7     | `dryrun=op` depth + per-stage diagnostics (§4.9, §5.3)                        | `crates/nmbrs-runtime/src/runner.rs`              |
+| 8     | `nmbrs describe polydat` elide/materialise/logical-name display                   | `crates/nmbrs/src/describe.rs`                     |
+| 9     | Op-dispenser holds (or doesn't hold) its own kernel handle                    | `crates/nmbrs-runtime/src/activity.rs`            |
 
 Phases 1–2 are independently testable in isolation. Phases 3–5
 build the scope-tree marks; phases 6–9 are the runtime
@@ -764,7 +764,7 @@ op-template scope layer.
 
 Phases 1–9 are landed. The runner's install loop synthesizes
 per-op-template kernels for materialised scopes (via
-`build_op_template_scope_kernel` in `nmbrs-runtime/src/scope.rs`)
+`build_op_template_scope_kernel` in `crates/nmbrs-runtime/src/scope.rs`)
 and installs them on `cached_kernel` slots. `OpBuilder` carries
 per-op-template programs, `FiberBuilder` instances one
 `PolydatKernel` per template at fiber creation via the canonical

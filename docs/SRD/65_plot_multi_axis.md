@@ -2,8 +2,8 @@
 
 **Status:** shipped (axis 3+ rail-tick rendering deferred — see Followups)
 **Owner:** runtime / nmbrs (plot_metrics)
-**Implementation:** `nmbrs/src/plot_metrics.rs` (renderer),
-  `nmbrs-workload/src/report/vocab.rs` (directive vocab,
+**Implementation:** `crates/nmbrs/src/plot_metrics.rs` (renderer),
+  `crates/nmbrs-workload/src/report/vocab.rs` (directive vocab,
   per SRD-46v2)
 **Cross-refs:** SRD-46 (reports), SRD-64 (report CLI),
   SRD-47 (MetricsQL streaming — supplies query rows)

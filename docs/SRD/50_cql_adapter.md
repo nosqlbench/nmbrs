@@ -10,7 +10,7 @@ Apache Cassandra C++ driver.
 `cassandra-cpp` Rust crate wrapping the Apache Cassandra C++
 driver via FFI. Statically linked from a Docker-built sysroot.
 
-Build: `cd adapters/cql && bash build.sh`
+Build: `cd crates/nmbrs-adapter-cql && bash build.sh`
 
 ---
 

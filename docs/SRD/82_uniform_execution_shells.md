@@ -452,7 +452,7 @@ Per-verb wrappers are both semantically wrong and slow. Rejected.
    opts an op out) — a retry storm identifies itself even with
    every sampler off. User-facing walkthrough of the whole stack:
    `docs/guide/retry_visibility_and_throttle.md`; runnable
-   demonstrations: `nmbrs/examples/workloads/controls/retry_visibility.
+   demonstrations: `crates/nmbrs/examples/workloads/controls/retry_visibility.
    yaml` and `throttle_backpressure.yaml`.
 5. **The injection bridge**: the `errors` wrapper resolves *before*
    the tries wrapper's activation is evaluated. A `retry` / `retry(N)`
@@ -525,8 +525,8 @@ Incremental; each step compiles and is independently testable.
    `stop` actions, alongside the existing op verbs. Keep first-match
    semantics.
 3. **Phase shell.** ✅ DONE. `AggregateGuard`
-   (`nmbrs-errorhandler/src/aggregate.rs`) holds the `rate>N:fail,stop`
-   rule; `ErrorPolicy` (`nmbrs-runtime/src/error_policy.rs`, Part 3a)
+   (`crates/nmbrs-errorhandler/src/aggregate.rs`) holds the `rate>N:fail,stop`
+   rule; `ErrorPolicy` (`crates/nmbrs-runtime/src/error_policy.rs`, Part 3a)
    composes it with the op router; the phase shell's drain loop
    delegates the breach decision to `error_policy.guard.assess(cycles,
    errors)` rather than testing a hardcoded threshold. `run_phase`
@@ -546,7 +546,7 @@ Incremental; each step compiles and is independently testable.
    deliberately-skipped tail is not reported as stranded
    (`unreached_phase_exit_code` stays quiet on fault, as for graceful) —
    distinct from a graceful trip's `request_graceful_stop`. Tested:
-   `nmbrs/tests/workload_shell_e2e.rs::failed_phase_halts_walk_with_fault`.
+   `crates/nmbrs/tests/workload_shell_e2e.rs::failed_phase_halts_walk_with_fault`.
    ABORT-IN-FLIGHT ✅ DONE: already-running `Bounded(N>1)` sibling phases
    abort cooperatively too. The per-execution `walk_stop`
    (`Arc<AtomicBool>` on the `WorkloadShell`, exposed via
@@ -576,12 +576,12 @@ Incremental; each step compiles and is independently testable.
    activity-param (`nmbrs-workload` `parse.rs`), excised from op fields
    so it never reaches the adapter. Per Part 3b the handler is the
    OUTERMOST `ErrorHandlerDispenser` wrapper
-   (`nmbrs-runtime/src/wrappers/errors.rs`, replacing the fiber
+   (`crates/nmbrs-runtime/src/wrappers/errors.rs`, replacing the fiber
    loop's inline block), and the retry wrapper is the CONDITIONAL
    `tries` wrapper (`wrappers/tries.rs` — total-attempts sigil,
    orthogonal to `errors:`, bridged by `retry`/`retry(N)` verb
-   injection; `nmbrs-runtime/tests/tries_wrapper.rs`). Tested:
-   `nmbrs/tests/error_handlers.rs::op_level_errors_overrides_scope_policy`
+   injection; `crates/nmbrs-runtime/tests/tries_wrapper.rs`). Tested:
+   `crates/nmbrs/tests/error_handlers.rs::op_level_errors_overrides_scope_policy`
    + `…::op_level_errors_does_not_leak_to_siblings`. (The op-*daemon* path
    keeps its Part 6 daemon-outcome lifecycle — a `Failed` bubbles to the
    parent handler — rather than the op router.)
@@ -601,7 +601,7 @@ Incremental; each step compiles and is independently testable.
    `Completed` (clean), while a daemon that ERRORS sets `stop_flag` →
    bubbles up through the handler. Its own phase scope gives it the
    independent cursor base (the motivating requirement). Tested:
-   `nmbrs/tests/workload_shell_e2e.rs::daemon_phase_runs_concurrently_and_stops_with_foreground`
+   `crates/nmbrs/tests/workload_shell_e2e.rs::daemon_phase_runs_concurrently_and_stops_with_foreground`
    + `…::daemon_phase_failure_bubbles_up`. PENDING refinements: the
    op-daemon collapsing into this same definition at the leaf; `daemon: N`
    (max-N activations); the until-stopped cursor primitive (today a daemon

@@ -1,0 +1,25 @@
+#!/usr/bin/env nmbrs
+# maze.yaml — Random maze pattern using forward/backward slashes
+#
+# The classic BASIC one-liner: 10 PRINT CHR$(205.5+RND(1)); GOTO 10
+# Each cycle generates a row of random ╱ and ╲ characters that
+# creates a maze-like pattern when printed together.
+#
+# Usage:
+#   ./examples/maze.yaml cycles=40
+#   ./examples/maze.yaml cols=80 cycles=30
+
+params:
+  cols: "60"
+  cycles: "24"
+
+bindings: |
+  input cycle: u64
+  row := char_buf(hash(cycle), "╱╲", cols)
+
+ops:
+  line:
+    stmt: "{row}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

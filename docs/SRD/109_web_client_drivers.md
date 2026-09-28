@@ -195,7 +195,7 @@ The result is three layers, each owned by a different party: the
 spec (the service), the generated library (the protocol shapes), and
 the concrete workload that `extends:` it and instantiates operations
 with `uses:` (the test method). See
-`nmbrs/examples/workloads/openapi/`.
+`crates/nmbrs/examples/workloads/openapi/`.
 
 ## Resolved-by-design questions
 

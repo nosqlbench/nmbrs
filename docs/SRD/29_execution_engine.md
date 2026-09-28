@@ -153,8 +153,8 @@ access surface"](10_polydat_language.md); the open-registry mechanism is
 ---
 
 ## See also (Pillar 4)
-- crate root: `nmbrs-runtime/src/lib.rs` (module doc) — `runner::Runner` is the entry point
-- tests: `nmbrs-runtime/tests/`, `nmbrs/tests/op_composition_dryrun.rs`
+- crate root: `crates/nmbrs-runtime/src/lib.rs` (module doc) — `runner::Runner` is the entry point
+- tests: `crates/nmbrs-runtime/tests/`, `crates/nmbrs/tests/op_composition_dryrun.rs`
 - [SRD 00b — Subsystem Treatment Standard](00b_subsystem_standard.md) (the rubric)
 - [SRD 05 — Dependency Rules](05_dependency_rules.md) (the enforced edges + Contract Registry)
 - [SRD 01 — System Overview](01_system_overview.md)

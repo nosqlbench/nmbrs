@@ -1,0 +1,92 @@
+#!/usr/bin/env nmbrs
+# feature_showcase.yaml — Demonstrates all major nmbrs features
+#
+# Features covered:
+#   - Native Polydat bindings with DAG composition
+#   - Infix operators (arithmetic, bitwise)
+#   - String interpolation in GK
+#   - Workload params with CLI override
+#   - Const expression config (cycles from GK)
+#   - Conditional ops (if: field)
+#   - Phased execution (scenarios + phases)
+#   - Multiple output formats (stmt, raw)
+#   - Tag filtering
+#   - Ratio weighting
+#
+# Usage:
+#   nmbrs run workload=examples/feature_showcase.yaml
+#   nmbrs run workload=examples/feature_showcase.yaml scenario=quick
+#   nmbrs run workload=examples/feature_showcase.yaml num_items=20
+
+description: |
+  Feature showcase: exercises all major nmbrs capabilities in a
+  single workload file. Outputs to stdout for verification.
+
+params:
+  keyspace: demo
+  table: items
+  num_items: "10"
+
+bindings: |
+  input cycle: u64
+
+  // Derived IDs using infix operators
+  item_id := mod(hash(cycle), 1000000)
+  bucket := hash(cycle) & 0xFF
+  partition := (cycle >> 16) & 0xF
+
+  // String values
+  item_name := number_to_words(mod(hash(hash(cycle)), 100))
+  price := to_f64(mod(hash(cycle), 10000)) / 100.0
+
+  // Conditional flags
+  is_even := mod(cycle, 2)
+  is_tenth := mod(cycle, 10)
+
+scenarios:
+  default:
+    - setup
+    - load
+    - verify
+  quick:
+    - setup
+    - verify
+
+phases:
+  setup:
+    cycles: 1
+    concurrency: 1
+    ops:
+      create_ks:
+        tags: { phase: setup }
+        raw: "CREATE KEYSPACE IF NOT EXISTS {keyspace}"
+      create_table:
+        tags: { phase: setup }
+        raw: "CREATE TABLE IF NOT EXISTS {keyspace}.{table} (id bigint PRIMARY KEY, name text, price double, bucket int)"
+
+  load:
+    cycles: "{num_items}"
+    concurrency: 1
+    ops:
+      insert_item:
+        tags: { phase: load }
+        stmt: "INSERT INTO {keyspace}.{table} (id, name, price, bucket) VALUES ({item_id}, '{item_name}', {price}, {bucket})"
+      log_even:
+        tags: { phase: load }
+        if: is_even
+        stmt: "  (even cycle {cycle}: id={item_id})"
+
+  verify:
+    cycles: 3
+    concurrency: 1
+    ops:
+      read_item:
+        tags: { phase: verify }
+        stmt: "SELECT * FROM {keyspace}.{table} WHERE id={item_id}"
+      periodic_check:
+        tags: { phase: verify }
+        if: is_tenth
+        stmt: "SELECT count(*) FROM {keyspace}.{table}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

@@ -10,10 +10,10 @@ workload-root + per-op + CLI order overrides (Push 3);
 `nmbrs describe wrappers` / `nmbrs describe op` (Push 4).
 Refinement of SRD-32.
 **Owner:** runtime / executor / wrappers
-**Implementation target:** `nmbrs-runtime/src/wrappers.rs` (registry
-  surface), `nmbrs-runtime/src/wrappers/registry.rs` (new),
-  `nmbrs-runtime/src/activity.rs` (composition loop),
-  `nmbrs-workload/src/model.rs` (field-ownership routing)
+**Implementation target:** `crates/nmbrs-runtime/src/wrappers.rs` (registry
+  surface), `crates/nmbrs-runtime/src/wrappers/registry.rs` (new),
+  `crates/nmbrs-runtime/src/activity.rs` (composition loop),
+  `crates/nmbrs-workload/src/model.rs` (field-ownership routing)
 **Cross-refs:** SRD-32 (dispenser wrappers — load-bearing),
   SRD-30 (adapter interface — core/adapter field split),
   SRD-31 (op pipeline), SRD-13d Phase 9 (op-template scope)
@@ -131,7 +131,7 @@ The load-bearing rule:
 ## Wrapper registry
 
 One entry per wrapper, consolidated in
-`nmbrs-runtime/src/wrappers/registry.rs`. The registry is the
+`crates/nmbrs-runtime/src/wrappers/registry.rs`. The registry is the
 single source of truth for "what wrappers exist, which fields
 they own, when they apply, and where they stack."
 
@@ -914,7 +914,7 @@ plan accurately reflects the chain, the resolver
 needs no session awareness.
 
 Implementation lives in
-`nmbrs-runtime/src/activity.rs::run_with_adapters`: at
+`crates/nmbrs-runtime/src/activity.rs::run_with_adapters`: at
 session startup, if any adapter has been substituted
 with the dryrun stand-in (signalled via
 `DriverAdapter::dry_run_mode`), every op template's

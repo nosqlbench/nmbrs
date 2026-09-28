@@ -27,4 +27,4 @@ The token/leaky-bucket model and the three-pool design: [notes/19_rate_limiter.m
 (the design brief), framed by [SRD 02](02_concurrency_model.md) §"Rate limiting".
 
 ## See also
-`nmbrs-rate/src/lib.rs`; [SRD 02](02_concurrency_model.md); [SRD 23](23_dynamic_controls.md).
+`crates/nmbrs-rate/src/lib.rs`; [SRD 02](02_concurrency_model.md); [SRD 23](23_dynamic_controls.md).

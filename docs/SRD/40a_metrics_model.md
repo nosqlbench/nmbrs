@@ -361,12 +361,12 @@ ad-hoc `_failed_total_blocked` label name slipped through.
 
 | Layer                    | Test location                                                  |
 |--------------------------|----------------------------------------------------------------|
-| In-memory ↔ in-memory (combine) | `nmbrs-metrics/src/snapshot.rs::tests` |
-| In-memory → SQLite       | `nmbrs-metrics/src/reporters/sqlite.rs::tests::sqlite_*` |
-| SQLite → catalog         | `nmbrs-metricsql/src/adapters/sqlite.rs::tests::catalog_*` |
+| In-memory ↔ in-memory (combine) | `crates/nmbrs-metrics/src/snapshot.rs::tests` |
+| In-memory → SQLite       | `crates/nmbrs-metrics/src/reporters/sqlite.rs::tests::sqlite_*` |
+| SQLite → catalog         | `crates/nmbrs-metricsql/src/adapters/sqlite.rs::tests::catalog_*` |
 | Native types (8 OpenMetrics) | both above, plus `catalog_round_trip_*` per type |
 | Exemplars                | `catalog_exemplars_round_trips` (reader), `write_native_sample_*` + future writer test |
-| Parser corpus            | `nmbrs-metricsql/tests/parity.rs` against `parser_round_trip.json` |
+| Parser corpus            | `crates/nmbrs-metricsql/tests/parity.rs` against `parser_round_trip.json` |
 
 ---
 

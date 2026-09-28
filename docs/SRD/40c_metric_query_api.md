@@ -57,12 +57,12 @@ via `MetricsQuery`.
   `Dynamic` (polydat R1.v) so it is never folded and re-evaluates on every pull.
 
 ## Mechanism (Pillar 3)
-`nmbrs-metrics/src/queryapi/{mod,shapes,live,sqlite,catalog}.rs`. The MetricsQL engine
+`crates/nmbrs-metrics/src/queryapi/{mod,shapes,live,sqlite,catalog}.rs`. The MetricsQL engine
 consumes the surface through `nmbrs_metricsql::eval::EvalContext.data: &dyn MetricAccess`
 ([SRD 08](08_metricsql.md)); the `metricsql_*` nodes project a fetched `Vector` to a polydat
 `Value` by result-type affinity ([SRD 08 §Reader nodes](08_metricsql.md)).
 
 ## See also
-`nmbrs-metrics/src/queryapi/mod.rs`; [SRD 08](08_metricsql.md) (the query language atop it);
+`crates/nmbrs-metrics/src/queryapi/mod.rs`; [SRD 08](08_metricsql.md) (the query language atop it);
 [SRD 42](42_windowed_metrics.md) (the cadence feed the live backend reads);
 [SRD 49](49_metricsql_supported_scope.md); [SRD 86 §10](86_optimization.md).

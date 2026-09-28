@@ -1,0 +1,68 @@
+[package]
+name = "nmbrs-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Workload execution runtime for nmbrs"
+keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
+categories = ["command-line-utilities", "simulation"]
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[features]
+default = []
+flamegraph = ["pprof"]
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "signal"] }
+nmbrs-metrics = { workspace = true, features = ["victoriametrics", "sqlite"] }
+nmbrs-rate = { workspace = true }
+nmbrs-errorhandler = { workspace = true }
+nmbrs-workload = { workspace = true }
+polydat = { version = "0.6.2", features = ["vectordata"] }
+futures = "0.3"
+inventory = "0.3.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+# Insertion-ordered map. Used for iter-var bindings whose
+# user-visible iteration / display order must follow scenario-
+# tree declaration order, not Rust's randomised HashMap order.
+# See `executor::run_phase` call sites that build `phase_labels`,
+# `polydat_context`, and `activity_name`.
+indexmap = "2"
+# Lock-free atomic snapshot publication of the live phase memo
+# (SRD-63 §"Phase memo"). Producers store the latest before/after
+# string; readers (inline status thread, readout context build)
+# load without blocking.
+arc-swap = "1"
+# Sampling only: the SVG is rendered by the `inferno-flamegraph` tool
+# (shelled out, like the perf path), so pprof's own `flamegraph`
+# feature — and the inferno/quick-xml crates behind it — stay out.
+pprof = { version = "0.15", optional = true }
+libc = "0.2"
+# Used by `report_anchor::resolve` to read scenario / phase
+# distinct values from the active session's metrics.db.
+# `bundled` feature pulls in the C source so we don't depend
+# on a system libsqlite3.
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Phase-name filter (`phases=<pattern>`) compiles bareword /
+# glob / full-regex inputs to a `Regex` matcher.
+regex = "1"
+
+# Directory-junction fallback for `logs/latest` when real
+# symlinks are unavailable (no Developer Mode / admin). See
+# `session::symlink_any`.
+[target.'cfg(windows)'.dependencies]
+junction = "1"
+
+[dev-dependencies]
+nmbrs-adapter-stdout = { path = "../nmbrs-adapter-stdout" }
+nmbrs-adapter-testkit = { path = "../nmbrs-adapter-testkit" }
+proptest = "1"
+# SRD-77 refine_plan tests build a throwaway sqlite under a
+# `tempfile::tempdir()` and verify the loader's behavior.
+tempfile = "3"

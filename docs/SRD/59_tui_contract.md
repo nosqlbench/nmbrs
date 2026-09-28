@@ -32,4 +32,4 @@ that drives it from the run's event stream. Pillars 1+2 of the
 [SRD 81](81_event_sourced_display.md) (event-sourced display projections).
 
 ## See also
-`nmbrs-tui/src/lib.rs`; [SRD 62](62_tui_layout.md); [SRD 63](63_status_readouts.md); [SRD 81](81_event_sourced_display.md).
+`crates/nmbrs-tui/src/lib.rs`; [SRD 62](62_tui_layout.md); [SRD 63](63_status_readouts.md); [SRD 81](81_event_sourced_display.md).

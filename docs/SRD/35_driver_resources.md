@@ -2,8 +2,8 @@
 
 **Status:** design (not yet implemented)
 **Owner:** runtime / executor + adapters
-**Implementation target:** `nmbrs-runtime/src/resource_pool.rs` (new),
-  `nmbrs-runtime/src/adapter.rs` (extension), per-adapter
+**Implementation target:** `crates/nmbrs-runtime/src/resource_pool.rs` (new),
+  `crates/nmbrs-runtime/src/adapter.rs` (extension), per-adapter
   driver-instance impls
 **Cross-refs:** SRD-30 (adapter interface), SRD-31 (op pipeline),
   SRD-04 (umbrella options), SRD-19 (component tree),
@@ -863,7 +863,7 @@ split is the right boundary:
   paths) and constructing dispensers as today.
 
 The `DriverImpl` registration in
-`adapters/cql/src/cassandra_cpp/mod.rs:1166-1188` migrates
+`crates/nmbrs-adapter-cql/src/cassandra_cpp/mod.rs:1166-1188` migrates
 from the single `create` closure to the split
 `create_instance` + `create_shell` shape. The current `create`
 becomes a default-impl that calls both — adapters that

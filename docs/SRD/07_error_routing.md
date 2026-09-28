@@ -26,4 +26,4 @@ zero internal dependencies (standalone).
 the execution shells is [SRD 82](82_uniform_execution_shells.md) / [SRD 83](83_stop_conditions.md).
 
 ## See also
-`nmbrs-errorhandler/src/lib.rs`; [SRD 03](03_error_handling.md); [SRD 82](82_uniform_execution_shells.md); [SRD 83](83_stop_conditions.md).
+`crates/nmbrs-errorhandler/src/lib.rs`; [SRD 03](03_error_handling.md); [SRD 82](82_uniform_execution_shells.md); [SRD 83](83_stop_conditions.md).

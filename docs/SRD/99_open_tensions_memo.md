@@ -353,9 +353,9 @@ fields and params, so the Polydat kernel has always known about every
 referenced name; the side channel was a plumbing artifact that
 this slice retired.
 
-[`ScopeFixture`]: ../../nmbrs-runtime/src/fixture.rs
-[`PullPlan`]: ../../nmbrs-runtime/src/fixture.rs
-[`PullHandle`]: ../../nmbrs-runtime/src/fixture.rs
+[`ScopeFixture`]: ../../crates/nmbrs-runtime/src/fixture.rs
+[`PullPlan`]: ../../crates/nmbrs-runtime/src/fixture.rs
+[`PullHandle`]: ../../crates/nmbrs-runtime/src/fixture.rs
 [SRD 32 §"Init-Time Fixture and Consumer Self-Registration"]: 32_wrappers.md
 [SRD 31 §"Pull plan vs bind plan"]: 31_op_pipeline.md
 
@@ -370,7 +370,7 @@ this slice retired.
 and the 00_index description. But:
 
 - SRD 24 has a committed selector grammar, shipped code
-  (`nmbrs-metrics/src/selector.rs` with 38 tests), and an
+  (`crates/nmbrs-metrics/src/selector.rs` with 38 tests), and an
   explicitly empty `Open questions` section.
 - SRD 23 has shipped `controls.rs` with 26+ tests, landed
   gauge reification end-to-end, and this memo is resolving

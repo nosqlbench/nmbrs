@@ -956,7 +956,7 @@ tests:
 - `str_coercion_under_strict_is_hard_error`.
 
 **Integration tests at the workload boundary**
-(`nmbrs/tests/workload_examples.rs`):
+(`crates/nmbrs/tests/workload_examples.rs`):
 
 - `yaml_array_param_lands_as_typed_vector` — the
   `mnc_values: [8, 128]` case produces no `→ Ext` audit

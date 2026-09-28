@@ -35,4 +35,4 @@ a deliberate public surface. Pillars 1+2 of the
 MetricsQL query language is its own crate atop the query API — [SRD 08](08_metricsql.md).
 
 ## See also
-`nmbrs-metrics/src/lib.rs`; [SRD 40](40_metrics.md); [SRD 40a](40a_metrics_model.md); [SRD 42](42_windowed_metrics.md).
+`crates/nmbrs-metrics/src/lib.rs`; [SRD 40](40_metrics.md); [SRD 40a](40a_metrics_model.md); [SRD 42](42_windowed_metrics.md).

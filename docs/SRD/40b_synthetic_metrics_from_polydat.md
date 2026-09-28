@@ -443,7 +443,7 @@ two clarifications:
 ## 6. Wrapper: `MetricsDispenser`
 
 A new op-dispenser wrapper, sibling to the existing decorators in
-[`nmbrs-runtime/src/wrappers.rs`][wrappers]. Stacks **outermost**
+[`crates/nmbrs-runtime/src/wrappers.rs`][wrappers]. Stacks **outermost**
 in the op-dispenser construction chain:
 
 ```text
@@ -520,7 +520,7 @@ last-write-wins; workloads where per-fiber values diverge (§5
 result-derived metrics) should choose a kind whose semantics
 match the intended aggregation.
 
-[nmbrs-instruments]: ../../nmbrs-metrics/src/instruments/
+[nmbrs-instruments]: ../../crates/nmbrs-metrics/src/instruments/
 
 ---
 
@@ -837,15 +837,15 @@ op-template kernel handle.
 
 | Phase | What                                                                                | Where                                              |
 |-------|-------------------------------------------------------------------------------------|----------------------------------------------------|
-| A     | `ParsedOp.metrics` + `MetricSpec` + `ParsedOp.result` model + parsing (full + sugared) | `nmbrs-workload/src/{model,parse}.rs`              |
-| B     | `format:` numeric-sanitiser parser (Excel hash patterns → round/trunc op)           | `nmbrs-workload/src/report.rs` or sibling           |
-| C     | `unit:` flow into both family-name suffix and `metric_family.unit` column           | `nmbrs-metrics/src/reporters/sqlite.rs`             |
-| D     | Result-as-GK adapter layer (§5): dispenser-owned, writes captured wires to GkState  | `nmbrs-runtime/src/wrappers.rs`                    |
-| E     | `MetricsDispenser` wrapper + kind→instrument dispatch (§6.1)                        | `nmbrs-runtime/src/wrappers.rs`                    |
-| F     | Wrapper insertion at op-dispenser construction; op-dispenser as component (op label) | `nmbrs-runtime/src/{runner,activity}.rs`           |
-| G     | Component instrument-set duplicate check on registration (§7)                       | `nmbrs-metrics/src/component.rs`                    |
-| H     | `scope_close` cadence-streamer flush signal (§11) — generic, not synthetic-specific | `nmbrs-metrics/src/scheduler.rs` (or sibling)       |
-| I     | Adapter output-channel convention (stdout impl)                                     | `adapters/stdout/src/...`                          |
+| A     | `ParsedOp.metrics` + `MetricSpec` + `ParsedOp.result` model + parsing (full + sugared) | `crates/nmbrs-workload/src/{model,parse}.rs`              |
+| B     | `format:` numeric-sanitiser parser (Excel hash patterns → round/trunc op)           | `crates/nmbrs-workload/src/report.rs` or sibling           |
+| C     | `unit:` flow into both family-name suffix and `metric_family.unit` column           | `crates/nmbrs-metrics/src/reporters/sqlite.rs`             |
+| D     | Result-as-GK adapter layer (§5): dispenser-owned, writes captured wires to GkState  | `crates/nmbrs-runtime/src/wrappers.rs`                    |
+| E     | `MetricsDispenser` wrapper + kind→instrument dispatch (§6.1)                        | `crates/nmbrs-runtime/src/wrappers.rs`                    |
+| F     | Wrapper insertion at op-dispenser construction; op-dispenser as component (op label) | `crates/nmbrs-runtime/src/{runner,activity}.rs`           |
+| G     | Component instrument-set duplicate check on registration (§7)                       | `crates/nmbrs-metrics/src/component.rs`                    |
+| H     | `scope_close` cadence-streamer flush signal (§11) — generic, not synthetic-specific | `crates/nmbrs-metrics/src/scheduler.rs` (or sibling)       |
+| I     | Adapter output-channel convention (stdout impl)                                     | `crates/nmbrs-adapter-stdout/src/...`                          |
 
 Phases A, B, C, E, G are independently testable. Phase D
 depends on SRD-34 (Capture Points) and on phase A. Phase F
@@ -857,5 +857,5 @@ Workload adoption (the actual phase / scenario / plot YAML)
 belongs in a design memo and per-workload follow-up — not part
 of this SRD.
 
-[parsed-op]: ../../nmbrs-workload/src/model.rs
-[wrappers]: ../../nmbrs-runtime/src/wrappers.rs
+[parsed-op]: ../../crates/nmbrs-workload/src/model.rs
+[wrappers]: ../../crates/nmbrs-runtime/src/wrappers.rs

@@ -1,0 +1,17 @@
+[package]
+name = "nmbrs-adapter-openapi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OpenAPI workload-source adapter for nmbrs — synthesizes ops from OpenAPI 3.x specs"
+keywords = ["nosqlbench", "openapi", "rest", "benchmark", "workload"]
+categories = ["command-line-utilities", "web-programming::http-client"]
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+nmbrs-workload = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+openapiv3 = "2"

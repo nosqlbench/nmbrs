@@ -339,7 +339,7 @@ then reset and start a new minute"). Sliding-window framing
 
 ## The equivalence test (load-bearing)
 
-A property test in `nmbrs-metricsql/src/streaming.rs::tests`:
+A property test in `crates/nmbrs-metricsql/src/streaming.rs::tests`:
 
 ```rust
 #[test]
@@ -610,12 +610,12 @@ shape what the streaming layer doesn't have to do:
 
 ## References
 
-- **Code (current state)**: `nmbrs-metricsql/src/eval.rs` —
+- **Code (current state)**: `crates/nmbrs-metricsql/src/eval.rs` —
   batch evaluator with six AST shapes covered (selector,
   rollup, aggregate, binary op, range query, rollup-consumer
-  function); `nmbrs-metricsql/src/ast.rs` — AST types;
-  `nmbrs-metricsql/src/parser.rs` — 100% parser parity
-  against upstream; `nmbrs-metricsql/src/prettifier.rs` —
+  function); `crates/nmbrs-metricsql/src/ast.rs` — AST types;
+  `crates/nmbrs-metricsql/src/parser.rs` — 100% parser parity
+  against upstream; `crates/nmbrs-metricsql/src/prettifier.rs` —
   100% prettifier parity.
 - **`DataSource` trait contract**: `nmbrs-metricsql::eval` —
   `__name__` in labels, samples sorted ascending, samples in
@@ -641,5 +641,5 @@ shape what the streaming layer doesn't have to do:
   builds on the same grid, not a parallel one.
 - **Upstream MetricsQL parser**: linked at
   `links/metricsql/`. The parity-test fixtures in
-  `nmbrs-metricsql/tests/fixtures/*.json` are harvested from
+  `crates/nmbrs-metricsql/tests/fixtures/*.json` are harvested from
   it.

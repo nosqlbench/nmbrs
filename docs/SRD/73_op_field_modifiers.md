@@ -212,7 +212,7 @@ through the existing `PolydatKernel::lookup` chokepoint (see SRD 13c,
 The dispenser's initializer:
 
 ```rust
-// In adapters/cql/src/<engine>/<dispenser>.rs, inside map_op:
+// In crates/nmbrs-adapter-cql/src/<engine>/<dispenser>.rs, inside map_op:
 fn build_cql_modifier_chain<S>(
     parent: &PolydatKernel,
     op_label: &str,
@@ -363,7 +363,7 @@ Each CQL engine module owns a small file `op_modifier.rs` with one
 modifier impl per universal field:
 
 ```rust
-// adapters/cql/src/scylla/op_modifier.rs
+// crates/nmbrs-adapter-cql/src/scylla/op_modifier.rs
 struct RequestTimeoutMod { timeout: Duration }
 
 impl OpFieldModifier<ScyllaStatement> for RequestTimeoutMod {
@@ -444,7 +444,7 @@ standard SRD-16 walk-up.
 No adapter changes.
 
 **P2 — CQL universal field surface + per-engine wiring**.
-`CQL_UNIVERSAL_FIELDS` selector list in `adapters/cql/src/common/
+`CQL_UNIVERSAL_FIELDS` selector list in `crates/nmbrs-adapter-cql/src/common/
 op_modifier.rs`. Per-engine modifier impls. Dispenser-initializer
 wiring (`map_op` builds the chain via `parent.lookup`). Op-template
 field plumbing so per-op fields reach Polydat scope. `known_op_fields()`

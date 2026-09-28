@@ -1,0 +1,33 @@
+# Per-crate target directory. When cargo is invoked from
+# `crates/nmbrs-adapter-cql/` (e.g. by `bash build.sh` or by anyone
+# running `cd crates/nmbrs-adapter-cql && cargo …`), this config takes
+# effect and cargo writes into `crates/nmbrs-adapter-cql/target/`. That's
+# where the C++ driver sysroot lives — `cargo clean` from
+# this dir wipes the sysroot alongside compile artifacts; a
+# `cargo clean` at workspace root touches a different target
+# entirely so the expensive driver build survives unrelated
+# workspace clean cycles.
+[build]
+target-dir = "target"
+
+# Static linking for the Cassandra C++ driver.
+# The -sys crate emits -l dylib=cassandra; we need the static
+# lib. Sysroot lives at crates/nmbrs-adapter-cql/target/sysroot/ — managed
+# by cargo's clean state for this crate. The linker search path
+# comes from the workspace config's `LIBRARY_PATH` (relative to
+# the workspace root, so it holds from this directory too) —
+# never an absolute path pinned to one machine.
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-Wl,-Bstatic",
+    "-C", "link-arg=-lcassandra_static",
+    "-C", "link-arg=-Wl,-Bdynamic",
+    "-C", "link-arg=-luv",
+    "-C", "link-arg=-lssl",
+    "-C", "link-arg=-lcrypto",
+    "-C", "link-arg=-lstdc++",
+    "-C", "link-arg=-lz",
+    "-C", "link-arg=-lpthread",
+    "-C", "link-arg=-ldl",
+    "-C", "link-arg=-lm",
+]

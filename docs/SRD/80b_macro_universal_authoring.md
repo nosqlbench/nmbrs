@@ -517,8 +517,8 @@ remaining open items:
    The macro should stay under 5000 LOC and compile in under 10
    seconds. Measurable and enforceable.
 
-5. **Cross-crate library nodes.** Adapter crates (`adapters/cql`,
-   `adapters/http`) define their own nodes. They need to use
+5. **Cross-crate library nodes.** Adapter crates (`crates/nmbrs-adapter-cql`,
+   `crates/nmbrs-adapter-http`) define their own nodes. They need to use
    the same `#[polydat_node]` macro and same Wire trait. The
    `polydat-derive` re-export path needs to remain clean for
    downstream crates.

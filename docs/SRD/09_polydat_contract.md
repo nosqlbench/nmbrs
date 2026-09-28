@@ -33,7 +33,7 @@ The public boundary, by import frequency across `nmbrs-runtime` / `nmbrs-workloa
 The **boundary is enforced**: rule **D1** keeps polydat depending only on
 `polydat-derive`; rule **D6** forbids any consumer reaching past this surface into a
 deep internal path (`polydat::compile::jit::…`, `polydat::library::support::…`). See
-[`nmbrs/tests/architecture_rules.rs`](../../nmbrs/tests/architecture_rules.rs).
+[`crates/nmbrs/tests/architecture_rules.rs`](../../crates/nmbrs/tests/architecture_rules.rs).
 
 ---
 

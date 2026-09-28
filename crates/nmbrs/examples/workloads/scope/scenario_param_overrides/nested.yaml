@@ -1,0 +1,35 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scenario-tree `set:` — nested overrides.
+#
+# The outer block's override (`mode`) is in force across the inner
+# block's subtree; the inner block adds its own override (`size`) on
+# top. Both reach the leaf op-template through the standard chain
+# lookup. Output: set/outer/inner_size.
+
+params:
+  mode: default
+  size: small
+
+scenarios:
+  default:
+    - set: { mode: '"outer"' }
+      phases:
+        - set: { size: '"inner_size"' }
+          phases:
+            - announce
+
+phases:
+  announce:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      msg:
+        stmt: "set/{mode}/{size}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect set/outer/inner_size
+#@ expect 0 failed

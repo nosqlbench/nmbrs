@@ -5,7 +5,7 @@
 ## 1. Problem
 
 Realtime-sensitive, schedule-keeping work — the metrics cadence scheduler
-(`nmbrs-metrics/src/scheduler.rs`), and future low-jitter dispatchers — currently
+(`crates/nmbrs-metrics/src/scheduler.rs`), and future low-jitter dispatchers — currently
 runs as `tokio::spawn` tasks on the **shared async runtime** alongside the
 workload fibers. Under load the timer fires on time but the task is polled late
 (the runtime is busy running fibers), producing tick drift (observed
@@ -90,7 +90,7 @@ is the assertive belt-and-suspenders for a fully-saturated box.
 
 ## 6. First consumer — the cadence scheduler
 
-`Scheduler::start` (`nmbrs-metrics/src/scheduler.rs`) moves off the shared runtime
+`Scheduler::start` (`crates/nmbrs-metrics/src/scheduler.rs`) moves off the shared runtime
 onto a `timing`-pool thread:
 
 - **Isolation (#1):** the tick loop runs on `timing`; the tokio `Notify`/`done`

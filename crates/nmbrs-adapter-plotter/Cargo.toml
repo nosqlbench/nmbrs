@@ -1,0 +1,25 @@
+[package]
+name = "nmbrs-adapter-plotter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plotter adapter for nmbrs: renders workload outputs as terminal plots"
+keywords = ["nosqlbench", "workload", "benchmark", "plot"]
+categories = ["command-line-utilities", "visualization"]
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+nmbrs-runtime = { workspace = true }
+nmbrs-workload = { workspace = true }
+polydat = "0.6.2"
+# Portable terminal-size + is-tty detection (Unix ioctl + Windows
+# console API behind one API), consistent with the rest of the
+# terminal stack and the shadow-terminal test harness.
+crossterm = "0.29"
+inventory = "0.3.24"
+serde_json = "1"
+# `shutdown()` draws the final plot on a `spawn_blocking` task (the sole
+# writer), so the blocking terminal write never blocks the async executor and
+# there is no background thread to race or deadlock against the terminal.
+tokio = { version = "1", features = ["rt"] }

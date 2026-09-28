@@ -36,7 +36,7 @@ consumers).
 
 The op-execution metrics emitted by the executor are
 incomplete, asymmetric, and partly dead. Concretely, today
-(`nmbrs-runtime/src/activity.rs`):
+(`crates/nmbrs-runtime/src/activity.rs`):
 
 1. **No `attempt_total` / `result_total`.** Per-attempt
    outcomes exist (`attempt_success` 3319, `attempt_failure`
@@ -61,7 +61,7 @@ incomplete, asymmetric, and partly dead. Concretely, today
    double-counts. (This bullet is retained as a caution.)
 4. **No validation cross-checks.** The error-handler's
    independent per-name tally (`CounterHandler`,
-   `nmbrs-errorhandler/src/handlers.rs:86`,
+   `crates/nmbrs-errorhandler/src/handlers.rs:86`,
    `all_counts()` 110) is disconnected from the executor's
    `errors_total`; nothing reconciles the two, and the per-type
    breakdown is computed in the executor (`count_error_type`,
@@ -186,7 +186,7 @@ Mechanism:
 
 ## Implementation (shipped)
 
-1. **`OutcomeInstrument`** (`nmbrs-metrics/src/instruments/outcome.rs`)
+1. **`OutcomeInstrument`** (`crates/nmbrs-metrics/src/instruments/outcome.rs`)
    — `observe(nanos)` / `count()` / `instrument_ref()`, plus
    `MetricDetail` (Counts/Timers) and `MetricDetailConfig`
    (global default + per-family override). Counts→counter,

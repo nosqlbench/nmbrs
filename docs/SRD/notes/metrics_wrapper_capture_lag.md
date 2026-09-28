@@ -2,8 +2,8 @@
 
 **Status**: open design problem.
 **Task**: #372.
-**Affected paths**: `nmbrs-runtime/src/wrappers.rs` (MetricsDispenser /
-ResultDispenser), `nmbrs-runtime/src/activity.rs:2235-2396` (per-cycle
+**Affected paths**: `crates/nmbrs-runtime/src/wrappers.rs` (MetricsDispenser /
+ResultDispenser), `crates/nmbrs-runtime/src/activity.rs:2235-2396` (per-cycle
 execution sequence).
 
 ## The user-visible symptom
@@ -223,10 +223,10 @@ one bug.
 
 ## Code references
 
-- Wrapper stack: `nmbrs-runtime/src/wrappers.rs`
+- Wrapper stack: `crates/nmbrs-runtime/src/wrappers.rs`
   - `MetricsDispenser` impl + execute: line 1087, 1361
   - `ResultDispenser` impl + magic-extern writes: line 669, 1005
-- Per-cycle sequence: `nmbrs-runtime/src/activity.rs`
+- Per-cycle sequence: `crates/nmbrs-runtime/src/activity.rs`
   - Step 1 (pulls snapshot): line 2243
   - Step 2 (dispenser.execute): line 2275
   - Step 3 (captures → kernel): line 2369-2382

@@ -1,0 +1,78 @@
+#!/usr/bin/env nmbrs
+# Summary Report Basics
+#
+# Demonstrates the summary report DSL: column selection, auto-scaled
+# latency units, and the workload-level `summary:` master switch.
+#
+# The summary: property controls whether a report is printed and what
+# it contains. No summary: means no report at all.
+#
+# Usage:
+#   nmbrs run workload=examples/summary_basics.yaml
+#   nmbrs run workload=examples/summary_basics.yaml scenario=all_columns
+#   nmbrs run workload=examples/summary_basics.yaml scenario=filtered_rows
+#
+# Override from CLI (takes precedence over workload summary:):
+#   nmbrs run workload=examples/summary_basics.yaml summary=all
+
+params:
+  adapter: stdout
+  item_count: "500"
+  batch_sizes: "10,50,100"
+
+# Master switch: enables a report and selects recall columns
+# only. Without this block, no report table is printed.
+# (SRD-46)
+report:
+  default: |
+    table default
+      recall
+
+bindings: |
+  input cycle: u64
+  item_id := zero_pad_u64(mod_wire(hash(cycle), item_count), 6)
+  score := to_f64(mod(hash(hash(cycle)), 100)) / 100.0
+
+scenarios:
+  # Default: run all phases, summary shows recall columns
+  default:
+    - setup
+    - for_each: "batch in {batch_sizes}"
+      phases:
+        - process_batch
+
+  # Show all columns (overrides the workload summary:)
+  all_columns:
+    - setup
+    - for_each: "batch in {batch_sizes}"
+      phases:
+        - process_batch
+
+  # Row filter: only show rows matching "batch=50"
+  filtered_rows:
+    - setup
+    - for_each: "batch in {batch_sizes}"
+      phases:
+        - process_batch
+
+phases:
+  setup:
+    cycles: 1
+    concurrency: 1
+    ops:
+      info:
+        stmt: "Initializing with {item_count} items"
+
+  process_batch:
+    cycles: "{item_count}"
+    concurrency: 1
+    bindings: |
+      input cycle: u64
+      item_id := zero_pad_u64(mod_wire(hash(cycle), item_count), 6)
+      score := format_f64(to_f64(mod(hash(hash(cycle)), 100)) / 100.0, 4)
+    ops:
+      process:
+        stmt: "batch={batch} item={item_id} score={score}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

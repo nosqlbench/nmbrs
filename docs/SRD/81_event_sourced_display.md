@@ -13,7 +13,7 @@
 >   `diag!(Info, phase_outcome.render())` is GONE; the phase-end
 >   outcome now flows through
 >   `observer::log_categorized(LogLevel::Info, LogCategory::PhaseOutcome, &rendered)`
->   (`nmbrs-runtime/src/activity.rs` ~line 2560), so the TUI log panel
+>   (`crates/nmbrs-runtime/src/activity.rs` ~line 2560), so the TUI log panel
 >   filters it and re-projects natively via `TuiReadoutSink`.
 > - The durable canonical record is BUILT: checkpoint JSONL
 >   (`CheckpointData` with `event_type() -> Option<EventType>`) +
@@ -178,7 +178,7 @@ concrete need appears.
 
 ## 5. The load-bearing seam — `ReadoutSink`
 
-`ReadoutSink` (`nmbrs-runtime/src/readouts/binder.rs`) is already the
+`ReadoutSink` (`crates/nmbrs-runtime/src/readouts/binder.rs`) is already the
 projection abstraction:
 
 ```rust
@@ -196,7 +196,7 @@ half-built and proven:
 
 - **`StringSink`** (`readouts/binder.rs`) — plain text for the
   terminal (`\r\x1b[K…`) and `session.log`.
-- **`TuiReadoutSink`** (`nmbrs-tui/src/readout_sink.rs`) — the ratatui
+- **`TuiReadoutSink`** (`crates/nmbrs-tui/src/readout_sink.rs`) — the ratatui
   `Line`/`Span` impl, honoring `LayoutHint` as styled spans. This
   **is the "`SpanSink`"** earlier drafts slated as new work. The TUI
   already renders phase readouts natively through it:

@@ -1,0 +1,36 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# `set:` shadow via a constant — baseline (no iter-var).
+#
+# `set: { mode: '"verbose"' }` publishes a scope-local `const mode` that
+# shadows the workload-param default over the inner phase. A bare `set:`
+# value is a wire reference, so a string literal uses the explicit
+# polydat-quoted form `'"verbose"'`. No iteration variable is involved.
+# Output: mode=verbose.
+#
+# The sibling files extend this with an outer `for_each` iter-var that
+# the shadow reads (see set_sugar_iter_var, nested_for_under_set, …).
+
+params:
+  mode: default
+
+scenarios:
+  default:
+    - set: { mode: '"verbose"' }
+      phases:
+        - announce_mode
+
+phases:
+  announce_mode:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      msg:
+        stmt: "mode={mode}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect mode=verbose
+#@ expect 0 failed

@@ -25,7 +25,7 @@ pub struct StdoutConfig {
 
 ### Formats
 
-As built in `adapters/stdout/src/lib.rs`, there are 7 formats:
+As built in `crates/nmbrs-adapter-stdout/src/lib.rs`, there are 7 formats:
 
 | Format | Output |
 |--------|--------|

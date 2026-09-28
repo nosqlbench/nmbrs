@@ -10,7 +10,7 @@
 #       linux/amd64   → ubuntu-24.04        + apt deps
 #       linux/arm64   → ubuntu-24.04-arm    + apt deps
 #       macos/arm64   → macos-14            + brew deps
-#     Each entry calls `bash adapters/cql/build.sh driver`
+#     Each entry calls `bash crates/nmbrs-adapter-cql/build.sh driver`
 #     (DRIVER_BUILD_MODE=native) so the driver recipe stays
 #     single-source with the local docker path.
 #
@@ -147,15 +147,15 @@ jobs:
         id: cache-sysroot
         uses: actions/cache@v5
         with:
-          path: adapters/cql/target/sysroot
-          key: cass-cpp-${{ env.CASSANDRA_CPP_DRIVER_REF }}-${{ matrix.target }}-${{ hashFiles('adapters/cql/build.sh', 'adapters/cql/cassandra-cpp-driver.Dockerfile') }}
+          path: crates/nmbrs-adapter-cql/target/sysroot
+          key: cass-cpp-${{ env.CASSANDRA_CPP_DRIVER_REF }}-${{ matrix.target }}-${{ hashFiles('crates/nmbrs-adapter-cql/build.sh', 'crates/nmbrs-adapter-cql/cassandra-cpp-driver.Dockerfile') }}
 
       - name: Build cassandra-cpp-driver (native mode)
         if: steps.cache-sysroot.outputs.cache-hit != 'true'
         env:
           DRIVER_BUILD_MODE: native
           CASSANDRA_CPP_DRIVER_VERSION: ${{ env.CASSANDRA_CPP_DRIVER_REF }}
-        run: bash adapters/cql/build.sh driver
+        run: bash crates/nmbrs-adapter-cql/build.sh driver
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -181,7 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ matrix.os }}" == "macos" ]]; then
-            sysroot="$PWD/adapters/cql/target/sysroot/lib"
+            sysroot="$PWD/crates/nmbrs-adapter-cql/target/sysroot/lib"
             # -f: the sysroot cache restores these .a files with brew's
             # read-only mode; plain cp can't overwrite them on a cache hit.
             cp -f "$(brew --prefix openssl@3)/lib/libcrypto.a" "$sysroot/"
@@ -298,7 +298,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: adapters/cql/nmbrs-cassandra-cpp.Dockerfile
+          file: crates/nmbrs-adapter-cql/nmbrs-cassandra-cpp.Dockerfile
           platforms: ${{ matrix.platform }}
           tags: nmbrs:${{ matrix.arch }}
           outputs: type=docker,dest=/tmp/image-${{ matrix.arch }}.tar

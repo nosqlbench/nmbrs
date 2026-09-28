@@ -39,7 +39,7 @@ case (justification in §3 below).
 
 ## 1. New types
 
-In `nmbrs-metrics/src/component.rs`:
+In `crates/nmbrs-metrics/src/component.rs`:
 
 ```rust
 /// A typed instrument reference owned by a `Component`. The
@@ -345,7 +345,7 @@ store.
 ## 8. Verification
 
 - After step 6, the smoke test on
-  `nmbrs/examples/workloads/metrics/synthetic_metrics.yaml` should populate
+  `crates/nmbrs/examples/workloads/metrics/synthetic_metrics.yaml` should populate
   `latency_curve_ms` / `load` / `step_counter` /
   `observation_dist` in `metrics.db`. The end-to-end
   synthetic-metrics path becomes observably correct.

@@ -1,0 +1,37 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scenario-tree `set:` — composed with `for_each`.
+#
+# The scope-local override coexists with an iteration variable: every
+# iteration of `n` runs under mode=swept. This confirms scenario-tree
+# bindings don't interfere with iter-var binding. Output (one line per n):
+#   set/n=1/swept
+#   set/n=2/swept
+#   set/n=3/swept
+
+params:
+  mode: default
+
+scenarios:
+  default:
+    - set: { mode: '"swept"' }
+      phases:
+        - for_each: "n in 1,2,3"
+          phases:
+            - announce_with_n
+
+phases:
+  announce_with_n:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      msg:
+        stmt: "set/n={n}/{mode}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect set/n=1/swept
+#@ expect set/n=3/swept
+#@ expect 0 failed

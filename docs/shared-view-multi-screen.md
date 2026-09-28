@@ -10,7 +10,7 @@ running session should see the same thing, without mirroring the tty.
 
 ## What already exists (the hard part is done)
 
-- **Multi-client transport.** `nmbrs-tui/src/inspector_server.rs` listens on a
+- **Multi-client transport.** `crates/nmbrs-tui/src/inspector_server.rs` listens on a
   Unix socket at `${XDG_RUNTIME_DIR:-/tmp}/nmbrs-<pid>.sock` and its accept loop
   spawns **a thread per connection**, so concurrent clients already work. Each
   connection is one request/response, stateless.

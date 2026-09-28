@@ -1,0 +1,38 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Long-form `bindings:` reading the iter-var via string interpolation.
+#
+# Inside the `for_each: "sm in alpha, beta"` scope, a `bindings:` block
+# binds `const mode := "{sm}"` — the `{sm}` template interpolates the
+# outer iter-var per iteration. Equivalent result to the bare-identifier
+# form, written through the interpolation surface. Output:
+#   mode=alpha
+#   mode=beta
+
+params:
+  mode: default
+
+scenarios:
+  default:
+    - for_each: "sm in alpha, beta"
+      phases:
+        - bindings: |
+            const mode := "{sm}"
+          phases:
+            - announce_mode
+
+phases:
+  announce_mode:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    ops:
+      msg:
+        stmt: "mode={mode}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect mode=alpha
+#@ expect mode=beta
+#@ expect 0 failed

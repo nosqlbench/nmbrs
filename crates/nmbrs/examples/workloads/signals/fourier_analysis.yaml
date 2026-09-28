@@ -1,0 +1,53 @@
+#!/usr/bin/env nmbrs
+# fourier_analysis.yaml — FFT analysis of a fractal noise signal
+#
+# Generates a fractal noise signal, analyzes it with fft_analyze
+# (writes frequency spectrum to /tmp/fft_output.jsonl), and outputs
+# both the noisy original and a smooth 3-harmonic approximation.
+#
+# Usage:
+#   ./examples/fourier_analysis.yaml
+#   ./examples/fourier_analysis.yaml sample_count=200
+#   cat /tmp/fft_output.jsonl | python3 -m json.tool
+
+params:
+  sample_count: "128"
+
+bindings: |
+  input cycle: u64
+
+  // Complex signal: fractal noise (coherent, multi-octave)
+  signal := fractal_noise_1d(cycle, 42, 0.02, 3)
+
+  // FFT analysis: accumulates samples, writes spectrum every 64
+  fft_pos := fft_analyze(signal, "/tmp/fft_output.jsonl", 64)
+
+  // Bandwidth-reduced approximation: 3-harmonic Fourier series
+  // using stdlib modules — outputs wire as named bindings
+  h1 := sine_wave(cycle, 50)
+  h2 := sine_wave(cycle, 25)
+  h3 := sine_wave(cycle, 17)
+  smooth := (h1 + h2 * 0.5 + h3 * 0.25) * 0.57
+
+scenarios:
+  default:
+    - analyze
+    - compare
+
+phases:
+  analyze:
+    cycles: "{sample_count}"
+    concurrency: 1
+    ops:
+      sample:
+        stmt: "cycle={cycle} signal={signal} fft={fft_pos}"
+
+  compare:
+    cycles: "{sample_count}"
+    concurrency: 1
+    ops:
+      side_by_side:
+        stmt: "cycle={cycle} noisy={signal} smooth={smooth}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

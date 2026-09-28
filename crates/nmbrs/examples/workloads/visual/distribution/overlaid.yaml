@@ -1,0 +1,33 @@
+#!/usr/bin/env nmbrs
+# Copyright 2024-2026 Jonathan Shook
+# SPDX-License-Identifier: Apache-2.0
+#
+# Distribution overlay — all three on one shared axis.
+#
+# `lanes=uniform,normal,exponential` groups every field into a single
+# lane, so the three scatters share one y-axis and overlay in distinct
+# colors — a direct comparison of where each distribution puts its mass
+# (normal mid-band, exponential hugging the bottom, uniform spread even).
+#
+# Every `dist_*` sampler takes a [0,1) value, so each hash is bridged
+# through `unit_interval`; re-hashing gives independent streams.
+
+params:
+  adapter: plotter
+  cycles: "4000"
+  lanes: "uniform,normal,exponential"
+
+bindings: |
+  input cycle: u64
+  uniform     := unit_interval(hash(cycle))
+  normal      := dist_normal(unit_interval(hash(hash(cycle))), 0.5, 0.15)
+  exponential := dist_exponential(unit_interval(hash(hash(hash(cycle)))), 2.0)
+
+ops:
+  sample:
+    uniform: "{uniform}"
+    normal: "{normal}"
+    exponential: "{exponential}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

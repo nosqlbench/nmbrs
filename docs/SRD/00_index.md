@@ -28,7 +28,7 @@ its substrate design lives in the external
 | 01 | [System Overview](01_system_overview.md) | Crate map, data flow, build structure |
 | 02 | [Concurrency Model](02_concurrency_model.md) | Async fibers, tokio runtime, cycle source, rate limiting |
 | 03 | [Error Handling](03_error_handling.md) | Error scoping, routing, retry semantics, silent failure policy |
-| 05 | [Crate & Module Dependency Rules](05_dependency_rules.md) | Dependency layers (L0–L6), the Contract Registry, no-upward-imports, external Polydat boundary; workspace edges are **machine-checked** by `nmbrs/tests/architecture_rules.rs`. Pillar 5 of the Subsystem Treatment Standard |
+| 05 | [Crate & Module Dependency Rules](05_dependency_rules.md) | Dependency layers (L0–L6), the Contract Registry, no-upward-imports, external Polydat boundary; workspace edges are **machine-checked** by `crates/nmbrs/tests/architecture_rules.rs`. Pillar 5 of the Subsystem Treatment Standard |
 | 06 | [Rate Limiter — Contract & Axioms](06_rate_limiter.md) | Front door for **nmbrs-rate**: tight 3-type surface, async-non-blocking acquire, live retarget |
 | 07 | [Error Routing — Contract & Axioms](07_error_routing.md) | Front door for **nmbrs-errorhandler**: pattern→handler-chain router, every-error-routed, standalone |
 | 82 | [Uniform Execution Shells](82_uniform_execution_shells.md) *(DRAFT)* | Scenario graph / phase / stanza / op as one recursive execution shell (body + policy + outcome); two-axis `Outcome` (`Disposition` × `Validity`) replacing `PhaseStatus`; `ErrorPolicy` = per-op router that is also its own resolver (depth-inherit / breadth-share, value-equality, scope-init bound); `stop` cause `Interrupt` vs `Fault`. Extends SRD-03 + SRD-76. Stop conditions are orthogonal — SRD-83 |

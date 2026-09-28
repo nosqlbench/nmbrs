@@ -535,7 +535,7 @@ new tables are additive.
 
 - `PhaseOutcome`, `PhaseStatus`, `PhaseErrorDetail`,
   `PhaseIdentity` in a new module
-  `nmbrs-runtime/src/phase_outcome.rs`.
+  `crates/nmbrs-runtime/src/phase_outcome.rs`.
 - `SceneNode.outcome: Option<PhaseOutcome>` field +
   `set_phase_outcome(idx, outcome)` mutator.
 - Unit tests for the data shape; no executor wiring

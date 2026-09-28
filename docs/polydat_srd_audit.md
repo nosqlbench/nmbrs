@@ -670,7 +670,7 @@ questions in the SRDs themselves:
 from a parsed workload to a polydat kernel (what
 nmbrs-workload does when it produces a `compile_polydat` call
 sequence) doesn't have a dedicated design doc. The code
-lives in `nmbrs-workload/src/` but the contract between
+lives in `crates/nmbrs-workload/src/` but the contract between
 nmbrs-workload and polydat-as-substrate is implicit.
 **Recommendation:** lower priority; the bridge is
 stable and small, and the contract is "produce valid

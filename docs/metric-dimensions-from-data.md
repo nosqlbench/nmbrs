@@ -27,7 +27,7 @@ compaction_bytes_out{tier="25"}
 
 Today the label values a metric can carry are fixed at component-attach time
 (`component.effective_labels()`, read in `wrappers/metrics.rs:277`). Nothing in
-`MetricSpec` (`nmbrs-workload/src/model.rs:2234`: `value`, `family`, `kind`,
+`MetricSpec` (`crates/nmbrs-workload/src/model.rs:2234`: `value`, `family`, `kind`,
 `unit`, `format`) can bind a label to captured data.
 
 ## What already works, and is not the problem
@@ -43,14 +43,14 @@ Verified on 2026-07-28, so the design does not need to solve any of it:
   `capture: kname: "/0/keyspace_name"` → `str_eq(kname, "system")` → `1`, with
   the negative comparison returning `0`.
 - Storage already models one instance per label set — `metric_instance` +
-  `instance_label` (`nmbrs-metrics/src/reporters/sqlite.rs:368,400`).
+  `instance_label` (`crates/nmbrs-metrics/src/reporters/sqlite.rs:368,400`).
 
 The metrics/metricsql nodes use `Const<&str>` **by choice** — they pre-parse the
 pattern via `#[poly_const(...)]` — not because polydat lacks runtime strings.
 
 ## The invariant this must not weaken
 
-`Component::register_instrument_with_unit` (`nmbrs-metrics/src/component.rs:232`)
+`Component::register_instrument_with_unit` (`crates/nmbrs-metrics/src/component.rs:232`)
 rejects a second registration of the same family on one component:
 
 > The component's `effective_labels` define the dimensional cell; the same
@@ -134,7 +134,7 @@ Read as: *this measurement, in the cell where `tier` = the captured value.*
 
 Scope synthesis emits a typed binding per cell coordinate, exactly as phase
 metrics already emit `volatile __metric_<name> := <expr>`
-(`nmbrs-runtime/src/scope.rs`):
+(`crates/nmbrs-runtime/src/scope.rs`):
 
 ```
 volatile __cell_tier := tier_name       # typed Str by the declaration

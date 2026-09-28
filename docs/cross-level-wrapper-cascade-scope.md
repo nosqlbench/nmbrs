@@ -3,7 +3,7 @@
 Status: **scoping / not started.** Lineage: **SRD-82 "Uniform Execution Shells"** (the
 written spec; `docs/SRD/82_uniform_execution_shells.md`), tagged **SRD-92 / "ExecUnification"**
 in code. This is the "Step 5 / cross-level layering" the wrapper-registry comments defer
-(`nmbrs-runtime/src/wrapper_registry.rs:42-45, 126-130`). The granular Step-5 plan the code
+(`crates/nmbrs-runtime/src/wrapper_registry.rs:42-45, 126-130`). The granular Step-5 plan the code
 cites (`local/ExecUnification/11_step5_plan.md`) is **not in the repo** — this doc reconstructs
 the scope from the code + SRD-82.
 

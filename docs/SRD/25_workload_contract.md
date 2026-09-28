@@ -31,4 +31,4 @@ consumes `polydat` (`ast`, `dsl`); `template` / `spectest` are internal.
 [SRD 72](72_workload_extends.md) (extends), [SRD 85](85_bundled_workloads.md) (bundled).
 
 ## See also
-`nmbrs-workload/src/lib.rs`; [SRD 20](20_workload_model.md); [SRD 21](21_parameters.md); [SRD 72](72_workload_extends.md); [SRD 85](85_bundled_workloads.md).
+`crates/nmbrs-workload/src/lib.rs`; [SRD 20](20_workload_model.md); [SRD 21](21_parameters.md); [SRD 72](72_workload_extends.md); [SRD 85](85_bundled_workloads.md).

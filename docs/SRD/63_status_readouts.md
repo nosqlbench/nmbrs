@@ -7,9 +7,9 @@
 > with both `StringSink` and `TuiReadoutSink`, both the stateless
 > `DefaultBinder` and the stateful `TuiReadoutBinder` (focus / LOD /
 > overlay), the baked-step compiler, and the `readout_snapshots` sqlite
-> retention table. Code lives in `nmbrs-runtime/src/readouts/`
+> retention table. Code lives in `crates/nmbrs-runtime/src/readouts/`
 > (`readout.rs`, `context.rs`, `binder.rs`, `registry.rs`,
-> `snapshot.rs`, `parse.rs`) and `nmbrs-tui/src/readout_sink.rs` +
+> `snapshot.rs`, `parse.rs`) and `crates/nmbrs-tui/src/readout_sink.rs` +
 > `readout_panel.rs`. The ONE piece still stubbed is the **Explanation
 > overlay** (§3.2): `ContentMode::Explanation` currently renders zero
 > bytes for all readouts, pending its push.
@@ -1123,7 +1123,7 @@ pub trait ReadoutSink {
     fn line_break(&mut self);
 }
 
-// As built in `nmbrs-runtime/src/readouts/binder.rs` — `literal()` for
+// As built in `crates/nmbrs-runtime/src/readouts/binder.rs` — `literal()` for
 // raw passthrough, `render()` takes an owned `ReadoutHandle`.
 
 pub enum LayoutHint {

@@ -10,7 +10,7 @@ keeps `count` / `ok` / path-expr semantics through the new
 type. `OpResult::body.to_text()` is added as the canonical
 text projection (default JSON-stringify; per-adapter
 overrides for TextBody and others). The
-`nmbrs/workloads/cql/full_cql_vector.yaml` migration is
+`crates/nmbrs/workloads/cql/full_cql_vector.yaml` migration is
 landed in the new shape — `cql_dialect` param removed,
 `detect_dialect` phase prepended to every scenario, four
 `if`-gated ops collapsed to two `pick`-driven ops. The full
@@ -28,11 +28,11 @@ discovered during the partial implementation.
 authors
 **Implementation target:**
   `polydat/src/nodes/pick.rs` (new),
-  `nmbrs-runtime/src/wrappers.rs` (result-wire polydat-call dispatch
+  `crates/nmbrs-runtime/src/wrappers.rs` (result-wire polydat-call dispatch
   — replaces today's deferred-Warn stub at line ~751),
-  `nmbrs-runtime/src/fixture.rs` / op-template scope wiring
+  `crates/nmbrs-runtime/src/fixture.rs` / op-template scope wiring
   (magic `body` extern),
-  `nmbrs/workloads/cql/full_cql_vector.yaml` (first consumer)
+  `crates/nmbrs/workloads/cql/full_cql_vector.yaml` (first consumer)
 **Cross-refs:** SRD-12 (GK stdlib), SRD-13d (op-template scope),
   SRD-16 (mutability rules — `shared`), SRD-34 (capture points),
   SRD-40b §5 (result-as-GK), SRD-50 (CQL adapter)
@@ -145,7 +145,7 @@ string in one of four forms: `count` (row count), `ok`
 (success boolean), `<path-expr>` (JSON-path into the result
 body), or `<polydat-call>` (arbitrary Polydat expression). The first
 three are implemented in
-`nmbrs-runtime/src/wrappers.rs::ResultDispenser`. The polydat-call
+`crates/nmbrs-runtime/src/wrappers.rs::ResultDispenser`. The polydat-call
 form emits a one-time Warn ("not yet supported — slot will
 resolve to its default") at runtime; the parser at
 `wrappers.rs:751` recognises it via a `(` detector but the
@@ -707,7 +707,7 @@ Three pushes with gates:
 ### Push 2 — `result:` op-template field + result wrapper
 
 - Workload schema:
-  - `nmbrs-workload/src/model.rs`: change `ParsedOp.result`
+  - `crates/nmbrs-workload/src/model.rs`: change `ParsedOp.result`
     from `HashMap<String, ResultWireSpec>` to a vari-
     structured `Option<ResultSpec>`, with shapes per
     §"Surface 1 §Schema." Drop the existing
@@ -734,7 +734,7 @@ Three pushes with gates:
   variant for the body wire (see §"Open: body type" in
   Surface 4) and how it round-trips through the JSON-AST
   for map-shape composite output.
-- `nmbrs-runtime/src/wrappers.rs::ResultDispenser`:
+- `crates/nmbrs-runtime/src/wrappers.rs::ResultDispenser`:
   - Replaces the count/ok/path-expr/polydat-call source dispatch
     with a kernel-driven path. The wrapper still occupies
     its position in the SRD-32a registry with
@@ -746,7 +746,7 @@ Three pushes with gates:
     GkState. Map-shape adds the composite-wire assembly step
     (collect each entry's typed value, project to JSON AST,
     materialise as a single typed-map wire).
-- `nmbrs-runtime/src/wrapper_registrations.rs::trigger_result`
+- `crates/nmbrs-runtime/src/wrapper_registrations.rs::trigger_result`
   flips from "result map non-empty" to "result spec
   present and non-empty."
 - Tests:
@@ -769,7 +769,7 @@ Three pushes with gates:
 
 ### Push 3 — Workload migration
 
-- `nmbrs/workloads/cql/full_cql_vector.yaml` rewrites per
+- `crates/nmbrs/workloads/cql/full_cql_vector.yaml` rewrites per
   §"Worked example". `cql_dialect` param deleted; `if:` gates
   removed; four ops → two ops.
 - Smoke run against a Cassandra 5 cluster confirms the SAI

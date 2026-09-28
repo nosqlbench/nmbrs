@@ -1,0 +1,85 @@
+#!/usr/bin/env nmbrs
+# Summary Report — Multi-Phase with Mixed Metrics
+#
+# Demonstrates how the summary table adapts to phases that produce
+# different metric types: some phases have latency data, some have
+# gauge data, some have both. The summary auto-discovers columns
+# from whatever the workload produced.
+#
+# Also shows:
+# - Phase-level `summary: true` (show all gauges) vs `summary: [recall]`
+#   (show only recall gauges) vs absent (exclude from summary)
+# - Auto-scaled latency units (ns, µs, ms, s) based on magnitude
+# - Row filtering via `filter=<regex>` in the summary DSL
+#
+# Usage:
+#   nmbrs run workload=examples/summary_multi_phase.yaml
+#   nmbrs run workload=examples/summary_multi_phase.yaml scenario=filtered
+
+params:
+  adapter: stdout
+  item_count: "1000"
+  batch_sizes: "small,medium,large"
+
+# Show all columns discovered across phases.
+# Filter to only show search and load phases (exclude setup).
+# (SRD-46)
+report:
+  default: |
+    table default
+      all
+
+bindings: |
+  input cycle: u64
+
+scenarios:
+  default:
+    - setup
+    - for_each: "batch in {batch_sizes}"
+      phases:
+        - load
+        - search
+
+  # Row filter: only show search phases in the summary
+  filtered:
+    - setup
+    - for_each: "batch in {batch_sizes}"
+      phases:
+        - load
+        - search
+
+phases:
+  # No summary: field — this phase is excluded from the report
+  setup:
+    cycles: 1
+    concurrency: 1
+    ops:
+      init:
+        stmt: "Initializing {item_count} items"
+
+  # summary: true — all available columns shown for this phase
+  load:
+    cycles: "{item_count}"
+    concurrency: 1
+    bindings: |
+      input cycle: u64
+      item_id := zero_pad_u64(mod_wire(hash(cycle), item_count), 6)
+      payload := number_to_words(mod(hash(hash(cycle)), 100))
+    ops:
+      insert:
+        stmt: "LOAD batch={batch} id={item_id} data={payload}"
+
+  # summary: [recall] — only recall gauges shown for this phase
+  search:
+    cycles: "{item_count}"
+    concurrency: 1
+    bindings: |
+      input cycle: u64
+      query_id := zero_pad_u64(mod(hash(cycle), 500), 6)
+      score := format_f64(to_f64(mod(hash(hash(cycle)), 10000)) / 10000.0, 4)
+    ops:
+      query:
+        stmt: "SEARCH batch={batch} query={query_id} score={score}"
+
+# ─── example-walker test directives (crates/nmbrs/tests/example_workloads_in_process.rs) ───
+#@ expect completed, 0 failed

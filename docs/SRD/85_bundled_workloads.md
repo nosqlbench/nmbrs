@@ -1,8 +1,8 @@
 # SRD 85: Bundled Workloads — Catalog, Discovery, and Materialization
 
 **Status: SHIPPED (P1+P2+P3, 2026-06-11).** Catalog types +
-registry in `nmbrs-workload/src/catalog.rs`; embedding generated
-by `nmbrs/build.rs` alone — the binary is the only catalog
+registry in `crates/nmbrs-workload/src/catalog.rs`; embedding generated
+by `crates/nmbrs/build.rs` alone — the binary is the only catalog
 assembler, so it is the only generator (adapter directories are
 included there behind the same feature gates that compile the
 adapters in, read as `CARGO_FEATURE_*`); resolution + ambiguity
@@ -10,8 +10,8 @@ error in
 `nmbrs-runtime::runner::resolve_workload`; bundled loading
 through `extends::load_and_merge_bundled` with catalog-name
 session identity; `nmbrs describe workloads`
-(list/detail/`--all`/`examples`/`--json`) in `nmbrs/src/describe.rs`;
-`nmbrs copy` in `nmbrs/src/copy_cmd.rs`; shell completion falls
+(list/detail/`--all`/`examples`/`--json`) in `crates/nmbrs/src/describe.rs`;
+`nmbrs copy` in `crates/nmbrs/src/copy_cmd.rs`; shell completion falls
 back to catalog sources for param/scenario suggestions. P3
 landed with it: `extends:` targets resolve local-first then
 catalog, with **namespace-relative sibling resolution** for
@@ -23,7 +23,7 @@ disk and in the catalog). The curated tier ships with
 ports of the heritage baselines, op shapes only — plus the
 vector suite and compaction test), all carrying
 `description:`. Coverage:
-`nmbrs/tests/bundled_workloads.rs` (bare-directory runs, tier
+`crates/nmbrs/tests/bundled_workloads.rs` (bare-directory runs, tier
 listing, lint, copy, ambiguity, extends-from-bundled).
 Implementation deltas from the draft are folded into the
 sections below (the curated lint runs as a CI-gating e2e test
@@ -72,9 +72,9 @@ source location:
 
 | Namespace | Source | Tier |
 |-----------|--------|------|
-| *(top level, no slash)* and per-domain groups | `nmbrs/workloads/` (inside the binary's package, so a crates.io build bundles it) | **curated** |
-| `<adapter>/…` (e.g. `cql/…`) | `nmbrs/workloads/<adapter>/` | **curated**, present only when the adapter is compiled in |
-| `examples/…` | `nmbrs/examples/workloads/` | **examples** — bundled, runnable, unlisted by default |
+| *(top level, no slash)* and per-domain groups | `crates/nmbrs/workloads/` (inside the binary's package, so a crates.io build bundles it) | **curated** |
+| `<adapter>/…` (e.g. `cql/…`) | `crates/nmbrs/workloads/<adapter>/` | **curated**, present only when the adapter is compiled in |
+| `examples/…` | `crates/nmbrs/examples/workloads/` | **examples** — bundled, runnable, unlisted by default |
 
 `workload=cql/keyvalue` and
 `workload=examples/cursors/timeboxed_partition_sweep` run a bundled
@@ -112,7 +112,7 @@ is unambiguous and warns about nothing.
 ### Discovery — `nmbrs describe workloads`
 
 Discovery rides the existing `describe` topic dispatch
-(`nmbrs/src/describe.rs`), not a new subcommand family:
+(`crates/nmbrs/src/describe.rs`), not a new subcommand family:
 
 ```
 nmbrs describe workloads                  # curated tier: name, description, adapter(s)
@@ -202,9 +202,9 @@ pub struct BundledWorkload {
 }
 ```
 
-- `nmbrs/workloads/` (curated, top-level names) and
-  `nmbrs/examples/workloads/` (examples tier) are always embedded.
-- `nmbrs/workloads/<a>/` subtrees are embedded under the
+- `crates/nmbrs/workloads/` (curated, top-level names) and
+  `crates/nmbrs/examples/workloads/` (examples tier) are always embedded.
+- `crates/nmbrs/workloads/<a>/` subtrees are embedded under the
   adapter's namespace **only when the adapter's feature is
   enabled** — build scripts see their crate's features as
   `CARGO_FEATURE_*` env vars, so a build without the CQL engine
