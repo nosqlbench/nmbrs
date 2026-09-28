@@ -3111,7 +3111,6 @@ name = "nmbrs-metrics"
 version = "0.3.0"
 dependencies = [
  "arc-swap",
- "base64",
  "criterion",
  "crossbeam-channel",
  "futures",

@@ -38,7 +38,6 @@ rusqlite = { version = "0.31", features = ["bundled", "functions"], optional = t
 # `queryapi` module, so non-optional.
 regex = "1"
 reqwest = { version = "0.12", features = ["blocking"], optional = true }
-base64 = { version = "0.22", optional = true }
 # SRD-102 physical thread pools: sched_setscheduler / setpriority /
 # sched_setaffinity for the `timing` pool's realtime + affinity policy
 # (Linux; a logged no-op elsewhere).
@@ -52,7 +51,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] 
 default = []
 sqlite = ["dep:rusqlite"]
 victoriametrics = ["dep:reqwest"]
-all-reporters = ["sqlite", "victoriametrics", "dep:base64"]
+all-reporters = ["sqlite", "victoriametrics"]
 
 [[bench]]
 name = "instruments"
