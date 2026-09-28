@@ -1325,10 +1325,12 @@ fn is_bare_ident(s: &str) -> bool {
 /// Coerce a kernel `Value` to a non-negative integer suitable for
 /// `k:` / `r:` count fields. U64 / F64 (non-negative) accepted;
 /// other variants signal a type mismatch the caller surfaces.
-fn value_to_u64_for_count(value: polydat::ast::Value) -> Option<u64> {
+pub(crate) fn value_to_u64_for_count(value: polydat::ast::Value) -> Option<u64> {
     use polydat::ast::Value;
     match value {
         Value::U64(n) => Some(n),
+        Value::I64(n) => u64::try_from(n).ok(),
+        Value::Str(s) => crate::runner::parse_count(&s),
         Value::F64(f) if f.is_finite() && f >= 0.0 => Some(f as u64),
         Value::Bool(true) => Some(1),
         Value::Bool(false) => Some(0),

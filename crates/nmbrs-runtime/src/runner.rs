@@ -2852,69 +2852,6 @@ async fn run_execution(
         );
     let kernel = workload_canonical_kernel.clone();
 
-    // Extract output manifest and folded constant values from outer kernel
-    // === Polydat Config Resolution (all done before kernel is consumed) ===
-    // (The `cycles=` / `concurrency=` resolution that used to
-    // happen here fed the now-deleted single-activity branch.
-    // The phased path resolves these per-phase inside
-    // `run_phase` via the phase-scope Polydat Kernel.)
-
-    // Collect phases that are inside scenario for_each groups — these have
-    // iteration variables resolved at runtime, not pre-resolution time.
-    fn collect_grouped_phases(
-        nodes: &[nmbrs_workload::model::ScenarioNode],
-        in_group: bool,
-        out: &mut std::collections::HashSet<String>,
-    ) {
-        for node in nodes {
-            match node {
-                nmbrs_workload::model::ScenarioNode::Phase(name) => {
-                    if in_group {
-                        out.insert(name.clone());
-                    }
-                }
-                nmbrs_workload::model::ScenarioNode::Comprehension { children, .. }
-                | nmbrs_workload::model::ScenarioNode::DoWhile { children, .. }
-                | nmbrs_workload::model::ScenarioNode::DoUntil { children, .. } => {
-                    collect_grouped_phases(children, true, out);
-                }
-                nmbrs_workload::model::ScenarioNode::IncludedScenario { children, .. } => {
-                    // Inclusion is transparent — children inherit
-                    // whatever grouping context wrapped the
-                    // include site. We pass `in_group` through
-                    // so a `scenario:` reference at top level of
-                    // a scenario doesn't artificially mark its
-                    // phases as grouped.
-                    collect_grouped_phases(children, in_group, out);
-                }
-                nmbrs_workload::model::ScenarioNode::Bindings { children, .. } => {
-                    // Scenario-tree `bindings:` (and the `set:`
-                    // sugar that lowers to it) is transparent
-                    // for grouping — it doesn't introduce
-                    // iteration. Pass `in_group` through.
-                    collect_grouped_phases(children, in_group, out);
-                }
-            }
-        }
-    }
-    let mut grouped_phases = std::collections::HashSet::new();
-    for nodes in scenarios.values() {
-        collect_grouped_phases(nodes, false, &mut grouped_phases);
-    }
-
-    // Pre-resolve phase cycles (skip phases with for_each or in scenario groups)
-    let mut resolved_phase_cycles: HashMap<String, Option<u64>> = HashMap::new();
-    for (name, phase) in &phases {
-        if phase.for_each.is_some() || grouped_phases.contains(name) {
-            continue;
-        }
-        let resolved = phase.cycles.as_ref().and_then(|s| {
-            let expanded = expand_workload_params(s, &workload_params);
-            resolve_polydat_config(&expanded, &kernel)
-        });
-        resolved_phase_cycles.insert(name.clone(), resolved);
-    }
-
     // Strip workload-level adapter/driver from op params
     // (adapter is resolved per-phase/per-op, not from workload params)
     for op in &mut all_ops_for_compile {
@@ -5700,56 +5637,6 @@ fn scan_input_decl_names(out: &mut std::collections::HashSet<String>, body: &str
     let name = body.split(':').next().unwrap_or("").trim();
     if !name.is_empty() {
         out.insert(name.to_string());
-    }
-}
-
-/// Resolve a config value to u64 via Polydat scope lookup or numeric parsing.
-pub fn resolve_polydat_config(
-    value: &str,
-    kernel: &crate::scope_kernel::ScopeKernel,
-) -> Option<u64> {
-    if value.starts_with('{') && value.ends_with('}') {
-        let inner = &value[1..value.len() - 1];
-        // SRD-16 §"Visibility Rules: Shadowing": `lookup`
-        // walks own folded outputs first then the cell-aware
-        // input slot, so a config reference like `{cycles}`
-        // resolves whether `cycles` is a folded constant or
-        // an extern bound from an outer scope. The previous
-        // `get_constant` shape only saw the folded tier, so
-        // configs referencing iter-vars or workload params
-        // silently fell through to `eval_const_expr`.
-        if let Some(v) = kernel.lookup(inner) {
-            return Some(value_to_u64(&v));
-        }
-        match polydat::dsl::compile::eval_const_expr(inner) {
-            Ok(v) => Some(value_to_u64(&v)),
-            Err(e) => {
-                crate::diag!(
-                    crate::observer::LogLevel::Error,
-                    "error: const expression failed: '{{{inner}}}'"
-                );
-                crate::diag!(crate::observer::LogLevel::Error, "  {e}");
-                None
-            }
-        }
-    } else {
-        parse_count(value)
-    }
-}
-
-/// Convert a Polydat Value to u64, handling f64→u64 truncation.
-fn value_to_u64(v: &polydat::ast::Value) -> u64 {
-    match v {
-        polydat::ast::Value::U64(n) => *n,
-        polydat::ast::Value::F64(f) => *f as u64,
-        polydat::ast::Value::Bool(b) => {
-            if *b {
-                1
-            } else {
-                0
-            }
-        }
-        _ => 0,
     }
 }
 

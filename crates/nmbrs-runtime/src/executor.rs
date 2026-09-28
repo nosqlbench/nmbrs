@@ -5256,25 +5256,18 @@ async fn run_phase_inner(
             })
             .unwrap_or(stanza_len)
     } else {
-        // Try resolving from kernel
         let mut expanded = spec.to_string();
         for (v, val) in &iter_var_values {
             expanded = expanded.replace(&format!("{{{v}}}"), val);
         }
         expanded = crate::runner::expand_workload_params(&expanded, &ctx.workload_params);
-        let stanzas = crate::runner::parse_count(&expanded)
-            .or_else(|| {
-                if expanded.starts_with('{') && expanded.ends_with('}') {
-                    let inner = &expanded[1..expanded.len() - 1];
-                    polydat::dsl::compile::eval_const_expr(inner)
-                        .ok()
-                        .map(|v| v.as_u64())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(1);
-        stanzas * stanza_len
+        match resolve_stanza_count(&expanded, &activation_scope) {
+            Ok(stanzas) => stanzas * stanza_len,
+            Err(e) => {
+                return crate::phase_outcome::Outcome::failed()
+                    .with_reason(format!("phase '{phase_name}': cycles: {e}"));
+            }
+        }
     };
 
     // Diagnostic output — value-provenance / wiring view.
@@ -7452,6 +7445,37 @@ fn emit_phase_metrics(
         }
     }
     Ok(())
+}
+
+/// The stanza count a phase's `cycles:` spec names, after iteration
+/// variables and workload params are substituted: a count (`1000`,
+/// `10K`), a `{name}` the phase scope resolves — a param, an
+/// iteration value, or one of the phase's own bindings (a dataset's
+/// `query_count(...)`, say), evaluated if it is computed — or a
+/// `{const expression}`. Anything else is an error: running a guessed
+/// count would quietly turn a per-row check into a one-row check.
+fn resolve_stanza_count(
+    spec: &str,
+    scope: &crate::scope_kernel::ScopeKernel,
+) -> Result<u64, String> {
+    if let Some(n) = crate::runner::parse_count(spec) {
+        return Ok(n);
+    }
+    let Some(inner) = spec.strip_prefix('{').and_then(|s| s.strip_suffix('}')) else {
+        return Err(format!("`{spec}` is neither a count nor a `{{binding}}`"));
+    };
+    let inner = inner.trim();
+    if let Some(v) = scope.pull_value(inner) {
+        return crate::validation::value_to_u64_for_count(v.clone())
+            .ok_or_else(|| format!("`{{{inner}}}` is {v:?}, not a count"));
+    }
+    let v = polydat::dsl::compile::eval_const_expr(inner).map_err(|e| {
+        format!(
+            "`{{{inner}}}` is not a binding in this phase's scope, nor a constant expression: {e}"
+        )
+    })?;
+    crate::validation::value_to_u64_for_count(v.clone())
+        .ok_or_else(|| format!("`{{{inner}}}` is {v:?}, not a count"))
 }
 
 /// SRD-35 Push B helper — return the conventional
