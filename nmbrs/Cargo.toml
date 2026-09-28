@@ -61,9 +61,9 @@ polydat = "0.6.2"
 # §"The metric-reader surface"); the CLI locates it via the queryapi.
 nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.3.0", features = ["sqlite"] }
 nmbrs-metricsql = { path = "../nmbrs-metricsql", version = "0.3.0", features = ["runtime", "polydat-nodes"] }
-nmbrs-workload = { path = "../nmbrs-workload", version = "0.2.1" }
+nmbrs-workload = { path = "../nmbrs-workload", version = "0.3.0" }
 nmbrs-rate = { path = "../nmbrs-rate", version = "0.3.0" }
-nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.2.1" }
+nmbrs-errorhandler = { path = "../nmbrs-errorhandler", version = "0.3.0" }
 nmbrs-runtime = { path = "../nmbrs-runtime", version = "0.3.0" }
 # Used by the `vectordata-audit` bin to scrutinise dataset
 # relationships through the catalog API (transport- and

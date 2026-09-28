@@ -42,7 +42,7 @@ polydat = "0.6.2"
 # CUSTOM (vector) binder's `Float16Type` / `HalfFloatType` path
 # so a `Value::VecF16` slice binds natively without widening.
 half = "2"
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.2.1" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.3.0" }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "rt"] }
 inventory = "0.3"
