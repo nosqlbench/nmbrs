@@ -45,7 +45,7 @@
 //! - Upstream Go: <https://github.com/VictoriaMetrics/metricsql>
 //! - Test fixtures: `tests/fixtures/*.json`, harvested from
 //!   the upstream `_test.go` files via
-//!   `scripts/extract_fixtures.go`.
+//!   `examples/extract_fixtures.rs`.
 
 // nmbrs-metricsql is a standalone, extractable library (a VictoriaMetrics
 // MetricsQL port). Its public API is its OWN library contract — the parser,

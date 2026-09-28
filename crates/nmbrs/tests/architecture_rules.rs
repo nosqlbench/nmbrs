@@ -458,3 +458,33 @@ fn scan_no_fd_writes_file(path: &Path, needles: &[&str], hits: &mut Vec<String>)
         }
     }
 }
+
+/// R1 — the repository carries no Python. Tooling is Rust (a crate example
+/// or bin, e.g. `nmbrs-metricsql/examples/extract_fixtures.rs`) or shell.
+/// Checks tracked files, so untracked scratch and build output don't count;
+/// skipped when the tree isn't a git checkout.
+#[test]
+fn r1_no_python() {
+    let root = workspace_root();
+    let Ok(out) = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", "*.py", "*.pyi", "*.ipynb"])
+        .current_dir(&root)
+        .output()
+    else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let tracked: Vec<String> = out
+        .stdout
+        .split(|&b| b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect();
+    assert!(
+        tracked.is_empty(),
+        "Python files are not allowed in this repository; port them to Rust:\n  {}",
+        tracked.join("\n  ")
+    );
+}

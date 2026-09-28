@@ -142,6 +142,13 @@ As of 0.3.0 all 551 cases pass. These fixtures cover parsing and
 prettifying; the evaluator is tested by the crate's own unit and
 integration tests.
 
+To re-harvest the fixtures from a checkout of the upstream repository
+(defaults to `links/metricsql` at the workspace root):
+
+```sh
+cargo run -p nmbrs-metricsql --example extract_fixtures -- path/to/metricsql
+```
+
 ## Cargo features
 
 All features are off by default. With no features, the crate provides

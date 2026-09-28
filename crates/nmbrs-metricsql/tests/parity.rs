@@ -3,7 +3,7 @@
 //
 // Round-trip parity tests against upstream's parser_test.go
 // and prettifier_test.go. The fixture JSON is harvested by
-// `scripts/extract_fixtures.py`; each case is a
+// `examples/extract_fixtures.rs`; each case is a
 // (input, expected) pair where `parse(input)` followed by
 // `pretty_string(...)` must equal `expected`.
 //
