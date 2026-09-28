@@ -5,13 +5,12 @@
 //!
 //! Workloads embedded into the artifact, discoverable by
 //! catalog name (`cql/keyvalue`, `examples/lfsr`). The catalog
-//! is assembled once at process startup from the manifests each
-//! contributing crate generates at build time (see
-//! `tools/bundle-gen`): the core binary contributes the curated
-//! `workloads/` set and the `examples/` tier; adapter crates
-//! contribute their own `adapters/<a>/workloads/` sets behind
-//! their feature gates, so the catalog is truthful about what
-//! *this* binary can run.
+//! is assembled once at process startup ([`install`]) from the
+//! manifest the `nmbrs` binary's build script generates: the
+//! curated `workloads/` set (its `cql/` subtree only when a CQL
+//! engine feature is enabled, so the catalog is truthful about
+//! what *this* binary can run) plus the `examples/` and
+//! `drivers/` tiers.
 //!
 //! Visibility tiers separate the two audiences: everything in
 //! the catalog is runnable by name, but only the

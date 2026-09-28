@@ -3,9 +3,7 @@
 
 //! Adapter registration.
 //!
-//! Built-in adapters have been moved to their own crates under adapters/:
-//! - nmbrs-adapter-stdout
-//! - nb-adapter-model
-//! - nmbrs-adapter-http
+//! The adapters themselves live in their own crates,
+//! `crates/nmbrs-adapter-<name>`.
 //!
 //! This module remains for any shared adapter utilities.

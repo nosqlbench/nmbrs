@@ -92,20 +92,6 @@ pub fn resolve_workload_path(name: &str) -> Option<String> {
         }
     }
 
-    // Adapter-bundled workloads — the canonical home for
-    // workloads shipped with each adapter crate. Probed last
-    // so an explicit `workloads/` override always wins.
-    // Pattern: `adapters/<adapter>/workloads/<name>{,.yaml,.yml}`.
-    if let Ok(adapters_dir) = std::fs::read_dir("adapters") {
-        for entry in adapters_dir.flatten() {
-            for ext in &["", ".yaml", ".yml"] {
-                let path = entry.path().join("workloads").join(format!("{name}{ext}"));
-                if path.exists() {
-                    return path.to_str().map(String::from);
-                }
-            }
-        }
-    }
     // Examples are always probed too — handy for ad-hoc
     // explorations where the user just types the example name
     // (e.g. `nmbrs plot --name X workload=feature_showcase`).

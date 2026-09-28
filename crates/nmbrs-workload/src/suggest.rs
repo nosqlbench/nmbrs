@@ -129,7 +129,7 @@ fn leaf_of(s: &str) -> &str {
 /// repo's own example files don't double up with their embedded copies in a
 /// suggestion list. The double-up is what makes `examples/dy<TAB>` collapse
 /// to the shared `examples/` prefix (catalog `examples/controls/…` vs file
-/// `crates/nmbrs/examples/workloads/controls/….yaml`); dropping the redundant file
+/// `examples/workloads/controls/….yaml`); dropping the redundant file
 /// leaves one clean candidate bash can complete to.
 fn is_catalog_duplicate(rel: &str) -> bool {
     catalog_name_for_local(rel).is_some_and(|n| crate::catalog::lookup(&n).is_some())

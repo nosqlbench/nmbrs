@@ -235,7 +235,7 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
                 flushes on its own cadence — see SRD-40b), pass \
                 `workload=<file>` to resolve items from the \
                 YAML source instead. Example: \
-                `nmbrs report all workload=adapters/<adapter>/workloads/<workload>.yaml`"
+                `nmbrs report all workload=path/to/<workload>.yaml`"
             );
         } else {
             eprintln!(
@@ -1183,8 +1183,8 @@ fn db_flag_path(args: &[String]) -> Option<PathBuf> {
 /// (a path, persisted at end-of-run) wins; a LIVE session only has
 /// the start-of-run `workload` row — the arg as passed, often a
 /// bare name — which goes through the same name→path search `nmbrs
-/// run` uses (cwd, `workloads/`, `adapters/*/workloads/`,
-/// `crates/nmbrs/examples/workloads/`). `None` when the db is absent/unreadable
+/// run` uses (cwd, `workloads/`, `examples/workloads/`). `None` when
+/// the db is absent/unreadable
 /// or no run recorded either row; an unresolvable name is returned
 /// as-is so the caller's error can say what the session recorded.
 fn workload_recorded_in(db_path: &Path) -> Option<PathBuf> {
