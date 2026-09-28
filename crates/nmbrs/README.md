@@ -45,9 +45,8 @@ cargo install nmbrs
 ```
 
 The default build uses only pure-Rust dependencies and needs no C/C++
-toolchain. Besides `nmbrs`, the package also installs three auxiliary tools
-for vector-search datasets: `vectordata-audit`, `recall-audit` and
-`trace-recall`.
+toolchain. Besides `nmbrs`, the package also installs two auxiliary tools
+for vector-search datasets: `vectordata-audit` and `trace-recall`.
 
 Enable shell completion (bash; `nmbrs completions --shell <bash|zsh|fish|elvish|powershell>`
 prints the script for a specific shell):

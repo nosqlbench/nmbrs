@@ -19,10 +19,6 @@ name = "vectordata-audit"
 path = "src/bin/vectordata_audit.rs"
 
 [[bin]]
-name = "recall-audit"
-path = "src/bin/recall_audit.rs"
-
-[[bin]]
 name = "trace-recall"
 path = "src/bin/trace_recall.rs"
 

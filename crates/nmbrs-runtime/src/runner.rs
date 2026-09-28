@@ -5791,8 +5791,6 @@ fn resolve_scenario(
 ///         ann_query                       (concurrency: {query_concurrency})
 /// scenario 'test_fknn'
 ///   ...
-/// recall_audit_oracle
-/// recall_audit_pvs
 /// ```
 ///
 /// The replaced LISP-shaped one-liner had bracket nesting that
