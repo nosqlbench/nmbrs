@@ -256,7 +256,7 @@ nmbrs against it with the variables above set:
 cd crates/nmbrs-adapter-cql
 bash build.sh driver     # build only the C++ driver into target/sysroot
 bash build.sh            # driver, then nmbrs with engine-cassandra-cpp
-bash build.sh install    # cargo install --path nmbrs --features all-engines
+bash build.sh install    # cargo install --path crates/nmbrs --features all-engines
 ```
 
 ## Cargo features

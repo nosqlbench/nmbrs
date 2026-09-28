@@ -4,7 +4,7 @@
 [alias]
 t = "test --release"
 b = "build --release"
-in = "install --path nmbrs"
+in = "install --path crates/nmbrs"
 
 # Direct all test temp files to target/test-tmp/ instead of /tmp.
 [env]

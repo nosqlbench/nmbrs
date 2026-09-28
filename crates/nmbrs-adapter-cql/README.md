@@ -203,7 +203,7 @@ git clone https://github.com/nosqlbench/nmbrs && cd nmbrs/adapters/cql
 bash build.sh           # build the driver, then nmbrs with engine-cassandra-cpp
 bash build.sh driver    # only the driver, into target/sysroot/
 bash build.sh cargo     # only nmbrs (the sysroot must exist)
-bash build.sh install   # cargo install --path nmbrs --features all-engines
+bash build.sh install   # cargo install --path crates/nmbrs --features all-engines
 bash build.sh docker    # build nmbrs entirely inside Docker
 bash build.sh clean     # cargo clean for this crate, and remove the Docker images
 ```
