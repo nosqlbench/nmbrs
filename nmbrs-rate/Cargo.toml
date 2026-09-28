@@ -17,4 +17,4 @@ nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.2.0" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
-nmbrs-metrics = { path = "../nmbrs-metrics", version = "0.1.2" }
+nmbrs-metrics = { path = "../nmbrs-metrics" }

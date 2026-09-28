@@ -60,8 +60,8 @@ regex = "1"
 junction = "1"
 
 [dev-dependencies]
-nmbrs-adapter-stdout = { path = "../adapters/stdout", version = "0.1.2" }
-nmbrs-adapter-testkit = { path = "../adapters/testkit", version = "0.1.2" }
+nmbrs-adapter-stdout = { path = "../adapters/stdout" }
+nmbrs-adapter-testkit = { path = "../adapters/testkit" }
 proptest = "1"
 # SRD-77 refine_plan tests build a throwaway sqlite under a
 # `tempfile::tempdir()` and verify the loader's behavior.
