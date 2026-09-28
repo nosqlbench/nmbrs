@@ -349,12 +349,10 @@ build_install() {
 
 build_docker() {
     echo "==> Staging docker build context at $DOCKER_CONTEXT..."
-    # Workspace Cargo.toml [patch.crates-io] points at
-    # links/vectordata-rs/veks-completion, which is a symlink
-    # to a sibling project outside the workspace. Docker won't
-    # follow symlinks across the build-context boundary, so we
-    # stage the workspace into a known dir and materialize
-    # that one patched path. target/ is huge and excluded.
+    # Stage the workspace into a known dir so the build context
+    # holds only what the image needs; target/ is huge and
+    # excluded, and every dependency outside the workspace comes
+    # from crates.io.
     #
     # The staging dir lives under our cargo-managed target/
     # so its lifecycle defers to `cargo clean`. `rsync --delete`
@@ -367,20 +365,6 @@ build_docker() {
         --exclude=.git \
         --exclude=links \
         "$PROJECT_ROOT/" "$DOCKER_CONTEXT/"
-
-    # Materialize only the symlinked path-deps cargo patches against.
-    # rsync -L dereferences the symlink chain; --exclude=target keeps
-    # the upstream project's build artifacts out.
-    mkdir -p "$DOCKER_CONTEXT/links/vectordata-rs"
-    if [ -e "$PROJECT_ROOT/links/vectordata-rs/veks-completion" ]; then
-        rsync -aL --delete --exclude=target --exclude=.git \
-            "$PROJECT_ROOT/links/vectordata-rs/veks-completion/" \
-            "$DOCKER_CONTEXT/links/vectordata-rs/veks-completion/"
-    else
-        echo "ERROR: $PROJECT_ROOT/links/vectordata-rs/veks-completion not found" >&2
-        echo "  workspace Cargo.toml patches veks-completion against this path" >&2
-        exit 1
-    fi
 
     echo "==> Context size: $(du -sh "$DOCKER_CONTEXT" | cut -f1)"
     echo "==> Building nmbrs (cassandra-cpp) entirely in Docker..."
