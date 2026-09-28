@@ -11,9 +11,9 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.2.0" }
-nmbrs-adapter-stdout = { path = "../stdout", version = "0.2.0" }
-nmbrs-workload = { path = "../../nmbrs-workload", version = "0.2.0" }
+nmbrs-runtime = { path = "../../nmbrs-runtime", version = "0.2.1" }
+nmbrs-adapter-stdout = { path = "../stdout", version = "0.2.1" }
+nmbrs-workload = { path = "../../nmbrs-workload", version = "0.2.1" }
 tokio = { version = "1", features = ["time", "sync"] }
 serde_json = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

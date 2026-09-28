@@ -15,7 +15,7 @@ hdrhistogram = "7"
 # `rt` so the cadence reporter can spawn ephemeral per-notification
 # delivery fibers (via a captured runtime Handle) instead of parking a
 # dedicated OS thread per subscriber — SRD-88 §"signaling layer".
-tokio = { version = "1", features = ["sync", "time", "rt"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread"] }
 futures = "0.3"
 # Lock-free metrics consolidation lifecycle (SRD-42):
 # crossbeam-channel for non-blocking command queue from many writers
