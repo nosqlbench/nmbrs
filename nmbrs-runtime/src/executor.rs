@@ -444,11 +444,6 @@ impl ExecCtx {
     pub fn pop_label(&mut self) {
         self.label_stack.pop();
     }
-
-    /// Whether stderr diagnostic output is suppressed (TUI handles display).
-    pub fn quiet(&self) -> bool {
-        self.observer.suppresses_stderr()
-    }
 }
 
 /// Execute a scenario tree recursively.
@@ -2072,13 +2067,11 @@ fn execute_node<'a>(
                 // it doesn't trigger execution — it still shows in
                 // the scene tree so operators can trace the include
                 // chain (SRD-44 §"Phase identity").
-                if !ctx.quiet() {
-                    crate::diag!(
-                        crate::observer::LogLevel::Debug,
-                        "include scenario '{name}' ({} children)",
-                        children.len()
-                    );
-                }
+                crate::diag!(
+                    crate::observer::LogLevel::Debug,
+                    "include scenario '{name}' ({} children)",
+                    children.len()
+                );
                 let mut scope_path = ctx.scene_tree_path.clone();
                 scope_path.push(PathSegment::ScenarioInclude(name.clone()));
                 let scope_id = push_scope_scene_node(
@@ -2258,18 +2251,16 @@ fn execute_node<'a>(
                         ));
                     }
                 };
-                if !ctx.quiet() {
-                    let one_line = source
-                        .lines()
-                        .map(str::trim)
-                        .find(|l| !l.is_empty())
-                        .unwrap_or("");
-                    crate::diag!(
-                        crate::observer::LogLevel::Debug,
-                        "bindings: {one_line} ({} children)",
-                        children.len()
-                    );
-                }
+                let one_line = source
+                    .lines()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())
+                    .unwrap_or("");
+                crate::diag!(
+                    crate::observer::LogLevel::Debug,
+                    "bindings: {one_line} ({} children)",
+                    children.len()
+                );
                 // Per-iter compile from the program preserves the
                 // cached parse + wiring (same Arc<PolydatProgram>) while
                 // giving us a fresh state that re-runs the const
@@ -2452,7 +2443,7 @@ fn runtime_iterate(
         if ctx.strict {
             return Err(format!("strict: {msg}"));
         }
-        if !ctx.quiet() {
+        if !ctx.pre_map_only {
             crate::diag!(crate::observer::LogLevel::Warn, "warning: {msg}");
         }
     }
