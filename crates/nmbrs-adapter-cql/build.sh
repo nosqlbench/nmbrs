@@ -134,6 +134,8 @@ _build_driver_native() {
 
     # Platform-specific cmake hints + parallelism.
     local cmake_extra=()
+    # Extra compiler flags for the driver's own sources, after -fPIC.
+    local driver_cflags=""
     local jobs
     case "$uname_s" in
         Linux)
@@ -149,6 +151,18 @@ _build_driver_native() {
                 brew_openssl="$(brew --prefix openssl@3 2>/dev/null || true)"
                 if [ -n "$brew_openssl" ]; then
                     cmake_extra+=(-DOPENSSL_ROOT_DIR="$brew_openssl")
+                    # OPENSSL_ROOT_DIR settles which LIBRARY is linked,
+                    # not which headers are read: libuv's include
+                    # directory is the shared /opt/homebrew/include,
+                    # which also holds the headers of brew's
+                    # unversioned `openssl` (4.x) whenever that formula
+                    # is installed, and it precedes openssl@3's on the
+                    # compile line. The driver then compiles against
+                    # 4.x declarations (const-returning X509 accessors,
+                    # which its source does not accept) while linking
+                    # 3.x. Flags given here precede every directory
+                    # cmake adds, so openssl@3's headers win.
+                    driver_cflags="-I$brew_openssl/include"
                     export PKG_CONFIG_PATH="$brew_openssl/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
                 fi
                 # libuv is brewable as a normal formula — cmake's
@@ -231,8 +245,8 @@ _build_driver_native() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCASS_BUILD_STATIC=ON \
             -DCASS_BUILD_SHARED=OFF \
-            -DCMAKE_C_FLAGS="-fPIC" \
-            -DCMAKE_CXX_FLAGS="-fPIC" \
+            -DCMAKE_C_FLAGS="-fPIC $driver_cflags" \
+            -DCMAKE_CXX_FLAGS="-fPIC $driver_cflags" \
             "${cmake_extra[@]}"
         make -j"$jobs"
         make install
