@@ -411,7 +411,6 @@ mod tests {
             workers: Some("7".into()),
             timing_sched: Some("none".into()),
             timing_pin: Some("off".into()),
-            ..Default::default()
         };
         let cfg = ThreadPoolConfig::resolve_with_cli(&cli).unwrap();
         assert_eq!(cfg.timing.threads, 4);

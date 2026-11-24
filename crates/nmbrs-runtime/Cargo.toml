@@ -20,7 +20,7 @@ nmbrs-metrics = { workspace = true, features = ["victoriametrics", "sqlite"] }
 nmbrs-rate = { workspace = true }
 nmbrs-errorhandler = { workspace = true }
 nmbrs-workload = { workspace = true }
-polydat = { version = "0.6.2", features = ["vectordata"] }
+polydat = { version = "0.10.0", features = ["vectordata"] }
 futures = "0.3"
 inventory = "0.3.24"
 serde = { version = "1", features = ["derive"] }
@@ -48,7 +48,7 @@ libc = "0.2"
 # distinct values from the active session's metrics.db.
 # `bundled` feature pulls in the C source so we don't depend
 # on a system libsqlite3.
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 # Phase-name filter (`phases=<pattern>`) compiles bareword /
 # glob / full-regex inputs to a `Regex` matcher.
 regex = "1"

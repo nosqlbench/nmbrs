@@ -23,7 +23,7 @@
 //! ## TTY-only
 //!
 //! The watcher refuses to construct itself unless stdin is a
-//! TTY. Piped / CI invocations get [`Self::new`] returning
+//! TTY. Piped / CI invocations get [`KeyWatcher::spawn`] returning
 //! `None` and the supervisor degrades to the no-toggle path
 //! (legacy `tui=off`-equivalent rendering, no Ctrl-T sensing).
 //! Same isatty check the runner already uses to pick the
@@ -112,7 +112,7 @@ pub enum WatcherSignal {
     /// chords, history nav, Enter, etc. Forwarded to the
     /// prompt without interpretation. Supervisor receives the
     /// raw [`crossterm::event::KeyEvent`] inside [`Self::Key`]
-    /// so the [`crate::prompt_state::PromptState`] can apply
+    /// so the `crate::prompt_state::PromptState` can apply
     /// the same key translation as a terminal-native editor.
     Key(crossterm::event::KeyEvent),
 }

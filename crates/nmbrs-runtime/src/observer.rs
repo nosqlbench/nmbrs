@@ -13,7 +13,7 @@ pub enum LogLevel {
     /// Highest-volume per-cycle/per-event tracing (recall pipeline,
     /// adapter call traces). Below `Debug` so the existing file
     /// sink default (Debug) does not pick up trace traffic. Trace
-    /// events instead route through the [`crate::trace_router`]
+    /// events instead route through the `crate::trace_router`
     /// to optionally-filtered per-label files.
     Trace,
     /// Detailed diagnostics (parse notes, connection info)
@@ -276,7 +276,7 @@ pub trait RunObserver: Send + Sync {
     /// observers that don't need metrics frames (like StderrObserver).
     ///
     /// Kept for back-compat; for observers that want multiple reporters
-    /// at different cadences, override [`reporters`] instead — the
+    /// at different cadences, override [`Self::reporters`] instead — the
     /// default impl forwards this single reporter as the base cadence.
     fn reporter(&self) -> Option<Box<dyn nmbrs_metrics::scheduler::Reporter>> {
         None
@@ -285,7 +285,7 @@ pub trait RunObserver: Send + Sync {
     /// Multiple reporters with explicit cadences. The runner calls
     /// this once during setup. Each `(interval, reporter)` entry is
     /// registered with the scheduler at that interval. The default
-    /// implementation returns whatever [`reporter`] produced at the
+    /// implementation returns whatever [`Self::reporter`] produced at the
     /// base 1s cadence, so existing observers work unchanged.
     fn reporters(
         &self,
@@ -573,8 +573,8 @@ pub fn set_global_observer(observer: Arc<dyn RunObserver>) {
 
 /// The observer the current code should route through. Used by code that
 /// needs the observer without threading it through every call site (e.g. the
-/// activity's inline-status refresh thread publishing into
-/// [`RunObserver::set_status_line`]).
+/// readout wrapper announcing each op through [`RunObserver::op_starting`],
+/// and the [`log`] path).
 ///
 /// SRD-88: a fiber running inside an [`ExecutionContext`](crate::execution_context)
 /// resolves to ITS execution's observer (so concurrent executions route
@@ -608,7 +608,7 @@ pub fn set_log_file(path: &std::path::Path) -> std::io::Result<()> {
 /// Whether ANSI color escapes are appropriate for stderr.
 /// `true` only when stderr is a TTY and the operator hasn't
 /// disabled color via the conventional `NO_COLOR` env var
-/// (https://no-color.org). Pipelined / CI contexts return
+/// (<https://no-color.org>). Pipelined / CI contexts return
 /// `false` so log archives stay readable. Cached on first
 /// call; the answer doesn't change over a process's lifetime.
 pub fn use_color() -> bool {
@@ -828,7 +828,7 @@ pub fn log_tagged(level: LogLevel, tag: EventTag, message: &str) {
 /// adapter"). Delegates to the installed [`crate::output_channel::OutputChannel`]
 /// (SRD-87): the **op-output bucket**'s impl decides where the bytes land —
 /// raw to the owned stdout (a console-owning adapter or a pipe, via
-/// [`op_output_raw`]) or routed through the live display (an interactive
+/// `op_output_raw`) or routed through the live display (an interactive
 /// dashboard, avoiding the raw-mode staircase). Before any channel is installed
 /// (bootstrap / unit tests with no run), falls back to the raw path so early
 /// output is never lost.
@@ -904,7 +904,7 @@ macro_rules! diag {
 }
 
 /// Emit a [`LogLevel::Trace`] event carrying the component's
-/// labels through the [`crate::trace_router`]. Returns
+/// labels through the `crate::trace_router`. Returns
 /// immediately when no `--trace=<spec>` was configured (the
 /// router is empty), so the hot-path cost of an unused trace
 /// site is one atomic load + branch.

@@ -3,11 +3,14 @@
 
 //! SRD-86 — the optimizer seam on the runtime side.
 //!
-//! The **contract** (the [`Optimizer`] / [`Objective`] traits, the search-space
-//! types, the registry) lives in [`contract`] — defined in the core with no
+//! The **contract** (the [`Optimizer`](crate::optimize::Optimizer) /
+//! [`Objective`](crate::optimize::Objective) traits, the search-space
+//! types, the registry) lives in [`contract`](crate::optimize::contract) —
+//! defined in the core with no
 //! dependency on any optimizer-algorithm crate. Algorithm crates (e.g.
 //! `nmbrs-optimizers`) register implementations via `inventory` and are
-//! discovered through [`contract::by_name`] / [`contract::describe`] at link
+//! discovered through [`contract::by_name`](crate::optimize::contract::by_name) /
+//! [`contract::describe`](crate::optimize::contract::describe) at link
 //! time; the core never names them.
 //!
 //! The live optimizer integration is owned by the **executor** (`crate::executor`):
@@ -19,13 +22,15 @@
 //!   once per proposed coordinate (`CoordEval::Enumerated` looks a discrete
 //!   coordinate up in the grid; `CoordEval::Synthesized` binds a sampled
 //!   continuous coordinate);
-//! - **Control** → the in-phase servoing daemon ([`servo`]), `tokio::join!`'d with
+//! - **Control** → the in-phase servoing daemon
+//!   ([`servo`](crate::optimize::servo)), `tokio::join!`'d with
 //!   one continuous phase, live-retargeting the SRD-23 control per setting;
 //! - **mixed** → the hybrid (`run_hybrid_search`): coordinate axes form the outer
 //!   rerun grid, control axes servo interior to each cell.
 //!
-//! Settling a windowed objective per evaluation is [`settle`], driven by the
-//! cadence-pulse [`phase_pulse`] callback. This module proper is the contract
+//! Settling a windowed objective per evaluation is
+//! [`settle`](crate::optimize::settle), driven by the cadence-pulse
+//! [`phase_pulse`](crate::optimize::phase_pulse) callback. This module proper is the contract
 //! re-export surface over those submodules.
 
 pub mod contract;

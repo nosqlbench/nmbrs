@@ -167,7 +167,7 @@ fn union_minus_overlap(fine: Vector, coarse: Vector) -> Vector {
                 let mut merged: Vec<Sample> = c
                     .samples
                     .into_iter()
-                    .filter(|s| edge.map_or(true, |e| s.timestamp_ms < e))
+                    .filter(|s| edge.is_none_or(|e| s.timestamp_ms < e))
                     .collect();
                 merged.append(&mut fine_series.samples);
                 merged.sort_by_key(|s| s.timestamp_ms);

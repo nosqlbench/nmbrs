@@ -99,8 +99,8 @@ x in alice, bob, carol
 x in true, false
 ```
 
-Per-element type detection: `1` → `U64`, `1.5` → `F64`, `true` /
-`false` → `Bool`, anything else → `Str`. Mixed types in one
+Per-element type detection: `1` → `u64`, `1.5` → `f64`, `true` /
+`false` → `bool`, anything else → `str`. Mixed types in one
 list are allowed; each element gets its own native type.
 
 Whitespace around commas is irrelevant. Commas inside parens
@@ -237,7 +237,7 @@ the per-tuple kernel before `eval_const_expr` runs.
 k in 10, 100, limit in 10, 20, 30 where {k} * {limit} < 1000
 ```
 
-Predicate result must be Bool, U64, or F64 — `0` / `0.0` /
+Predicate result must be bool, u64, or f64 — `0` / `0.0` /
 `false` filter out, anything else keeps. (Same truthiness rule
 as `do_while` / `do_until` conditions per SRD-18.)
 
@@ -298,13 +298,13 @@ families per the IEC convention:
 | `Ki`, `Mi`, `Gi`, `Ti`, `Pi` | 2¹⁰, 2²⁰, 2³⁰, 2⁴⁰, 2⁵⁰ | `1Ki = 1_024` |
 | `m`, `u`, `n` | 10⁻³, 10⁻⁶, 10⁻⁹ | `5m = 0.005` |
 
-Suffixes apply to integer literals (`100K` → U64) and float
-literals (`1.5G` → U64 if integral, F64 otherwise; resolution
+Suffixes apply to integer literals (`100K` → u64) and float
+literals (`1.5G` → u64 if integral, f64 otherwise; resolution
 follows the existing literal type-detection rules). The lexer
 handles them; the rest of the language is unchanged.
 
 ```text
-x in 1K, 1M, 1G                   # U64 list
+x in 1K, 1M, 1G                   # u64 list
 x in 1K..1M..100K                 # range with SI bounds and step
 x in 0.5G..2G..0.25G              # float range
 x in 1Ki, 1Mi, 1Gi                # binary multipliers

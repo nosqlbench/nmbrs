@@ -58,7 +58,7 @@ snapshot, and `e` opens a prompt to set a dynamic control value.
 - `display_sink::DisplaySink`: the trait implemented by live-stream consumers
   of the `RunState` snapshots, managed by `sink_supervisor::SinkSupervisor`.
 - `inspector_server` / `inspector_repl`: a Unix-domain-socket introspection
-  endpoint, started when a run is given `inspector=on`, and the client used
+  endpoint, started when a run is given `inspector=true`, and the client used
   by `nmbrs attach` (`discover_sockets`, `query`, `run_repl`). The server
   runs on its own OS thread and reads snapshots only, so it keeps answering
   while the executor is stalled.

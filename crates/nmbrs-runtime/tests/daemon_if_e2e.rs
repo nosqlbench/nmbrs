@@ -93,7 +93,7 @@ fn daemon_op_with_if_condition_completes() {
     in_dir(&dir, || {
         run_args(&[
             format!("workload={}", workload_path.display()),
-            "driver=stdout".into(),
+            "adapter=stdout".into(),
         ])
     });
 }

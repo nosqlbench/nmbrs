@@ -10,7 +10,7 @@
 # label space so every plot has data to draw from.
 #
 # Regenerate one plot from a session db:
-#   nmbrs plot --name <plot-name> --db logs/latest/metrics.db
+#   nmbrs report plot --name <plot-name> --db logs/latest/metrics.db
 # Materialise the whole report:
 #   nmbrs report --workload docs/guide/plot_reference.yaml \
 #               --db logs/latest/metrics.db
@@ -144,7 +144,7 @@ report:
     #   color: <label>   one hue per distinct value of <label>
     #   shape: <label>   one marker shape per distinct value (cycles
     #                    circle / square / triangle / diamond)
-    #   color: off|none  revert to color-by-series-index (default)
+    #   color: none      revert to color-by-series-index (default)
     # `color:` and `shape:` are orthogonal — `color: A` + `shape: B`
     # gives a recoverable color×shape grid. Example: one line per
     # index-build cell, colored by query strategy, shaped by pruning.
@@ -448,13 +448,12 @@ report:
 
     text
       ## Legend position via `legend:` directive.
-      Long forms: top-left, top-right, top-center, bottom-left,
-      bottom-right, bottom-center, center, top, bottom, left, right.
-      Shortcuts: tl, tr, bl, br, c, t, b, l, r, tc, bc.
-      Suppress entirely: `legend: none` (or `off`).
+      Positions (one name each): top-left, top, top-right, left,
+      center, right, bottom-left, bottom, bottom-right.
+      Suppress entirely: `legend: none`.
 
-    plot p39_legend_tl
-      legend: tl
+    plot p39_legend_top_left
+      legend: top-left
       series: k
       y1: avg(recall_mean) by (k, limit)
 
@@ -538,7 +537,7 @@ report:
     # recall ceiling.
     plot p49_combined
       label "Recall vs QPS — full feature showcase"
-      legend: br
+      legend: bottom-right
       y1: (cycles_total_rate, recall_mean, *){phase=~".*query"} by (phase, k, limit)
       x-legend: "QPS"
       xscale=log

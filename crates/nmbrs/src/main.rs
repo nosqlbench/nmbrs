@@ -11,7 +11,7 @@
 //!
 //! The last form is direct shebang execution: a workload whose first
 //! line is `#!/usr/bin/env nmbrs` (and is executable) is a program.
-//! The kernel hands the script path to nmbrs as argv[1] and the
+//! The kernel hands the script path to nmbrs as `argv[1]` and the
 //! script's arguments after it — the bare-workload-file shortcut
 //! maps them to `run workload=<path> scenario=<word> k=v …`.
 
@@ -27,7 +27,6 @@ mod copy_cmd;
 mod daemon;
 mod db_merge;
 mod describe;
-mod diag_cmd;
 mod inspector;
 mod metrics_cache;
 mod metrics_cmd;
@@ -81,7 +80,7 @@ fn main() {
     nmbrs_runtime::runner::install_known_params(completion::known_param_keys());
 
     // Same derivation for the run command's FLAG vocabulary: the declared
-    // spec flags (long forms + aliases), split by arity, become the
+    // spec flags (long forms), split by arity, become the
     // runner's argv validation lists — parse_params accepts exactly what
     // help/completion advertise, no hand-synced copy.
     let mut bare: Vec<&'static str> = Vec::new();
@@ -92,7 +91,6 @@ fn main() {
             cli_spec::Arity::Value => &mut value,
         };
         dest.push(f.long);
-        dest.extend(f.aliases.iter().copied());
     }
     nmbrs_runtime::runner::install_known_flags(bare, value);
 
@@ -113,13 +111,18 @@ fn main() {
     // them; their values are applied to the thread-pool config below.
     let thread_overrides = extract_thread_overrides(&mut args);
 
+    if let Err(e) = nmbrs_runtime::session::reject_bare_session_param(&args) {
+        eprintln!("error: {e}");
+        std::process::exit(2);
+    }
+
     // SRD-45 startup hook: session-lifecycle cleanup, honouring
     // `--session-keep` / `--session-shelflife` (and the
     // `NMBRS_SESSION*` env vars) to purge aged-out session dirs.
     //
     // It no longer repoints `sessions/latest` at whatever `--session` names. That
     // made `--session` work by mutating shared state — a read-only
-    // `nmbrs table … --session=sessions/foo` left `latest` on `foo`, so a later
+    // `nmbrs report table … --session=sessions/foo` left `latest` on `foo`, so a later
     // bare `nmbrs report` or `--resume-latest` silently used `foo` instead of the
     // newest real run — and it only worked for sessions under `sessions/`. Each
     // command that owns `latest` claims it itself, and read-side commands resolve

@@ -261,9 +261,9 @@ finalized:
 Type inference for capture wires:
 - If the capture's `path:` is a `:count` form → `u64`.
 - Otherwise → start with `Value::None`-friendly typing;
-  the engine carries whatever the runtime writes (Str /
-  U64 / F64 / Bool / Json). For now we declare the cell
-  as `u64` for `:count` captures and `Str` for the rest,
+  the engine carries whatever the runtime writes (str /
+  u64 / f64 / bool / json). For now we declare the cell
+  as `u64` for `:count` captures and `str` for the rest,
   with future work tracked as a type-inference
   refinement once we have multiple captures per
   workload to validate against.
@@ -388,7 +388,7 @@ The synthesizer enforces:
 3. **Each capture name's referenced type matches** the
    inferred phase-scope shared cell type. If the
    predicate writes `sstables == 1` (u64 compare) but
-   the capture is declared `Str`, the
+   the capture is declared `str`, the
    matter-validation pass surfaces the type mismatch.
 4. **`concurrency`** is `None` / `1` when `poll:` is
    set. Otherwise: workload-load error.
@@ -481,11 +481,11 @@ gate on the prior push landing.
 ## Open questions
 
 - **Capture-type inference granularity.** The "u64 for
-  `:count`, Str for everything else" rule is a starting
+  `:count`, str for everything else" rule is a starting
   point. A workload that captures a JSON path that
   resolves to a numeric scalar without `:count`
-  currently lands as Str — the predicate's `==` compare
-  would coerce via Str equality. Tracked for a future
+  currently lands as str — the predicate's `==` compare
+  would coerce via str equality. Tracked for a future
   type-inference refinement; out of scope for the
   initial ship.
 - **Re-trigger nuance in the synchronizer pattern.**

@@ -8,9 +8,9 @@
 //! See [SRD-64 §4.3](../../../../docs/SRD/64_report_cli.md)
 //! for the design intent. This module is consumed by:
 //!
-//! - the YAML parser in [`super`] (validates input
-//!   directives against [`KIND_DIRECTIVES`]),
-//! - `nmbrs::report_cmd` (builds [`ReportItem`] from CLI
+//! - the YAML parser in [`super`] (validates `to`
+//!   destinations against [`DESTINATION_NAMES`]),
+//! - `nmbrs::report_cmd` (builds [`super::ReportItem`] from CLI
 //!   flags by walking [`directives_for`]),
 //! - `nmbrs::completion::report_node` (offers per-flag
 //!   value providers from [`ValueProvider`]),
@@ -32,7 +32,9 @@
 //!
 //! Directives whose value space depends on the active
 //! session db (metric names, observed label keys / values)
-//! ship a [`ValueProvider::Db`] tag. Completion plumbing in
+//! ship one of the `Db*` tags ([`ValueProvider::DbMetricNames`],
+//! [`ValueProvider::DbLabelKeys`],
+//! [`ValueProvider::DbLabelKeyValuePairs`]). Completion plumbing in
 //! `nmbrs::completion` resolves these against the active
 //! session at tab time. The parser does not validate
 //! open-set values — they're free-form strings until the
@@ -82,7 +84,7 @@ pub enum ValueProvider {
 /// `cli_flag` is always `--<name>`. `yaml_directive` is the
 /// keyword the YAML parser recognises; for some directives
 /// the YAML form is `<name> <value>` (no `=`) and for others
-/// it's `<name>=<value>`. [`yaml_form`] captures that.
+/// it's `<name>=<value>`. [`yaml_form`](Directive::yaml_form) captures that.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directive {
     /// CLI long flag (e.g. `--over`, `--palette`).

@@ -4,13 +4,13 @@
 //! The optimizer contract (SRD-86 §Contract surface).
 //!
 //! An [`Optimizer`] maximizes an [`Objective`] over a
-//! [`SearchSpace`](crate::space::SearchSpace) within a [`Budget`]. The
+//! [`SearchSpace`] within a [`Budget`]. The
 //! objective is queried via [`Objective::query`], which returns an
 //! [`Observation`] (value to maximize + feasibility + cost). The result
 //! is a [`Report`] (best point, stop reason, optional axis rankings, full
 //! history).
 //!
-//! [`Eval`] is the shared evaluation harness optimizers use internally:
+//! `Eval` is the shared evaluation harness optimizers use internally:
 //! it realizes a raw point into the space, queries the objective, folds
 //! the best-so-far, counts evaluations against the budget, and turns an
 //! infeasible point into a large penalty so the search avoids it.
@@ -160,7 +160,7 @@ pub trait Optimizer {
     fn name(&self) -> &str;
 
     /// Run the search. Implementations should respect `budget.max_evals`
-    /// by checking [`Eval::budget_left`] in their loops.
+    /// by checking `Eval::budget_left` in their loops.
     fn optimize(&mut self, space: &SearchSpace, obj: &mut dyn Objective, budget: &Budget)
     -> Report;
 }

@@ -23,10 +23,14 @@
 //!   factory walks the registered `DriverImpl`s for `cql` and
 //!   instantiates one based on the user's `cqldriver=…`
 //!   selector (or default rank).
+//! - [`bind_scalar`] — the strict integer / float / boolean
+//!   conversion both engines' prepared binders use: an exact value
+//!   or an error, never a truncated or zeroed one.
 //!
 //! Pure Rust, no driver dependencies. Always compiled
 //! regardless of which driver features are enabled.
 
+pub mod bind_scalar;
 pub mod config;
 pub mod nodes;
 pub mod op_modifier;

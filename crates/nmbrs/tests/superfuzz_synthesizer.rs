@@ -101,7 +101,6 @@ const NOT_YET_SYNTHESIZED: &[(&str, &str)] = &[
         "selector-only phases need block-op synthesis (SRD-108 Part A)",
     ),
     ("op:name", "implicit — set by the op's map key"),
-    ("op:desc", "legacy alias of op:description"),
     ("op:params", "per-adapter param semantics vary"),
     ("op:delay", "needs delay wires"),
     ("op:traverse", "specialized result-traversal config"),

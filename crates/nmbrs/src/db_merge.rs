@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! Multi-db merge for `nmbrs summary` and `nmbrs plot`.
+//! Multi-db merge for `nmbrs summary` and `nmbrs report plot`.
 //!
 //! Given N metrics dbs from separate sessions of (typically)
 //! the same workload, produce a single temp db whose rows

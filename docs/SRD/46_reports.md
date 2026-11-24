@@ -173,10 +173,12 @@ Destinations:
 | `stderr`     | the console form on stderr |
 | `none`       | render nothing — suppresses the item without deleting it |
 
-`session` and `session_dir` are accepted spellings of
-`sessiondir`; `off` is accepted for `none`. A list is comma- or
-whitespace-separated. `none` anywhere in a list wins outright —
-it is a suppression, not a peer.
+These four names are the whole vocabulary, matched exactly
+(case-sensitive); `session`, `session_dir`, and `off` are errors that
+name `sessiondir` / `none`. A list is comma- or whitespace-separated.
+`none` is a suppression, not a peer: it must stand alone — `none`
+beside another destination is an error rather than silently
+cancelling it.
 
 `to` rides the same cascade as the style directives (report
 `defaults` → group `defaults` → item), so one line can route a
@@ -221,7 +223,7 @@ do nothing.
 vocabulary:
 
 ```
-nmbrs report all session=<dir> --to sessiondir   # write, don't print
+nmbrs report all --session=<dir> --to sessiondir # write, don't print
 nmbrs summary ... --to stderr                    # keep stdout clean
 ```
 
@@ -519,17 +521,13 @@ Listing format:
 JSON style sub-blocks in the listing render normalized to
 directive form. The on-disk source stays as the user wrote it.
 
-### Unadvertised aliases
-
-Not in `--help`, not in top-level command tab-completion:
-
-- `nmbrs plot <glob>` ≡ `nmbrs report plot <glob>`
-- `nmbrs table <glob>` ≡ `nmbrs report table <glob>`
-
 ### Removed
 
 - `nmbrs summary` — gone. No alias.
-- `nmbrs plot polydat` — gone. Renamed to `nmbrs Polydat visualize`.
+- `nmbrs plot <glob>` / `nmbrs table <glob>` — gone; they were second names
+  for `nmbrs report plot` / `nmbrs report table`. Typing one is an error
+  naming the `nmbrs report` form.
+- `nmbrs plot polydat` — gone. Renamed to `nmbrs wiring visualize`.
 
 ### Tab completion
 
@@ -541,8 +539,6 @@ Pervasive across all forms:
 - `nmbrs report table <TAB>` → table-kind names only.
 - `nmbrs report figure <TAB>` → numeric range hint
   (e.g., `1..N`).
-- `nmbrs plot <TAB>` / `nmbrs table <TAB>` (aliases) →
-  per-kind name filtering.
 
 All providers read from a single
 `nmbrs_workload::Report::named_items()` lookup; the file walk
@@ -686,7 +682,7 @@ multi-axis charts need one query per axis:
 ```yaml
 plot recall_10_mean
   label "10-recall@R, oracles & PVS"
-  legend: br
+  legend: bottom-right
   x: r
   x-legend: "R"
   x-ticks: avg(recall{k="10",profile=~"label.*"}) by (k,r)

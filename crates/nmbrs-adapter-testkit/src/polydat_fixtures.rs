@@ -141,7 +141,7 @@ fn testkit_side_effect_sequence_next_cycling(
 
 /// Non-cycling variant: same per-session advance, but a hard error at
 /// construction when the sequence is fully consumed (design memo OQ-D-prime).
-/// **Fallible construction** — see [`testkit_side_effect_sequence_next_cycling`].
+/// **Fallible construction** — see `testkit_side_effect_sequence_next_cycling`.
 #[polydat::polydat_node(category = Diagnostic)]
 fn testkit_side_effect_sequence_next_noncycling(
     statefile_path: Const<&str>,

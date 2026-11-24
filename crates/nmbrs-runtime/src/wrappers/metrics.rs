@@ -89,14 +89,20 @@ inventory::submit! {
 ///    SRD-40b §1). The read pulls fresh through the eval cone
 ///    so any computed output (e.g. `row_count := count`) reflects
 ///    this cycle's value.
-/// 3. Apply the optional [`metric_format::FormatSpec`] sanitiser
-///    to round to the configured precision (Phase B).
+/// 3. Apply the optional
+///    [`metric_format::FormatSpec`](nmbrs_workload::metric_format::FormatSpec)
+///    sanitiser to round to the configured precision (Phase B).
 /// 4. Dispatch to the kind-specific instrument record method
 ///    (SRD-40b §6.1):
-///    - [`MetricKind::Gauge`] → [`ValueGauge::set`] (f64).
-///    - [`MetricKind::Histogram`] → [`Histogram::record`]
+///    - [`MetricKind::Gauge`](nmbrs_workload::model::MetricKind::Gauge) →
+///      [`ValueGauge::set`](nmbrs_metrics::instruments::gauge::ValueGauge::set)
+///      (f64).
+///    - [`MetricKind::Histogram`](nmbrs_workload::model::MetricKind::Histogram) →
+///      [`Histogram::record`](nmbrs_metrics::instruments::histogram::Histogram::record)
 ///      (truncated to u64 after format rounding).
-///    - [`MetricKind::Counter`] → [`Counter::inc_by`] (u64);
+///    - [`MetricKind::Counter`](nmbrs_workload::model::MetricKind::Counter) →
+///      [`Counter::inc_by`](nmbrs_metrics::instruments::counter::Counter::inc_by)
+///      (u64);
 ///      non-positive values warn and skip — counters are
 ///      monotonic by definition.
 ///
@@ -245,6 +251,15 @@ fn value_to_f64(v: &polydat::ast::Value) -> Option<f64> {
     }
 }
 
+/// What [`MetricsDispenser::wrap_with_slots`] returns: the wrapped
+/// dispenser and its compiled slot list, which the poll wrapper uses to
+/// re-publish gauge slots per iteration. `slots` is `None` when the op
+/// declares no metrics and the dispenser is the unwrapped inner one.
+pub(crate) struct MetricsWrap {
+    pub(crate) dispenser: Arc<dyn OpDispenser>,
+    pub(crate) slots: Option<Arc<Vec<MetricSlot>>>,
+}
+
 impl MetricsDispenser {
     /// Wrap an inner dispenser with synthetic-metric publication
     /// for the op template's `metrics:` declarations.
@@ -257,7 +272,7 @@ impl MetricsDispenser {
     ///    `Component::register_instrument`. A duplicate-family
     ///    collision (§7.2) errors here, before any cycle runs.
     /// 3. Pre-parse the optional `format:` string into a
-    ///    [`FormatSpec`].
+    ///    [`FormatSpec`](nmbrs_workload::metric_format::FormatSpec).
     ///
     /// `component` is borrowed mutably so `register_instrument`
     /// can claim the family slot atomically with the instrument
@@ -271,7 +286,7 @@ impl MetricsDispenser {
         component_arc: &Arc<std::sync::RwLock<nmbrs_metrics::component::Component>>,
         fx: &mut crate::fixture::ScopeFixture,
     ) -> Result<Arc<dyn OpDispenser>, String> {
-        Self::wrap_with_slots(inner, metrics, component, component_arc, fx).map(|(d, _)| d)
+        Self::wrap_with_slots(inner, metrics, component, component_arc, fx).map(|w| w.dispenser)
     }
 
     /// As [`Self::wrap`], additionally returning the compiled slot
@@ -288,9 +303,12 @@ impl MetricsDispenser {
         // than from anything ambient.
         component_arc: &Arc<std::sync::RwLock<nmbrs_metrics::component::Component>>,
         fx: &mut crate::fixture::ScopeFixture,
-    ) -> Result<(Arc<dyn OpDispenser>, Option<Arc<Vec<MetricSlot>>>), String> {
+    ) -> Result<MetricsWrap, String> {
         if metrics.is_empty() {
-            return Ok((inner, None));
+            return Ok(MetricsWrap {
+                dispenser: inner,
+                slots: None,
+            });
         }
         // Stable ordering on metric names so init-time
         // diagnostics + per-cycle dispatch are reproducible.
@@ -410,13 +428,13 @@ impl MetricsDispenser {
         }
 
         let slots = Arc::new(slots);
-        Ok((
-            Arc::new(Self {
+        Ok(MetricsWrap {
+            dispenser: Arc::new(Self {
                 inner,
                 slots: slots.clone(),
             }),
-            Some(slots),
-        ))
+            slots: Some(slots),
+        })
     }
 }
 

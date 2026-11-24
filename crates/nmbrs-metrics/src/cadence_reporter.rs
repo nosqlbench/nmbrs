@@ -45,7 +45,7 @@ use crate::snapshot::{CloseReason, MetricSet};
 /// windows (SRD-90: "histograms are a different matter"). `≥ max fan-in`
 /// so the cascade always has its inputs. Counter/gauge sub-interval
 /// history is kept *longer* and far more cheaply — see
-/// [`CadenceWindow::retain`].
+/// `CadenceWindow::retain`.
 pub const HISTORY_RING_CAP: usize = 32;
 
 /// SRD-90 §M1 — counter/gauge sub-interval retention floor. Cumulative
@@ -759,10 +759,10 @@ impl CadenceReporter {
             let mut map = self.subscriptions.lock().unwrap_or_else(|e| e.into_inner());
             map.remove(&id)
         };
-        if let Some(sub) = sub {
-            if let Ok(mut g) = sub.reporter.try_lock() {
-                g.flush();
-            }
+        if let Some(sub) = sub
+            && let Ok(mut g) = sub.reporter.try_lock()
+        {
+            g.flush();
         }
     }
 
@@ -1000,7 +1000,7 @@ impl CadenceReporter {
 /// SRD-90 §A7/M7. The [`CadenceReporter`] implements it at its **inlet**
 /// (`submit` = [`CadenceReporter::ingest`]) — that is where the scheduler hands
 /// snapshots in. The **durable / coarse fan-out sink** role (sqlite, console,
-/// csv, VM) is the existing [`Reporter`](crate::scheduler::Reporter) trait, fed
+/// csv, VM) is the existing [`Reporter`] trait, fed
 /// *coalesced cadence windows* by the subscription dispatch — so sqlite stays
 /// downstream and coarse, never fed raw sub-interval ticks (A7-i). `submit` is
 /// **non-blocking** (A7-ii): the cadence inlet is a lock-free actor enqueue, and

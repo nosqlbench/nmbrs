@@ -5,14 +5,14 @@
 //!
 //! When `nmbrs refine` re-attaches to an existing session, it
 //! reads the session's `phase_outcomes` table and builds a
-//! [`RefinePlan`] — the set of (phase_name, phase_labels)
+//! [`RefinePlan`](crate::refine_plan::RefinePlan) — the set of (phase_name, phase_labels)
 //! pairs that have already completed across any prior
 //! execution, plus the next execution id to record outcomes
 //! under.
 //!
 //! The plan rides on the executor context (`ExecCtx::refine_plan`)
 //! and the phase-walk gate checks each phase against
-//! [`is_completed`] before dispatching `run_phase`. Skipped
+//! [`is_completed`](crate::refine_plan::RefinePlan::is_completed) before dispatching `run_phase`. Skipped
 //! phases still get their scene-tree node pushed (so the TUI /
 //! progress display shows them with a "skipped — prior outcome"
 //! status) but no cycles run and no new outcome row is written.
@@ -136,7 +136,7 @@ pub enum RefineScope {
 /// - [`ExecutionQualifier::latest`] — resolves `max(exec_id)`
 ///   from the session db at call time; the natural
 ///   no-flag default for read commands.
-/// - [`ExecutionQualifier::specific(n)`] — single execution
+/// - [`ExecutionQualifier::specific`] — single execution
 ///   id (typically from a `--execution=<n>` CLI flag).
 /// - [`ExecutionQualifier::all`] — every execution; the
 ///   `--all-executions` CLI flag.
@@ -257,9 +257,9 @@ impl ExecutionQualifier {
 
     /// Resolve "the most recent execution" against the
     /// session db at `session_dir`. Returns
-    /// [`Self::Specific(max_exec_id)`] when at least one
+    /// `Self::Specific(max_exec_id)` when at least one
     /// execution is recorded, falling back to
-    /// [`Self::Specific(1)`] when the db is empty / absent
+    /// `Self::Specific(1)` when the db is empty / absent
     /// (so the qualifier still narrows to a specific id —
     /// the caller still gets the explicit qualification
     /// promise, just against an empty target).

@@ -154,6 +154,29 @@ phases:
         result:
           keys: result[*].id
 
+  # Recall audit: the ORACLE path searches the label's own
+  # collection unfiltered; the FILTERED path searches the default
+  # collection with the label's metadata filter.
+  oracle_probe:
+    ops:
+      select_ann:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}}'
+        result:
+          keys: result[*].id
+
+  filtered_audit_probe:
+    ops:
+      select_ann_filtered:
+        method: POST
+        uri: "{base_url}/collections/{table}/search"
+        headers: "api-key: {auth_token}"
+        body: '{"vector": {query_vector}, "limit": {suite_limit}, "filter": {"metadata": {predicate}}}'
+        result:
+          keys: result[*].id
+
   fill_until_refusal:
     ops:
       ins:

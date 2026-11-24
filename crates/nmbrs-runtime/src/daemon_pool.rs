@@ -616,7 +616,7 @@ mod tests {
                     }
                     // After every op: count is bounded by cap and
                     // never negative (u32 enforces the lower bound).
-                    for (_, c) in live.iter() {
+                    for c in live.values() {
                         prop_assert!(*c <= cap,
                             "cap invariant violated: count {} > cap {}", c, cap);
                     }

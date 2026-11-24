@@ -134,7 +134,7 @@ impl Cadences {
             if t.is_empty() {
                 continue;
             }
-            cadences.push(parse_duration(t).map_err(|_| CadenceParseError::BadToken(t.into()))?);
+            cadences.push(parse_duration(t).ok_or_else(|| CadenceParseError::BadToken(t.into()))?);
         }
         Self::new(&cadences)
     }
@@ -171,38 +171,27 @@ impl Cadences {
 }
 
 /// Parse a human-duration string like `10s`, `500ms`, `1m`, `2h`.
-/// Plain integers without a unit are interpreted as seconds.
-pub fn parse_duration(s: &str) -> Result<Duration, ()> {
+/// Plain integers without a unit are interpreted as seconds. `None` when
+/// the string is not one of these forms.
+pub fn parse_duration(s: &str) -> Option<Duration> {
     let s = s.trim();
-    if let Some(n) = s.strip_suffix("ms") {
-        return n
-            .trim()
-            .parse::<u64>()
-            .map(Duration::from_millis)
-            .map_err(|_| ());
+    let (digits, unit_secs, millis) = if let Some(n) = s.strip_suffix("ms") {
+        (n, 0, true)
+    } else if let Some(n) = s.strip_suffix('s') {
+        (n, 1, false)
+    } else if let Some(n) = s.strip_suffix('m') {
+        (n, 60, false)
+    } else if let Some(n) = s.strip_suffix('h') {
+        (n, 3600, false)
+    } else {
+        (s, 1, false)
+    };
+    let v = digits.trim().parse::<u64>().ok()?;
+    if millis {
+        Some(Duration::from_millis(v))
+    } else {
+        v.checked_mul(unit_secs).map(Duration::from_secs)
     }
-    if let Some(n) = s.strip_suffix('s') {
-        return n
-            .trim()
-            .parse::<u64>()
-            .map(Duration::from_secs)
-            .map_err(|_| ());
-    }
-    if let Some(n) = s.strip_suffix('m') {
-        return n
-            .trim()
-            .parse::<u64>()
-            .map(|v| Duration::from_secs(v * 60))
-            .map_err(|_| ());
-    }
-    if let Some(n) = s.strip_suffix('h') {
-        return n
-            .trim()
-            .parse::<u64>()
-            .map(|v| Duration::from_secs(v * 3600))
-            .map_err(|_| ());
-    }
-    s.parse::<u64>().map(Duration::from_secs).map_err(|_| ())
 }
 
 // =========================================================================

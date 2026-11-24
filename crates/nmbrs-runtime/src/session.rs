@@ -136,8 +136,8 @@ impl std::fmt::Debug for Execution {
 /// every in-process reader (TUI, summary, Polydat metric nodes) reads
 /// through. See SRD-42 §"MetricsQuery — the unified read interface".
 ///
-/// Per SRD-77, the session is a persistent container; the
-/// [`Execution`] carried in [`Self::execution`] is the unit
+/// Per SRD-77, the session is a persistent container; each
+/// [`Execution`] started under it is the unit
 /// of in-flight work. Both ride on the component tree as the
 /// `session` + `exec_id` dimensional labels so every metric
 /// the descendant components emit inherits them.
@@ -257,8 +257,8 @@ pub fn check_session_path(p: &str, source: &str) -> Result<(), String> {
 /// stderr and exits with code 2 on rejection. Used at every
 /// entry point that sets `session_path` from CLI / env input:
 /// [`parse_session_kv`] (bare-token branch and `path:`/`dir:`
-/// keys), [`resolve_session_dir`] for `--session-path`, and
-/// the legacy `SESSION_DIRECTORY` env fallback. Same exit-
+/// keys) and [`resolve_session_dir`] for `--session-path`
+/// (flag or `NMBRS_SESSION_PATH` env). Same exit-
 /// shape as the existing `--session` configuration-conflict
 /// error in [`resolve_flag`].
 pub(crate) fn validate_session_path_or_exit(p: &str, source: &str) {
@@ -268,16 +268,10 @@ pub(crate) fn validate_session_path_or_exit(p: &str, source: &str) {
     }
 }
 
-/// Legacy env-var name for `--session-path`. Pre-SRD-04
-/// shipping name that some operators may have in their shell
-/// config; honored as a deprecated fallback below
-/// `NMBRS_SESSION_PATH` and warns when read.
-pub const SESSION_DIRECTORY_ENV: &str = "SESSION_DIRECTORY";
-
 /// Token within a session-dir path that's replaced with the
 /// auto-generated session id at write time. Lets users template
 /// per-run directories without changing the path between runs:
-/// `--session-dir /data/sessions/SESSION_run` →
+/// `--session-path /data/sessions/SESSION_run` →
 /// `/data/sessions/default_20260101_120000_run`.
 pub const SESSION_TOKEN: &str = "SESSION";
 
@@ -357,7 +351,7 @@ pub fn default_session_dir(id: &str) -> PathBuf {
 /// for the three-case logic.
 /// `<root>/latest` — the symlink the runtime maintains to point
 /// at the most recent session dir. Read-side commands
-/// (`nmbrs report`, `nmbrs plot`, `nmbrs replay`, …) default to
+/// (`nmbrs report`, `nmbrs report plot`, `nmbrs replay`, …) default to
 /// reading through this path so "show me my latest run" is the
 /// natural no-arg invocation.
 pub fn latest_session_dir() -> PathBuf {
@@ -568,8 +562,8 @@ fn cwd_is_workspace_dir() -> bool {
 /// - Per-key long-form flags (`--session-name`,
 ///   `--session-path`, `--session-reuse`, `--session-keep`,
 ///   `--session-shelflife`).
-/// - `SESSION_DIRECTORY` env var (equivalent to
-///   `--session-path`).
+/// - The `NMBRS_`-prefixed env equivalent of each per-key flag
+///   (`NMBRS_SESSION_PATH`, …; SRD-04).
 ///
 /// When both forms are present the long-form flag wins; the
 /// umbrella flag is shorthand. Within the umbrella value the
@@ -801,6 +795,34 @@ pub fn parse_session_kv(s: &str) -> SessionDirSpec {
     spec
 }
 
+/// The current flag for a retired `--session-*` spelling, for the
+/// unrecognized-flag error. The retired spellings are not accepted; this only
+/// lets the error name the flag the operator meant, which edit distance alone
+/// gets wrong (`--sessions-max` is closer to `--session-name` than to
+/// `--session-keep`).
+pub fn retired_flag_replacement(flag: &str) -> Option<&'static str> {
+    match flag {
+        "--sessions-max" => Some("--session-keep"),
+        "--sessions-shelflife" => Some("--session-shelflife"),
+        "--session-dir" => Some("--session-path"),
+        _ => None,
+    }
+}
+
+/// Reject a bare `session=<…>` argument. The session is named by
+/// `--session` alone, and a `session=` token would otherwise reach a command
+/// as an unrecognised parameter or positional, where a read-side command
+/// could report on the latest session while the operator named another.
+/// Checked once, at startup, for every command.
+pub fn reject_bare_session_param(args: &[String]) -> Result<(), String> {
+    match args.iter().find_map(|a| a.strip_prefix("session=")) {
+        Some(v) => Err(format!(
+            "`session={v}` is not a parameter; name the session with `--session={v}`"
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Parse the umbrella `--session <kv>` flag + per-key
 /// long-form flags + env vars into a [`SessionDirSpec`].
 ///
@@ -814,9 +836,12 @@ pub fn parse_session_kv(s: &str) -> SessionDirSpec {
 /// space-separated `<flag> <value>` shapes are accepted.
 ///
 /// **Env vars:**
-/// - `SESSION_DIRECTORY` → `--session-path`
-/// - `SESSIONS_MAX` → `--session-keep`
-/// - `SESSIONS_SHELFLIFE` → `--session-shelflife`
+/// - `NMBRS_SESSION_PATH` → `--session-path`
+/// - `NMBRS_SESSION_KEEP` → `--session-keep`
+/// - `NMBRS_SESSION_SHELFLIFE` → `--session-shelflife`
+///
+/// (Setting a flag and its env var at once is a configuration
+/// conflict; see [`resolve_flag`].)
 ///
 /// **Precedence** (highest first):
 /// 1. Long-form per-key flag.
@@ -824,27 +849,6 @@ pub fn parse_session_kv(s: &str) -> SessionDirSpec {
 ///    keys override earlier ones).
 /// 3. Env var equivalents.
 /// 4. Default.
-/// Resolve a flag written either canonically or under a documented alias.
-///
-/// Several spellings appeared only in the docs and were parsed nowhere, so an
-/// invocation copied from the guide was read as an unknown flag and ignored — the
-/// setting silently stayed at its default. The canonical spelling wins when both
-/// appear; a differing alias value is reported rather than dropped, since two
-/// disagreeing values on one command line means the operator expected something
-/// this cannot deliver.
-fn aliased_flag(args: &[String], canonical: &str, alias: &str) -> Option<String> {
-    let canon = resolve_flag(args, canonical);
-    let aliased = resolve_flag(args, alias);
-    match (&canon, &aliased) {
-        (Some(c), Some(a)) if c != a => crate::observer::log(
-            crate::observer::LogLevel::Warn,
-            &format!("{canonical}={c} and {alias}={a} disagree; using {canonical}={c}"),
-        ),
-        _ => {}
-    }
-    canon.or(aliased)
-}
-
 pub fn resolve_session_dir(args: &[String]) -> SessionDirSpec {
     // Each flag goes through `resolve_flag` which checks both
     // CLI and the auto-derived `NMBRS_<FLAG>` env var. Setting
@@ -852,17 +856,7 @@ pub fn resolve_session_dir(args: &[String]) -> SessionDirSpec {
 
     // Umbrella --session / NMBRS_SESSION first, so long-form
     // and per-key env can override individual fields.
-    // Accept the bare `session=<spec>` spelling as well as `--session=<spec>`.
-    // Read-side commands already take bare `workload=<file>`, so an operator
-    // reasonably writes `session=<dir>` beside it — and before this, that form was
-    // consumed as an unrecognised key=value and SILENTLY ignored, so the command
-    // reported on `sessions/latest` while naming a different directory. A wrong
-    // answer that looks right is the worst outcome available here.
-    let bare_session = args
-        .iter()
-        .find_map(|a| a.strip_prefix("session="))
-        .map(|v| v.to_string());
-    let mut spec = match resolve_flag(args, "--session").or(bare_session) {
+    let mut spec = match resolve_flag(args, "--session") {
         Some(kv) => parse_session_kv(&kv),
         None => SessionDirSpec {
             session_keep: DEFAULT_SESSIONS_MAX,
@@ -875,13 +869,7 @@ pub fn resolve_session_dir(args: &[String]) -> SessionDirSpec {
     if let Some(v) = resolve_flag(args, "--session-name") {
         spec.session_name = Some(v);
     }
-    // `--session-dir` is an alias for `--session-path`. `Session::new_with_args`'s
-    // own doc, and the user guide's flag table, both named `--session-dir` as the
-    // way to set the directory — but nothing parsed it, so it was silently ignored
-    // and the session landed at the default path. (`SESSION_DIRECTORY`, the legacy
-    // env spelling the guide pairs with it, WAS honoured, which made the gap look
-    // like an env-only feature.)
-    if let Some(v) = aliased_flag(args, "--session-path", "--session-dir") {
+    if let Some(v) = resolve_flag(args, "--session-path") {
         validate_session_path_or_exit(&v, "`--session-path` flag (or NMBRS_SESSION_PATH env)");
         spec.session_path = Some(v);
     }
@@ -890,38 +878,17 @@ pub fn resolve_session_dir(args: &[String]) -> SessionDirSpec {
     {
         spec.reuse = r;
     }
-    // Retention. `--session-keep` / `--session-shelflife` are canonical: they match
-    // the rest of the `--session-*` family and the umbrella's `keep:` / `shelflife:`
-    // sub-keys. The `--sessions-max` / `--sessions-shelflife` spellings are accepted
-    // as aliases because the user guide documented ONLY those, so every invocation
-    // written against it — `nmbrs run … --sessions-max=5` — was parsed as an unknown
-    // flag and silently ignored, leaving retention at its default while the operator
-    // believed they had changed it.
-    if let Some(v) = aliased_flag(args, "--session-keep", "--sessions-max")
+    // Retention: `--session-keep` / `--session-shelflife`, matching the rest of
+    // the `--session-*` family and the umbrella's `keep:` / `shelflife:` sub-keys.
+    if let Some(v) = resolve_flag(args, "--session-keep")
         && let Ok(n) = v.trim().parse::<usize>()
     {
         spec.session_keep = n;
     }
-    if let Some(v) = aliased_flag(args, "--session-shelflife", "--sessions-shelflife")
+    if let Some(v) = resolve_flag(args, "--session-shelflife")
         && let Ok(d) = parse_duration(&v)
     {
         spec.session_shelflife = d;
-    }
-
-    // Legacy env: SESSION_DIRECTORY is the pre-SRD-04 name for
-    // NMBRS_SESSION_PATH. Honor it for back-compat with one
-    // deprecation warning. Skip silently if NMBRS_SESSION_PATH
-    // already won.
-    if spec.session_path.is_none()
-        && let Ok(v) = std::env::var(SESSION_DIRECTORY_ENV)
-        && !v.trim().is_empty()
-    {
-        crate::observer::log(
-            crate::observer::LogLevel::Warn,
-            "SESSION_DIRECTORY is deprecated; use NMBRS_SESSION_PATH (SRD-04 NMBRS_-prefix convention).",
-        );
-        validate_session_path_or_exit(&v, "legacy `SESSION_DIRECTORY` env");
-        spec.session_path = Some(v);
     }
 
     spec
@@ -929,7 +896,7 @@ pub fn resolve_session_dir(args: &[String]) -> SessionDirSpec {
 
 /// Resolve the `--session` / `--session-path` / `--session-name`
 /// arguments to a session directory path that `metrics.db`
-/// would live under. Used by every read-side tool (`nmbrs plot`,
+/// would live under. Used by every read-side tool (`nmbrs report plot`,
 /// `nmbrs report`, `nmbrs metrics ...`, completion) so the same
 /// flag means the same thing everywhere.
 ///
@@ -995,12 +962,12 @@ pub fn resolve_active(args: &[String]) -> Result<PathBuf, String> {
         .to_string())
 }
 
-/// Default for `--session-keep` (alias `--sessions-max`): keep the
+/// Default for `--session-keep`: keep the
 /// 10 most-recent sessions, purging older ones at the start of the
 /// next session-creating command.
 pub const DEFAULT_SESSIONS_MAX: usize = 10;
 
-/// Default for `--session-shelflife` (alias `--sessions-shelflife`):
+/// Default for `--session-shelflife`:
 /// 4 weeks. Sessions older than this are purged regardless of the
 /// `--session-keep` cap.
 pub const DEFAULT_SESSIONS_SHELFLIFE: std::time::Duration =
@@ -1171,7 +1138,7 @@ pub fn purge_stale_sessions(parent: &Path, max_sessions: usize, shelflife: std::
     }
 
     // Sort newest-first for the max-cap pass.
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.1));
 
     let now = std::time::SystemTime::now();
     let mut to_purge: Vec<&PathBuf> = Vec::new();
@@ -1221,7 +1188,7 @@ pub fn purge_stale_sessions(parent: &Path, max_sessions: usize, shelflife: std::
 /// named, on the theory that read-side commands defaulting to
 /// `sessions/latest/metrics.db` would then target the right session for free.
 /// That made `--session` work by mutating shared state: a read-only
-/// `nmbrs table … --session=sessions/foo` left `latest` pointing at `foo`
+/// `nmbrs report table … --session=sessions/foo` left `latest` pointing at `foo`
 /// afterwards, so a later bare `nmbrs report` — or a `--resume-latest` — silently
 /// operated on `foo` instead of the newest real run. It also only worked for
 /// sessions living under `sessions/`, so `--session=/tmp/x` behaved differently
@@ -1241,7 +1208,7 @@ pub fn purge_stale_sessions(parent: &Path, max_sessions: usize, shelflife: std::
 ///
 /// The cleanup DELETES session directories (keeping the `--session-keep` most
 /// recent, and dropping anything past `--session-shelflife`). It used to run on
-/// every invocation, so a read-only `nmbrs table …` could destroy old sessions —
+/// every invocation, so a read-only `nmbrs report table …` could destroy old sessions —
 /// the destructive counterpart of the symlink rewrite described above. Retiring
 /// old sessions belongs where sessions are ADDED, which is the only moment the
 /// count grows; observing a session must never delete one.
@@ -1260,7 +1227,7 @@ pub fn purge_stale_sessions_at_startup(args: &[String], creating_session: bool) 
     // Lifecycle cleanup runs unconditionally — it consults
     // `--session-keep` / `--session-shelflife` (with defaults).
     // Targets the parent dir: `--logs-dir` if specified, else
-    // `logs/` under cwd. When `--session-dir` is explicit, its
+    // `logs/` under cwd. When `--session-path` is explicit, its
     // *parent* directory is the cleanup target.
     let cleanup_parent = if let Some(sd) = spec.session_path.as_ref() {
         let resolved = sd.replace(SESSION_TOKEN, "");
@@ -1352,8 +1319,8 @@ impl Session {
     /// Create a new session. Picks the output directory in this
     /// priority order:
     ///
-    /// 1. `--session-dir <path>` CLI flag (or
-    ///    `SESSION_DIRECTORY` env var, equivalent). `SESSION`
+    /// 1. `--session-path <path>` CLI flag (or the
+    ///    `NMBRS_SESSION_PATH` env var). `SESSION`
     ///    token in the path is replaced with the auto-generated
     ///    `{session_name}_{timestamp}` name. The basename becomes
     ///    the session id.
@@ -1393,7 +1360,7 @@ impl Session {
                          --session-reuse=resume   (continue with the prior session — \
                          equivalent to --resume <id>)\n  \
                          Or pick a different path via --session, --logs-dir, \
-                         --session-dir, or SESSION_DIRECTORY env.",
+                         --session-path, or NMBRS_SESSION_PATH env.",
                         output_dir.display(),
                     );
                     std::process::exit(2);
@@ -1524,7 +1491,7 @@ impl Session {
     /// Backward-compat shim for callers that don't have CLI
     /// args handy. Equivalent to
     /// `Session::new_with_args(session_name, &[])` — resolves
-    /// session-dir from `SESSION_DIRECTORY` env only.
+    /// the session directory from the environment only.
     pub fn new(session_name: &str) -> Self {
         Self::new_with_args(session_name, &[])
     }
@@ -1658,7 +1625,7 @@ fn latest_symlink_target(output_dir: &Path, logs: &Path, id: &str) -> PathBuf {
 }
 
 /// UTC datetime components for session-name templating, derived
-/// from the same manual Gregorian math as [`format_timestamp`] (no
+/// from the same manual Gregorian math as `format_timestamp` (no
 /// chrono dependency). Returns `(year, month, day, hour, minute,
 /// second, epoch_millis, epoch_seconds)`.
 pub fn utc_datetime_fields() -> (u64, u64, u64, u64, u64, u64, u128, u64) {
@@ -1808,7 +1775,7 @@ mod tests {
     }
 
     /// Serialize all tests that mutate process-global state
-    /// (SESSION_DIRECTORY env var, cwd-relative `logs/` writes,
+    /// (`NMBRS_SESSION_*` env vars, cwd-relative `logs/` writes,
     /// etc.). Cargo runs tests in parallel by default; tests
     /// touching shared state must hold this lock for the
     /// duration of the operation.
@@ -1840,9 +1807,7 @@ mod tests {
         // that reads through it. Hold the same guard those tests hold.
         let _root_guard = crate::polydat_nodes::runtime_context::session_root_test_guard();
         let _g = env_test_lock();
-        unsafe {
-            std::env::remove_var(SESSION_DIRECTORY_ENV);
-        }
+        clear_session_env();
         let session = Session::new("fknn_rampup");
         assert!(session.id.starts_with("fknn_rampup_"), "id: {}", session.id);
         let expected_root = default_sessions_root();
@@ -1861,9 +1826,7 @@ mod tests {
         // that reads through it. Hold the same guard those tests hold.
         let _root_guard = crate::polydat_nodes::runtime_context::session_root_test_guard();
         let _g = env_test_lock();
-        unsafe {
-            std::env::remove_var(SESSION_DIRECTORY_ENV);
-        }
+        clear_session_env();
         let session = Session::new("smoke");
         assert!(session.metrics_path().ends_with("metrics.db"));
         assert!(session.profiler_path("").ends_with("flamegraph.svg"));
@@ -1893,7 +1856,6 @@ mod tests {
             std::env::remove_var("NMBRS_SESSION_REUSE");
             std::env::remove_var("NMBRS_SESSION_KEEP");
             std::env::remove_var("NMBRS_SESSION_SHELFLIFE");
-            std::env::remove_var(SESSION_DIRECTORY_ENV);
         }
     }
 
@@ -1908,84 +1870,44 @@ mod tests {
         assert_eq!(id, "explicit");
     }
 
-    /// Flags that the docs named but nothing parsed.
-    ///
-    /// The user guide's quick reference listed `--sessions-max`,
-    /// `--sessions-shelflife` and `--session-dir`; none were parsed, so an
-    /// invocation copied from the guide was read as an unknown flag and IGNORED —
-    /// retention silently stayed at 10 sessions / 4 weeks, and the session landed
-    /// at the default path. They are aliases now, with the `--session-*` family
-    /// spellings canonical.
+    /// The `--session-*` family has one spelling per setting. The retired
+    /// `--sessions-max` / `--sessions-shelflife` / `--session-dir` spellings set
+    /// nothing here; the command-line walker rejects them as unknown flags (see
+    /// the run spec's `retired_session_flag_spellings_are_rejected`).
     #[test]
-    fn documented_flag_aliases_are_honoured() {
+    fn session_flags_have_one_spelling() {
         let _g = env_test_lock();
         clear_session_env();
 
-        let spec = resolve_session_dir(&["--sessions-max=5".to_string()]);
-        assert_eq!(
-            spec.session_keep, 5,
-            "`--sessions-max` must set the keep cap"
-        );
-
-        let spec = resolve_session_dir(&["--sessions-shelflife=2w".to_string()]);
-        assert_eq!(
-            spec.session_shelflife,
-            std::time::Duration::from_secs(14 * 24 * 3600),
-            "`--sessions-shelflife` must set the retention window"
-        );
-
-        let spec = resolve_session_dir(&["--session-dir=/tmp/explicit".to_string()]);
-        let (path, id) = spec.resolve("auto").unwrap();
-        assert_eq!(
-            path.to_str(),
-            Some("/tmp/explicit"),
-            "`--session-dir` must set the session path"
-        );
-        assert_eq!(id, "explicit");
-
-        // The canonical spellings keep working, and win when both are given.
         let spec = resolve_session_dir(&["--session-keep=7".to_string()]);
         assert_eq!(spec.session_keep, 7);
-        let spec = resolve_session_dir(&[
-            "--session-keep=7".to_string(),
-            "--sessions-max=99".to_string(),
-        ]);
+        let spec = resolve_session_dir(&["--session-shelflife=2w".to_string()]);
         assert_eq!(
-            spec.session_keep, 7,
-            "the canonical spelling must win over the alias"
+            spec.session_shelflife,
+            std::time::Duration::from_secs(14 * 24 * 3600)
         );
+
+        let spec = resolve_session_dir(&[
+            "--sessions-max=5".to_string(),
+            "--sessions-shelflife=2w".to_string(),
+            "--session-dir=/tmp/explicit".to_string(),
+        ]);
+        assert_eq!(spec.session_keep, DEFAULT_SESSIONS_MAX);
+        assert_eq!(spec.session_shelflife, DEFAULT_SESSIONS_SHELFLIFE);
+        assert!(spec.session_path.is_none());
     }
 
+    /// The session is named only by `--session` (or `NMBRS_SESSION`). A bare
+    /// `session=<dir>` names nothing here; the command line rejects it before
+    /// any command runs ([`reject_bare_session_param`]).
     #[test]
-    fn bare_session_kv_resolves_like_the_dash_flag() {
-        // Read-side commands take bare `workload=<file>`, so an operator writes
-        // `session=<dir>` beside it. Before this was accepted, that token was
-        // consumed as an unrecognised key=value and IGNORED — the command
-        // reported on `sessions/latest` while naming a different directory.
+    fn bare_session_param_names_no_session() {
         let _g = env_test_lock();
         clear_session_env();
-        let bare = resolve_session_dir(&["session=/tmp/explicit".to_string()])
-            .resolve("auto-id")
-            .unwrap();
-        let dashed = resolve_session_dir(&["--session=/tmp/explicit".to_string()])
-            .resolve("auto-id")
-            .unwrap();
-        assert_eq!(bare, dashed, "both spellings must name the same session");
-        assert_eq!(bare.0.to_str(), Some("/tmp/explicit"));
-    }
-
-    #[test]
-    fn dash_session_wins_over_bare_session() {
-        // Explicit flag beats the bare param spelling, so a wrapper script that
-        // appends `--session=` can override a workload-supplied `session=`.
-        let _g = env_test_lock();
-        clear_session_env();
-        let args = vec![
-            "session=/tmp/from-param".to_string(),
-            "--session=/tmp/from-flag".to_string(),
-        ];
-        let (path, _) = resolve_session_dir(&args).resolve("auto-id").unwrap();
-        assert_eq!(path.to_str(), Some("/tmp/from-flag"));
+        let spec = resolve_session_dir(&["session=/tmp/explicit".to_string()]);
+        assert!(spec.is_empty());
+        assert!(reject_bare_session_param(&["session=/tmp/explicit".to_string()]).is_err());
+        assert!(reject_bare_session_param(&["--session=/tmp/explicit".to_string()]).is_ok());
     }
 
     #[test]
@@ -2033,61 +1955,41 @@ mod tests {
     #[test]
     fn spec_falls_back_to_env() {
         let _g = env_test_lock();
-        let prior = std::env::var(SESSION_DIRECTORY_ENV).ok();
+        clear_session_env();
         unsafe {
-            std::env::set_var(SESSION_DIRECTORY_ENV, "/from/env");
+            std::env::set_var("NMBRS_SESSION_PATH", "/from/env");
         }
         let spec = resolve_session_dir(&[]);
-        match prior {
-            Some(v) => unsafe {
-                std::env::set_var(SESSION_DIRECTORY_ENV, v);
-            },
-            None => unsafe {
-                std::env::remove_var(SESSION_DIRECTORY_ENV);
-            },
-        }
+        clear_session_env();
         let (path, _) = spec.resolve("auto").unwrap();
         assert_eq!(path.to_str(), Some("/from/env"));
     }
 
+    /// `SESSION_DIRECTORY` was the pre-SRD-04 spelling of
+    /// `NMBRS_SESSION_PATH`. It is retired: nothing reads it.
     #[test]
-    fn spec_cli_flag_overrides_env() {
+    fn retired_session_directory_env_is_not_read() {
         let _g = env_test_lock();
-        let prior = std::env::var(SESSION_DIRECTORY_ENV).ok();
+        clear_session_env();
+        let prior = std::env::var("SESSION_DIRECTORY").ok();
         unsafe {
-            std::env::set_var(SESSION_DIRECTORY_ENV, "/from/env");
+            std::env::set_var("SESSION_DIRECTORY", "/from/env");
         }
-        let args = vec!["--session-path=/from/cli".into()];
-        let spec = resolve_session_dir(&args);
-        match prior {
-            Some(v) => unsafe {
-                std::env::set_var(SESSION_DIRECTORY_ENV, v);
-            },
-            None => unsafe {
-                std::env::remove_var(SESSION_DIRECTORY_ENV);
-            },
+        let spec = resolve_session_dir(&[]);
+        unsafe {
+            match prior {
+                Some(v) => std::env::set_var("SESSION_DIRECTORY", v),
+                None => std::env::remove_var("SESSION_DIRECTORY"),
+            }
         }
-        let (path, _) = spec.resolve("auto").unwrap();
-        assert_eq!(
-            path.to_str(),
-            Some("/from/cli"),
-            "CLI --session-path must win over SESSION_DIRECTORY env"
-        );
+        assert!(spec.session_path.is_none());
     }
 
     #[test]
     fn spec_empty_returns_no_resolution() {
         let _g = env_test_lock();
-        let prior = std::env::var(SESSION_DIRECTORY_ENV).ok();
-        unsafe {
-            std::env::remove_var(SESSION_DIRECTORY_ENV);
-        }
+        clear_session_env();
         let spec = resolve_session_dir(&[]);
-        if let Some(v) = prior {
-            unsafe {
-                std::env::set_var(SESSION_DIRECTORY_ENV, v);
-            }
-        }
         assert!(spec.is_empty());
         assert!(spec.resolve("auto").is_none());
     }

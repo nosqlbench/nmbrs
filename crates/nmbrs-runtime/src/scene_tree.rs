@@ -664,9 +664,11 @@ impl SceneTree {
     /// SRD-76 — project every phase's outcome onto the
     /// session-wide pass/fail axis. Walks every phase node
     /// that has been populated with a `PhaseOutcome`;
-    /// returns [`SessionDisposition::Failure`] when any
-    /// phase's outcome carries `Validity::Failed`,
-    /// [`SessionDisposition::Success`] otherwise. Phases
+    /// returns
+    /// [`SessionDisposition::Failure`](crate::phase_outcome::SessionDisposition::Failure)
+    /// when any phase's outcome carries `Validity::Failed`,
+    /// [`SessionDisposition::Success`](crate::phase_outcome::SessionDisposition::Success)
+    /// otherwise. Phases
     /// that never ran (still Pending at session end)
     /// contribute nothing — interrupted-mid-run is not a
     /// failure per SRD-76 §"SessionDisposition".
@@ -906,7 +908,7 @@ mod tests {
         // The two same-named "p" cells: p[x=1] is first in DFS,
         // p[x=2] the second. `find_phase` ignores labels, so locate
         // them structurally by DFS position.
-        let p_x1 = t.dfs_phases().filter(|n| n.name == "p").next().unwrap().id;
+        let p_x1 = t.dfs_phases().find(|n| n.name == "p").unwrap().id;
         let p_x2 = t.dfs_phases().filter(|n| n.name == "p").nth(1).unwrap().id;
         assert_ne!(p_x1, p_x2);
 
@@ -934,7 +936,7 @@ mod tests {
     fn id_based_outcome_install_targets_the_dispatch_node() {
         use crate::phase_outcome::{PhaseIdentity, PhaseOutcome};
         let mut t = build_simple();
-        let p_x1 = t.dfs_phases().filter(|n| n.name == "p").next().unwrap().id;
+        let p_x1 = t.dfs_phases().find(|n| n.name == "p").unwrap().id;
         let p_x2 = t.dfs_phases().filter(|n| n.name == "p").nth(1).unwrap().id;
         t.set_phase_running_at(p_x1, 1);
         t.set_phase_running_at(p_x2, 1);

@@ -180,7 +180,7 @@ report:
     plot recall_vs_qps:
       label: "Recall vs QPS, (oracles & PVS)"
       scale: 2
-      legend: br
+      legend: bottom-right
       y1: (cycles_total_rate, recall_mean){phase=~".*query"} by (phase,k,limit)
       point-label1: limit
       x-legend: "QPS (log)"
@@ -195,7 +195,7 @@ report:
 
 #    plot recall_vs_qps__pvs
 #      label "Recall vs QPS (PVS)"
-#      legend: br
+#      legend: bottom-right
 #      y1: (cycles_total_rate, recall_mean){phase=~"pvs_query"} by (phase,k,limit)
 #      point-label1: limit
 #      x-legend: "QPS"

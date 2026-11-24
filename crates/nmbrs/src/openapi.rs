@@ -174,7 +174,8 @@ pub async fn run_command(args: &[String]) {
         rate: params.get("rate").and_then(|s| s.parse().ok()),
         sequencer: seq_type,
         error_spec: params.get("errors").cloned().unwrap_or_default(),
-        max_retries: 3,
+        // Three retries after the first attempt.
+        tries: Some(4),
         stanza_concurrency: params
             .get("stanza_concurrency")
             .and_then(|s| s.parse().ok())
@@ -187,11 +188,7 @@ pub async fn run_command(args: &[String]) {
 
     eprintln!("openapi: {cycles} cycles, {threads} threads");
 
-    let driver = params
-        .get("adapter")
-        .or(params.get("driver"))
-        .map(|s| s.as_str())
-        .unwrap_or("http");
+    let driver = params.get("adapter").map(|s| s.as_str()).unwrap_or("http");
 
     let adapter: Arc<dyn DriverAdapter> = match driver {
         "http" => {
@@ -202,6 +199,7 @@ pub async fn run_command(args: &[String]) {
                     .get("timeout")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(30_000),
+                connect_timeout_ms: None,
                 follow_redirects: true,
             }))
         }
@@ -278,7 +276,7 @@ static OPENAPI_RUN_KV: &[crate::cli_spec::KvParam] = &[
     crate::completion::RATE_KV_PARAM,
     crate::completion::ERRORS_KV_PARAM,
     crate::completion::STANZA_CONCURRENCY_KV_PARAM,
-    crate::completion::DRIVER_KV_PARAM,
+    crate::completion::ADAPTER_KV_PARAM,
     crate::cli_spec::KvParam {
         key: "timeout=",
         provider: crate::completion::free_form,

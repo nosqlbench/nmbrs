@@ -14,7 +14,7 @@ Two things to nail down for the current push:
 
 1. **Multi-row column projection from a JSON result body to a typed
    wire** — the vector-recall use case: SELECT N rows, capture
-   `key` column as `VecI32`, hand to the evaluator.
+   `key` column as `vec_i32`, hand to the evaluator.
 2. **Wire-reference reads in `evaluations.relevancy.actual:`** —
    the evaluator reads the captured wire via `ctx.wires.get`, no
    string round-trip, same shape `expected:` already uses.

@@ -7,7 +7,7 @@
 //!
 //! Architecture: each `watch=<spec>` registers a
 //! [`nmbrs_runtime::phase_end_triggers::PhaseEndTrigger`]
-//! that spawns `nmbrs report ...` (or `nmbrs plot ...`) as a
+//! that spawns `nmbrs report ...` as a
 //! detached subprocess and waits for it. The subprocess runs
 //! against the live session db, so its output reflects the
 //! state immediately after the most recent phase. The
@@ -18,8 +18,8 @@
 //!
 //! - `report`            → `nmbrs report all --session <S>`
 //! - `report:<args>`     → `nmbrs report <args> --session <S>`
-//! - `plot`              → `nmbrs plot all --session <S>`
-//! - `plot:<name>`       → `nmbrs plot --name <name> --session <S>`
+//! - `plot`              → `nmbrs report plot all --session <S>`
+//! - `plot:<name>`       → `nmbrs report plot --name <name> --session <S>`
 //!
 //! `<S>` is the active run's session directory (resolved at
 //! registration time from the same logic as
@@ -35,8 +35,8 @@ use nmbrs_runtime::phase_end_triggers::{PhaseEndEvent, PhaseEndTrigger};
 
 /// A trigger that runs a child `nmbrs` subprocess with a
 /// fixed argv after every phase end. The first element of
-/// `argv` is the subcommand (e.g. `report`), `--session
-/// <dir>` is appended automatically.
+/// `argv` is the subcommand (e.g. `report`),
+/// `--session <dir>` is appended automatically.
 struct SubprocessTrigger {
     label: String,
     nmbrs_binary: PathBuf,
@@ -148,10 +148,15 @@ fn spec_to_argv(spec: &str) -> Option<Vec<String>> {
         return Some(argv);
     }
     if trimmed == "plot" {
-        return Some(vec!["plot".into(), "all".into()]);
+        return Some(vec!["report".into(), "plot".into(), "all".into()]);
     }
     if let Some(name) = trimmed.strip_prefix("plot:") {
-        return Some(vec!["plot".into(), "--name".into(), name.trim().into()]);
+        return Some(vec![
+            "report".into(),
+            "plot".into(),
+            "--name".into(),
+            name.trim().into(),
+        ]);
     }
     None
 }
@@ -205,7 +210,7 @@ mod tests {
     fn spec_plot_default() {
         assert_eq!(
             spec_to_argv("plot").unwrap(),
-            vec!["plot".to_string(), "all".to_string()]
+            vec!["report".to_string(), "plot".to_string(), "all".to_string()]
         );
     }
 
@@ -214,6 +219,7 @@ mod tests {
         assert_eq!(
             spec_to_argv("plot:throughput").unwrap(),
             vec![
+                "report".to_string(),
                 "plot".to_string(),
                 "--name".to_string(),
                 "throughput".to_string()

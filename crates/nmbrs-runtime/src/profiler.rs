@@ -736,11 +736,11 @@ fn summarize_folded(folded: &[u8], top_n: usize, companion: &str) -> String {
     }
 
     let mut self_ranked: Vec<(&str, u64)> = self_counts.into_iter().collect();
-    self_ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    self_ranked.sort_by_key(|e| std::cmp::Reverse(e.1));
     self_ranked.truncate(top_n);
 
     let mut incl_ranked: Vec<(&str, u64)> = inclusive_counts.into_iter().collect();
-    incl_ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    incl_ranked.sort_by_key(|e| std::cmp::Reverse(e.1));
     incl_ranked.truncate(top_n);
 
     let mut out = String::new();

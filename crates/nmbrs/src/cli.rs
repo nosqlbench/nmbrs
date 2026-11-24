@@ -3,8 +3,8 @@
 
 //! Usage text and utility functions shared across subcommands.
 //!
-//! Shell completion is owned by [`nmbrs_runtime::completions`] — the
-//! same harness `nmbrs` uses — so `nmbrs run workload=<TAB>`,
+//! Shell completion is owned by [`crate::completion`] — driven by the
+//! [`crate::cli_spec`] command tree — so `nmbrs run workload=<TAB>`,
 //! `scenario=<TAB>`, `adapter=<TAB>`, etc. all expand identically
 //! regardless of which adapter features are linked. `main.rs` wires
 //! it up; nothing in this file duplicates that logic.
@@ -94,7 +94,7 @@ pub fn resolve_workload_path(name: &str) -> Option<String> {
 
     // Examples are always probed too — handy for ad-hoc
     // explorations where the user just types the example name
-    // (e.g. `nmbrs plot --name X workload=feature_showcase`).
+    // (e.g. `nmbrs report plot --name X workload=feature_showcase`).
     for ext in &["", ".yaml", ".yml"] {
         let path = format!("examples/workloads/{name}{ext}");
         if std::path::Path::new(&path).exists() {

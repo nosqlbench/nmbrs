@@ -30,7 +30,7 @@ use polydat::kernel::PolydatProgram;
 fn program_with_gt() -> Arc<PolydatProgram> {
     compile_polydat_interpreter(
         "input cycle: u64\n\
-         extern ground_truth: Str = \"\"\n",
+         extern ground_truth: str =\"\"\n",
     )
     .expect("compile_polydat_interpreter")
     .into_program()

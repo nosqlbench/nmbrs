@@ -14,14 +14,6 @@ readme = "README.md"
 name = "nmbrs"
 path = "src/main.rs"
 
-[[bin]]
-name = "vectordata-audit"
-path = "src/bin/vectordata_audit.rs"
-
-[[bin]]
-name = "trace-recall"
-path = "src/bin/trace_recall.rs"
-
 [features]
 # Default: pure-Rust scylla CQL engine. Builds anywhere; needs
 # no C++ toolchain. Publishable to crates.io.
@@ -52,7 +44,7 @@ openapi = ["dep:nmbrs-adapter-openapi", "dep:openapiv3"]
 flamegraph = ["nmbrs-runtime/flamegraph"]
 
 [dependencies]
-polydat = "0.6.2"
+polydat = "0.10.0"
 # The sqlite metrics-access backend now lives in nmbrs-metrics (SRD-86
 # §"The metric-reader surface"); the CLI locates it via the queryapi.
 nmbrs-metrics = { workspace = true, features = ["sqlite"] }
@@ -61,13 +53,6 @@ nmbrs-workload = { workspace = true }
 nmbrs-rate = { workspace = true }
 nmbrs-errorhandler = { workspace = true }
 nmbrs-runtime = { workspace = true }
-# Used by the `vectordata-audit` bin to scrutinise dataset
-# relationships through the catalog API (transport- and
-# cache-layout-agnostic). The generic typed surface
-# (`open_facet_typed`, `facet_manifest`, `open_facet_storage`)
-# lets the tool read any facet by name + element type without
-# baking in per-facet helpers.
-vectordata = "1.1.4"
 tokio = { version = "1", features = ["full"] }
 # parking_lot::RwLock used by `RunState` shared with TuiObserver —
 # the std RwLock is writer-preferring on Linux and deadlocks
@@ -120,11 +105,10 @@ plotters = { version = "0.3", default-features = false, features = [
 ] }
 # Used by `nmbrs plot` for direct queries against the metrics db.
 # `bundled` so we don't depend on system libsqlite3.
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 # Stratified shell-completion engine. Drives the bash-completion
-# script and the per-command tier filter. Tracks the published
-# vectordata-rs 1.0.0 release.
-veks-completion = "1"
+# script and the per-command tier filter.
+veks-completion = "4.3.3"
 
 [dev-dependencies]
 regex = "1"

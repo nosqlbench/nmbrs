@@ -217,18 +217,26 @@ pub enum Destination {
 }
 
 impl Destination {
-    /// Parse one destination name. `session` and `session_dir`
-    /// are accepted spellings of `sessiondir` — the concept has
-    /// three natural spellings and rejecting two of them buys
-    /// nothing.
+    /// Parse one destination name — exactly one of
+    /// [`vocab::DESTINATION_NAMES`], case-sensitive.
     pub fn parse(s: &str) -> Option<Self> {
-        Some(match s.trim().to_ascii_lowercase().as_str() {
-            "sessiondir" | "session" | "session_dir" => Self::SessionDir,
+        Some(match s.trim() {
+            "sessiondir" => Self::SessionDir,
             "stdout" => Self::Stdout,
             "stderr" => Self::Stderr,
-            "none" | "off" => Self::None,
+            "none" => Self::None,
             _ => return None,
         })
+    }
+
+    /// Retired destination spellings and the name that replaced
+    /// each; an error names the replacement, never accepts it.
+    fn retired_replacement(s: &str) -> Option<&'static str> {
+        match s {
+            "session" | "session_dir" => Some("sessiondir"),
+            "off" => Some("none"),
+            _ => None,
+        }
     }
 
     pub fn as_str(self) -> &'static str {
@@ -246,19 +254,24 @@ impl Destination {
     pub fn parse_list(s: &str) -> Result<Vec<Self>, String> {
         let mut out: Vec<Self> = Vec::new();
         for tok in s.split([',', ' ', '\t']).filter(|t| !t.trim().is_empty()) {
-            let d = Self::parse(tok).ok_or_else(|| {
-                format!(
-                    "unknown destination '{}' — expected one of: {}",
-                    tok.trim(),
+            let tok = tok.trim();
+            let d = Self::parse(tok).ok_or_else(|| match Self::retired_replacement(tok) {
+                Some(canonical) => format!("destination '{tok}' — write '{canonical}'"),
+                None => format!(
+                    "unknown destination '{tok}' — expected one of: {}",
                     vocab::DESTINATION_NAMES.join(", ")
-                )
+                ),
             })?;
-            if d == Self::None {
-                return Ok(vec![Self::None]);
-            }
             if !out.contains(&d) {
                 out.push(d);
             }
+        }
+        // `none` suppresses delivery; beside a real destination it
+        // would silently cancel it, so the mix is an error.
+        if out.contains(&Self::None) && out.len() > 1 {
+            return Err("`to: none` suppresses delivery and can't be combined with \
+                 other destinations — write `none` alone, or drop it"
+                .to_string());
         }
         if out.is_empty() {
             return Err(format!(
@@ -329,7 +342,7 @@ pub struct SeriesOverride {
 impl ReportItem {
     /// Render this item back to its canonical YAML directive
     /// form — the same string shape the workload-YAML parser
-    /// in [`parse_group`] consumes. Round-trips:
+    /// in `parse_group` consumes. Round-trips:
     /// `parse_group(... item.to_yaml_directive_string() ...) == item`.
     ///
     /// The output is one or more lines:
@@ -993,11 +1006,11 @@ impl PartialItem {
                         continue;
                     }
                 }
-                if let Some(rest) = strip_directive_keyword(trimmed, "order") {
-                    if let Ok(n) = rest.trim().parse::<usize>() {
-                        item.order = Some(n);
-                        continue;
-                    }
+                if let Some(rest) = strip_directive_keyword(trimmed, "order")
+                    && let Ok(n) = rest.trim().parse::<usize>()
+                {
+                    item.order = Some(n);
+                    continue;
                 }
                 body_lines.push(line.clone());
             }
@@ -1040,11 +1053,11 @@ impl PartialItem {
             // `order <n>` — declaration ordinal, emitted by the
             // persisted form so db-sourced renders keep the
             // workload's declaration order.
-            if let Some(rest) = strip_directive_keyword(line, "order") {
-                if let Ok(n) = rest.trim().parse::<usize>() {
-                    item.order = Some(n);
-                    continue;
-                }
+            if let Some(rest) = strip_directive_keyword(line, "order")
+                && let Ok(n) = rest.trim().parse::<usize>()
+            {
+                item.order = Some(n);
+                continue;
             }
             // `with-tables: [label1, label2, …]` — plot-only
             // multi-table fan-out. Emits one companion
@@ -1094,21 +1107,8 @@ impl PartialItem {
             // non-plot items.
             if let Some(rest) = strip_directive_keyword(line, "with-table") {
                 let v = rest.trim().trim_matches(':').trim();
-                let truthy = matches!(
-                    v.to_ascii_lowercase().as_str(),
-                    "true" | "yes" | "on" | "1" | "",
-                );
-                let falsy = matches!(
-                    v.to_ascii_lowercase().as_str(),
-                    "false" | "no" | "off" | "0",
-                );
-                if !truthy && !falsy {
-                    return Err(format!(
-                        "report.{}:{} `with-table`: expected true/false, got '{v}'",
-                        self.group, self.line_no,
-                    ));
-                }
-                item.with_table = truthy;
+                item.with_table = crate::boolean::parse_bool("with-table", v)
+                    .map_err(|e| format!("report.{}:{} {e}", self.group, self.line_no))?;
                 if item.with_table && !matches!(self.kind, Kind::Plot) {
                     warnings.push(format!(
                         "report.{}:{} item '{}' uses `with-table` but is a {}; \
@@ -1168,9 +1168,7 @@ fn strip_directive_keyword<'a>(line: &'a str, kw: &str) -> Option<&'a str> {
             || next == Some('=')
             || next == Some(':')
         {
-            return Some(
-                rest.trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '=' || c == ':'),
-            );
+            return Some(rest.trim_start_matches([' ', '\t', '=', ':']));
         }
     }
     None
@@ -1651,30 +1649,35 @@ empty_block: ""
     fn destination_list_parses_spellings_and_rejects_junk() {
         use Destination::*;
         assert_eq!(Destination::parse_list("stdout").unwrap(), vec![Stdout]);
-        // Comma, whitespace, and mixed separators all work; the
-        // three spellings of the session dir are one destination.
+        // Comma, whitespace, and mixed separators all work.
         assert_eq!(
             Destination::parse_list("stdout, sessiondir").unwrap(),
             vec![Stdout, SessionDir]
         );
         assert_eq!(
-            Destination::parse_list("session_dir stderr").unwrap(),
+            Destination::parse_list("sessiondir stderr").unwrap(),
             vec![SessionDir, Stderr]
         );
-        assert_eq!(
-            Destination::parse_list("session").unwrap(),
-            vec![SessionDir]
-        );
+        // Retired spellings and case variants are errors naming the
+        // canonical word.
+        for (retired, canonical) in [
+            ("session", "sessiondir"),
+            ("session_dir", "sessiondir"),
+            ("off", "none"),
+        ] {
+            let err = Destination::parse_list(retired).unwrap_err();
+            assert!(err.contains(&format!("write '{canonical}'")), "{err}");
+        }
+        assert!(Destination::parse_list("STDOUT").is_err());
         // Duplicates collapse rather than double-delivering.
         assert_eq!(
             Destination::parse_list("stdout,stdout").unwrap(),
             vec![Stdout]
         );
-        // `none` is a suppression, not a peer — it wins outright.
-        assert_eq!(
-            Destination::parse_list("stdout, none, sessiondir").unwrap(),
-            vec![None]
-        );
+        // `none` is a suppression, not a peer: alone it suppresses;
+        // beside a real destination it is an error, not a silent win.
+        assert_eq!(Destination::parse_list("none").unwrap(), vec![None]);
+        assert!(Destination::parse_list("stdout, none, sessiondir").is_err());
         // An unknown destination names the vocabulary.
         let err = Destination::parse_list("syslog").unwrap_err();
         assert!(err.contains("syslog"), "{err}");
@@ -1818,7 +1821,7 @@ section_b: |
         let body = "plot recall_1_mean
 label \"ALL 1-recall@R, oracles & PVS\"
 target oracles_report.md
-legend: br
+legend: bottom-right
 x: r
 y1: avg(recall_mean{k=\"1\"}) by (k,r)
 y-ranges: [[0.0,1.0]]

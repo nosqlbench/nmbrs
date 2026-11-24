@@ -131,10 +131,6 @@ pub struct Flag {
     pub long: &'static str,
     /// Optional short form (e.g. `-c` alongside `--command`).
     pub short: Option<&'static str>,
-    /// Additional accepted long forms (e.g. `--to-file` as an
-    /// alias for `--tofile`). Walker accepts any of these;
-    /// completion advertises only `long`.
-    pub aliases: &'static [&'static str],
     pub arity: Arity,
     pub value: ValueProvider,
     pub help: &'static str,
@@ -236,7 +232,7 @@ pub struct ParsedCommand {
     /// the handler. Means handlers never have to handle help.
     pub help_requested: bool,
     /// True when `--version` or `-V` appeared anywhere in argv.
-    /// Same short-circuit shape as [`help_requested`]: walker
+    /// Same short-circuit shape as [`Self::help_requested`]: walker
     /// stops at the deepest subcommand seen before the flag and
     /// returns immediately; main.rs prints the version string
     /// and exits without dispatching.

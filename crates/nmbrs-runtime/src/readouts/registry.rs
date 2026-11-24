@@ -3,7 +3,7 @@
 
 //! Static registry of built-in readouts.
 //!
-//! Returns [`ReadoutHandle`](super::ReadoutHandle) — an
+//! Returns [`ReadoutHandle`] — an
 //! `Arc<dyn Readout>` — so the rest of the engine can hold
 //! readouts uniformly whether they're compile-time builtins
 //! (this module) or runtime workload-registered customs (a

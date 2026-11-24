@@ -225,7 +225,7 @@ pub fn fixed_batch_stride(row_size: u64, batch_n: usize, budget: Option<u64>) ->
 ///
 /// The probe is a [`fork`](polydat::Kernel::fork) of `parent` — its
 /// program, its inputs, its cells shared — on whatever engine `parent`
-/// runs, read through the SAME [`CycleWires`] surface the batch dispenser
+/// runs, read through the SAME [`CycleWires`](nmbrs_runtime::wires::CycleWires) surface the batch dispenser
 /// uses at execute time, so the sampled row-0 values (the dominant dataset
 /// vector included) match what the op will actually bind. `parent` is
 /// unaffected: pulling outputs evaluates the DAG without committing any
@@ -264,7 +264,7 @@ mod tests {
         // "≈ 1536*4": prefix + per-mutation overhead are small
         // constants next to the payload.
         assert!(
-            est >= 1536 * 4 && est <= 1536 * 4 + ROW_OVERHEAD + 8,
+            (1536 * 4..=1536 * 4 + ROW_OVERHEAD + 8).contains(&est),
             "est={est}"
         );
     }

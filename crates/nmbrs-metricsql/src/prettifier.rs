@@ -23,7 +23,7 @@ const MAX_PRETTIFIED_LINE_LEN: usize = 80;
 
 /// Multi-line pretty-print, mirroring upstream's `Prettify`.
 /// Tries the single-line rendering first; if a node exceeds
-/// [`MAX_PRETTIFIED_LINE_LEN`] it splits into multiple lines
+/// `MAX_PRETTIFIED_LINE_LEN` it splits into multiple lines
 /// per the upstream rules. Use this for human-readable
 /// display; use [`pretty_string`] for canonical round-trip.
 pub fn pretty_print(expr: &Expr) -> String {

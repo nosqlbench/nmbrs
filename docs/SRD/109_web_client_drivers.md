@@ -86,9 +86,10 @@ defaults:
   blueprint was invoked; the backing adapter and the manifest's
   default params fill only absent keys, so the CLI always wins
   and the defaults still overlay the library's own declared
-  params. A `driver=` value matching no manifest keeps its legacy
-  meaning (an alias for `adapter=`). `impl=` alongside `driver=`
-  is a conflict error.
+  params. A `driver=` value matching no manifest is an error that
+  lists the known manifests; `driver=` never selects an adapter by
+  name (that is `adapter=`). `impl=` alongside `driver=` is a
+  conflict error.
 - `nmbrs describe drivers` lists manifests (bundled + local),
   mirroring `describe workloads`.
 - The manifest maps NAMES to templates and defaults — it never
@@ -146,8 +147,8 @@ select_ann:
 - **Wildcard projection** (`[*]`) is the SRD-70 first-wave shape,
   implemented here: one wildcard per path, projecting a column
   across every element of the matched array into a typed vector
-  (uniform coercion: all-int → `VecI64`, all-float → `VecF64`,
-  otherwise the collected array as `Json`). `[*].key` projects a
+  (uniform coercion: all-int → `vec_i64`, all-float → `vec_f64`,
+  otherwise the collected array as `json`). `[*].key` projects a
   top-level body array (the CQL shape); `result[*].id` projects a
   nested one (typical vendor JSON).
 - **Checks, per the SRD-108 table**: at load, every `results:`
@@ -185,7 +186,7 @@ openapi-ops petstore.openapi.json petstore_ops.yaml [base_url=<url>]
   joined with `_`). Optional parameters and fields are listed in a
   comment beside the template; a workload that wants them declares
   its own template. Types map `integer → u64`, `number → f64`,
-  `boolean → bool`, everything else → `String`.
+  `boolean → bool`, everything else → `str`.
 - `base_url` is a param, defaulting to the spec's first server.
 - The library does not choose the adapter — the workload does
   (`adapter=http` against a live service). An existing output file

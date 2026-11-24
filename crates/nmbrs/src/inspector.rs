@@ -8,7 +8,7 @@
 //!    run the supplied command(s) against the socket, print
 //!    each response to stdout, and exit. Designed for
 //!    scripting and pipelines.
-//! 2. **Line-mode REPL** (`tui=off`): a plain stdin/stdout
+//! 2. **Line-mode REPL** (`--tui off`): a plain stdin/stdout
 //!    REPL with no terminal control sequences, suitable for
 //!    pipes, automation, and other programs that want to
 //!    drive nmbrs synchronously.
@@ -86,7 +86,7 @@ pub fn inspector_command(args: &[String]) {
         std::process::exit(if any_err { 1 } else { 0 });
     }
 
-    // Mode 2: line-mode REPL — `tui=off`, or auto-detected
+    // Mode 2: line-mode REPL — `--tui off`, or auto-detected
     // when stdin is not a TTY (pipe, here-doc, file
     // redirection). No raw mode, no alternate screen, no
     // crossterm dependency on the input path: just
@@ -111,7 +111,7 @@ pub fn inspector_command(args: &[String]) {
 /// a time, dispatches each to the inspector socket, writes the
 /// response to stdout. EOF (Ctrl+D, end of pipe) ends the
 /// session cleanly. Suitable for `echo phases | nmbrs
-/// --inspector tui=off` or any other consumer that talks line
+/// attach --tui off` or any other consumer that talks line
 /// protocol.
 fn run_line_repl(socket: &std::path::Path) {
     let stdin = io::stdin();
@@ -135,7 +135,7 @@ fn run_line_repl(socket: &std::path::Path) {
                     let _ = stdout.write_all(b"\n");
                 }
                 // Visual separator between responses so
-                // consumers doing `cat | inspector tui=off`
+                // consumers doing `cat | nmbrs attach --tui off`
                 // can split records easily.
                 let _ = stdout.write_all(b"\n");
                 let _ = stdout.flush();
@@ -194,8 +194,8 @@ struct InspectorOpts {
     pid_filter: Option<u32>,
     socket: Option<PathBuf>,
     /// User-forced TUI/line preference. `Some(true)` means
-    /// `tui=on` was set; `Some(false)` means `tui=off` was set
-    /// (or `--no-tui`); `None` means auto-detect from stdin.
+    /// `--tui on` was set; `Some(false)` means `--tui off`; `None`
+    /// means auto-detect from stdin.
     tui: Option<bool>,
     /// One-shot commands from `-c <cmd>` / `--command <cmd>`
     /// arguments, in the order given. Empty = enter REPL.
@@ -222,12 +222,9 @@ fn parse_args(args: &[String]) -> InspectorOpts {
                     opts.commands.push(v.clone());
                 }
             }
-            "--no-tui" => {
-                opts.tui = Some(false);
-            }
             other => {
                 if let Some(v) = other.strip_prefix("tui=") {
-                    opts.tui = Some(matches!(v, "on" | "true" | "1" | "yes"));
+                    opts.tui = tui_mode(v).ok();
                 } else if let Some(v) = other.strip_prefix("--pid=") {
                     opts.pid_filter = v.parse::<u32>().ok();
                 } else if let Some(v) = other.strip_prefix("--socket=") {
@@ -260,7 +257,6 @@ pub fn spec() -> Command {
             Flag {
                 long: "--pid",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(crate::completion::pid_provider),
                 help: "Filter by PID (resolves <runtime-dir>/nmbrs-<pid>.sock).",
@@ -269,7 +265,6 @@ pub fn spec() -> Command {
             Flag {
                 long: "--socket",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(crate::completion::socket_path_provider),
                 help: "Direct path to the inspector socket.",
@@ -278,28 +273,17 @@ pub fn spec() -> Command {
             Flag {
                 long: "--command",
                 short: Some("-c"),
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(crate::completion::inspector_command_provider),
                 help: "One-shot command(s); repeat for multiple.",
                 repeatable: true,
             },
             Flag {
-                long: "--no-tui",
-                short: None,
-                aliases: &[],
-                arity: Arity::Bool,
-                value: ValueProvider::None,
-                help: "Disable TUI mode.",
-                repeatable: false,
-            },
-            Flag {
                 long: "--tui",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(static_tui),
-                help: "tui=on|off override.",
+                help: "on|off: force the TUI REPL or the line REPL (default: TUI when stdin is a terminal).",
                 repeatable: false,
             },
         ],
@@ -313,8 +297,20 @@ pub fn spec() -> Command {
     }
 }
 
+/// `--tui` takes `run`'s `tui=` mode words; attach has only the two
+/// modes `on` (TUI REPL) and `off` (line REPL).
+const TUI_MODES: [&str; 2] = ["on", "off"];
+
+fn tui_mode(v: &str) -> Result<bool, String> {
+    match v {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        other => Err(format!("--tui {other}: expected `on` or `off`")),
+    }
+}
+
 fn static_tui(p: &str, _: &[&str]) -> Vec<String> {
-    ["on", "off"]
+    TUI_MODES
         .iter()
         .filter(|s| s.starts_with(p))
         .map(|s| s.to_string())
@@ -338,10 +334,8 @@ fn handle(p: ParsedCommand) -> Result<(), String> {
         argv.push("--command".into());
         argv.push(c.clone());
     }
-    if p.bool("--no-tui") {
-        argv.push("--no-tui".into());
-    }
     if let Some(v) = p.flag("--tui") {
+        tui_mode(v)?;
         argv.push(format!("tui={v}"));
     }
     inspector_command(&argv);

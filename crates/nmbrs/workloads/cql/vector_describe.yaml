@@ -113,9 +113,9 @@ phases:
     concurrency: 1
     bindings: |
       base_vec     := vector_at("{dataset}:{profile}", 0)
-      query_vec    := query_vector_at("{dataset}:{profile}", {qi})
-      gt_indices   := neighbor_indices_at("{dataset}:{profile}", {qi})
-      gt_distances := neighbor_distances_at("{dataset}:{profile}", {qi})
+      query_vec    := query_vector_at("{dataset}:{profile}", qi)
+      gt_indices   := neighbor_indices_at("{dataset}:{profile}", qi)
+      gt_distances := neighbor_distances_at("{dataset}:{profile}", qi)
     ops:
       base_sample:
         stmt: "  base[0]:              {base_vec}"
@@ -135,8 +135,8 @@ phases:
     cycles: "{mi_len}"
     concurrency: 1
     bindings: |
-      mi_len       := metadata_results_len_at("{dataset}:{profile}", {qi})
-      mi           := metadata_results_at("{dataset}:{profile}", {qi})
+      mi_len       := metadata_results_len_at("{dataset}:{profile}", qi)
+      mi           := metadata_results_at("{dataset}:{profile}", qi)
       base_ordinal := array_at(mi, cycle)
     ops:
       match:

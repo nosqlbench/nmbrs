@@ -122,7 +122,7 @@ pub struct TriesDispenser {
     /// sighting of each error class in the retry loop emits one
     /// advisory line through the shared per-activity gate — a retry
     /// storm identifies itself without flooding the output. `None`
-    /// when the op opted out (`retry_advisory: off`).
+    /// when the op opted out (`retry_advisory: false`).
     advisory: Option<Arc<crate::exec_events::AdvisoryGate>>,
 }
 
@@ -425,7 +425,7 @@ mod tests {
         // ratio 1.0 holds the wait at the floor every attempt.
         for attempt in 1..=5u32 {
             let w = backoff_wait_ms(200, 10_000, 1.0, attempt, 7);
-            assert!(w >= 100 && w <= 200, "constant backoff drifted: {w}");
+            assert!((100..=200).contains(&w), "constant backoff drifted: {w}");
         }
         // base 0 disables pacing entirely.
         assert_eq!(backoff_wait_ms(0, 10_000, 2.0, 3, 1), 0);
@@ -437,7 +437,7 @@ mod tests {
         // A misconfigured ratio < 1.0 is clamped, never shrinks the wait.
         let w = backoff_wait_ms(100, 10_000, 0.1, 5, 3);
         assert!(
-            w >= 50 && w <= 100,
+            (50..=100).contains(&w),
             "sub-1.0 ratio should hold at floor: {w}"
         );
     }
@@ -445,9 +445,7 @@ mod tests {
     /// `tries: 0` fails WITHOUT invoking the inner op.
     #[tokio::test]
     async fn tries_zero_fails_without_executing() {
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 0,
@@ -482,9 +480,7 @@ mod tests {
     /// the cooperative-drain window on a struggling server.
     #[tokio::test]
     async fn shutdown_stops_retries_immediately() {
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::clear_session_stop_for_test();
         // Would fail retryably 50 times — but stop is raised, so the
         // very first failure must be terminal.
@@ -522,9 +518,7 @@ mod tests {
     /// succeeds when the third works.
     #[tokio::test]
     async fn tries_is_a_total_attempt_budget() {
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 2,
@@ -554,9 +548,7 @@ mod tests {
     /// third attempt fails after exactly 2 invocations.
     #[tokio::test]
     async fn budget_exhaustion_is_terminal() {
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::clear_session_stop_for_test();
         let inner = Arc::new(FlakyInner {
             fail_first: 5,

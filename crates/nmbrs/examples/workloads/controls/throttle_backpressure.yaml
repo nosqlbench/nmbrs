@@ -81,7 +81,7 @@ phases:
         retry_backoff: "10ms"
         # The governor is the story here — mute the (default-on)
         # first-sighting advisory so the log shows only its lines.
-        retry_advisory: "off"
+        retry_advisory: false
         result-overload: 4
         result-latency: "5ms"
 

@@ -8,8 +8,7 @@ way you expect.
 
 ## Using it
 
-This adapter is used through the `nmbrs` CLI. Select it with `adapter=plotter`
-(alias `adapter=plot`).
+This adapter is used through the `nmbrs` CLI. Select it with `adapter=plotter`.
 
 Each op field is one data series, named after the field. Integers, floats and
 booleans (as 0 and 1) are recorded. Values of other types are ignored. Nothing

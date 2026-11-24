@@ -146,7 +146,7 @@ impl SchedulerBuilder {
 
     /// Install a cadence tree (SRD-42 §"Tree Construction"). When set,
     /// `build()` constructs a chained schedule where each layer feeds
-    /// the next via [`ScheduleNode::ingest`] rather than coalescing
+    /// the next via `ScheduleNode::ingest` rather than coalescing
     /// from base frames independently. Hidden layers participate in
     /// accumulation but have no reporters of their own.
     ///

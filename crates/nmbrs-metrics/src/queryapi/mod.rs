@@ -214,7 +214,7 @@ impl ExecScopedAccess {
             return None; // caller already scoped — don't double-inject
         }
         let mut v = matchers.to_vec();
-        v.push(Matcher::eq("exec_id", &id.to_string()));
+        v.push(Matcher::eq("exec_id", id.to_string()));
         Some(v)
     }
 }

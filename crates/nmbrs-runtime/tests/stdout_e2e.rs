@@ -4,7 +4,7 @@
 //! End-to-end test: YAML workload → Polydat Kernel → stdout activity.
 //!
 //! This is the full pipeline test — the closest thing to running
-//! `nmbrs run workload.yaml driver=stdout`.
+//! `nmbrs run workload.yaml adapter=stdout`.
 
 use std::sync::Arc;
 

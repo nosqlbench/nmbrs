@@ -392,9 +392,10 @@ fn run_tree(opts: &Opts) -> Result<(), String> {
     Ok(())
 }
 
-/// SRD-76 — render a stored [`PhaseOutcomeRow`] via the same
+/// SRD-76 — render a stored
+/// [`PhaseOutcomeRow`](nmbrs_metrics::reporters::sqlite::PhaseOutcomeRow) via the same
 /// `phase_outcome` readout the live surface uses. Reconstructs
-/// the minimum [`ReadoutContext`] needed to drive the
+/// the minimum [`ReadoutContext`](nmbrs_runtime::readouts::ReadoutContext) needed to drive the
 /// Labeled-LOD render: subject identity (name + labels),
 /// elapsed wall-clock, and the structured outcome (status +
 /// errors). Other counter / chip / coord-fold fields stay at
@@ -480,7 +481,7 @@ fn render_outcome(row: &nmbrs_metrics::reporters::sqlite::PhaseOutcomeRow, plain
     s
 }
 
-/// Parse a sqlite `status` label into the two-axis [`Outcome`].
+/// Parse a sqlite `status` label into the two-axis [`Outcome`](nmbrs_runtime::phase_outcome::Outcome).
 /// Accepts both the current axis labels and the retired legacy set
 /// (`cursor_suspended` collapses to Interrupted+Succeeded — the
 /// stored rows are never rewritten, so old sessions must replay).
@@ -608,7 +609,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--db",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Path,
                 help: "Path to metrics.db.",
@@ -617,7 +617,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--session",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: crate::completion::SESSION_NAME_VALUE,
                 help: "SRD-04 session umbrella (path or name).",
@@ -626,7 +625,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--plain",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Plain-text output (no ANSI).",
@@ -635,7 +633,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--errors",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Only render phases that failed (SRD-76).",
@@ -644,7 +641,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--phase",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(crate::completion::phase_name_db_provider),
                 help: "Filter to a single phase identity (SRD-76).",
@@ -653,7 +649,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--json",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Machine-readable JSON per outcome (SRD-76).",
@@ -667,7 +662,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--execution",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: crate::completion::EXECUTION_ID_VALUE,
                 help: "Filter to one execution_id (default: most recent).",
@@ -676,7 +670,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--all-executions",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Render every execution's outcomes.",
@@ -685,7 +678,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--format",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(format_value_provider),
                 help: "View to render: 'outcomes' (default) or 'tree'.",

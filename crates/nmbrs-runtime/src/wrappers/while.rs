@@ -96,9 +96,9 @@ impl WhileWrapper {
     /// Default iteration ceiling. Sized to allow days-long
     /// daemon loops at modest tick rates (e.g. 100k/sec for
     /// 11+ days) while still terminating a buggy infinite loop
-    /// in finite time during dev. Raise via
-    /// [`Self::with_iteration_ceiling`] if a legitimate workload
-    /// needs more.
+    /// in finite time during dev. Only the test-only
+    /// `Self::with_iteration_ceiling` constructor overrides it;
+    /// raise this constant if a legitimate workload needs more.
     pub const DEFAULT_ITERATION_CEILING: u64 = 100_000_000_000;
 
     /// Wrap an inner dispenser. Registers the synthesised
@@ -147,11 +147,6 @@ impl WhileWrapper {
         }))
     }
 }
-
-/// Truthy test for the predicate value. Mirrors
-/// `ConditionalDispenser::is_truthy` — the two wrappers
-/// share a semantic: 0/false/empty-string/None is falsy,
-/// everything else is truthy.
 
 impl WrappingDispenser for WhileWrapper {}
 

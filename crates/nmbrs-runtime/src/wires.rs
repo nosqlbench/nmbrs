@@ -30,13 +30,18 @@ use crate::scope_kernel::ScopeKernel;
 use polydat::ast::{PortType, Value};
 use polydat::kernel::WriteError;
 
-/// Cached `NMBRS_DIRTY_DEBUG` flag. Per-cycle env reads cost ~30%
-/// of CPU on single-fiber benches; the OnceLock makes the gate
-/// a single atomic load. See the matching helper in
-/// `polydat::kernel::engines` for the same rationale.
+/// Cached `NMBRS_DIRTY_DEBUG=true` switch. Per-cycle env reads cost
+/// ~30% of CPU on single-fiber benches; the OnceLock makes the gate
+/// a single atomic load.
 fn nmbrs_dirty_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::env::var("NMBRS_DIRTY_DEBUG").is_ok())
+    *FLAG.get_or_init(|| crate::debug_env::debug_flag("NMBRS_DIRTY_DEBUG"))
+}
+
+/// Cached `NMBRS_DEBUG_WIRES=true` switch (read on every wire write).
+fn nmbrs_debug_wires_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| crate::debug_env::debug_flag("NMBRS_DEBUG_WIRES"))
 }
 
 /// Result of a [`WireSource::write`] call.
@@ -511,10 +516,7 @@ impl<'a> WireSource for CycleWires<'a> {
         let mut k = self.kernel.lock().expect("CycleWires mutex poisoned");
         self.forget_readings();
         let found = self.input_index(&**k, name);
-        if std::env::var("NMBRS_DEBUG_WIRES")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-        {
+        if nmbrs_debug_wires_enabled() {
             let cells: Vec<String> = k.cells_in_scope().iter().map(|c| c.name.clone()).collect();
             let slot_cell = found.map(|idx| k.input_is_cell_bound(idx));
             eprintln!(
@@ -1333,7 +1335,7 @@ mod tests {
         // uses for iter-var cascade.
         let mut parent = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
-             extern optimize_for: String\n",
+             extern optimize_for: str\n",
         )
         .unwrap();
         // Populate the input slot the way the phase kernel does
@@ -1350,7 +1352,7 @@ mod tests {
         // Mimics the per-op canonical the dispenser owns.
         let child_scope = crate::scope_kernel::ScopeKernel::compile(
             "input cycle: u64\n\
-             extern optimize_for: String\n",
+             extern optimize_for: str\n",
         )
         .unwrap();
         let mut child = child_scope
@@ -1383,7 +1385,7 @@ mod tests {
         //
         // Pinning this so the next person reading the source isn't
         // surprised — `cycle_wires_resolves_iter_var_through_subscope_chain`
-        // passes only because the `String` extern's auto-passthrough
+        // passes only because the `str` extern's auto-passthrough
         // output (added by the compiler when the name appears in the
         // body) gives materialize_wiring_from_outer something to walk. With ONLY
         // an extern decl, there's no body reference, no auto-passthrough,
@@ -1391,7 +1393,7 @@ mod tests {
         use polydat::dsl::compile::compile_polydat_interpreter;
         let k = compile_polydat_interpreter(
             "input cycle: u64\n\
-             extern optimize_for: String\n",
+             extern optimize_for: str\n",
         )
         .unwrap();
         let outputs: Vec<&str> = k.program().output_names().to_vec();
@@ -1399,7 +1401,7 @@ mod tests {
         // outputs), then the chain test above was a no-op and we
         // need to revisit the architectural question.
         // Document whichever is true.
-        eprintln!("DBG outputs from `extern optimize_for: String`: {outputs:?}");
+        eprintln!("DBG outputs from `extern optimize_for: str`: {outputs:?}");
     }
 
     #[test]
@@ -1454,7 +1456,7 @@ mod tests {
         let mut k = compile_polydat_interpreter(
             "input cycle: u64\n\
              extern count: u64\n\
-             extern body: Json\n",
+             extern body: json\n",
         )
         .unwrap();
         k.set_inputs(&[0]);

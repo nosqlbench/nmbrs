@@ -199,9 +199,9 @@ phases:
 /// This is the `query_sweep` shape. The synthesis-time type
 /// inference (`pre_evaluate_clause`) must resolve the bare prior
 /// clause so the dependent clause's `{k}` substitution lands the
-/// *typed* value — otherwise `limit` defaulted to `String` and a
+/// *typed* value — otherwise `limit` defaulted to `str` and a
 /// downstream u64 use (`mul(limit, 2)`) failed phase-kernel
-/// synthesis with "cannot connect String output to u64 input".
+/// synthesis with "cannot connect str output to u64 input".
 /// The existing dependent test uses the braced prior form
 /// (`{k_values}`), which masked this gap.
 #[test]
@@ -223,7 +223,7 @@ phases:
     cycles: 1
     concurrency: 1
     bindings: |
-      # Downstream u64 use: if `limit` mis-typed as String, this
+      # Downstream u64 use: if `limit` mis-typed as str, this
       # arithmetic fails phase-kernel synthesis.
       doubled := mul(limit, 2)
       _used_k1 := "{k_1_limits}"
@@ -249,7 +249,7 @@ phases:
     assert!(
         output.status.success(),
         "bare-prior-clause dependent comprehension failed to synthesize \
-         (limit likely mis-typed as String):\nstdout: {stdout}\nstderr: {stderr}"
+         (limit likely mis-typed as str):\nstdout: {stdout}\nstderr: {stderr}"
     );
 
     // |k=1's limits| + |k=10's limits| = 2 + 3 = 5

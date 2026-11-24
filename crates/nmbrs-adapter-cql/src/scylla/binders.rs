@@ -20,6 +20,7 @@
 //! `CqlValue::Vector(Vec<CqlValue::Float>)` wrapper allocation.
 //! Same path for `vector<int, N>` + [`Value::VecI32`].
 
+use crate::common::bind_scalar::{bind_bool, bind_f32, bind_f64, bind_int};
 use polydat::ast::Value;
 use scylla::cluster::metadata::{ColumnType, NativeType};
 use scylla::serialize::SerializationError;
@@ -101,17 +102,21 @@ fn value_to_cell<'v>(col_type: &ColumnType<'_>, value: &'v Value) -> Result<Nmbr
 
 fn native_to_cql(native: &NativeType, value: &Value) -> Result<CqlValue, String> {
     use NativeType as NT;
+    // Integer, float and boolean columns convert through the shared
+    // strict chokepoint: an exact value or a bind error, never a
+    // wrapped, truncated or zeroed one (and never a panic on a
+    // variant mismatch).
     match native {
-        NT::TinyInt => Ok(CqlValue::TinyInt(value.as_u64() as i8)),
-        NT::SmallInt => Ok(CqlValue::SmallInt(value.as_u64() as i16)),
-        NT::Int => Ok(CqlValue::Int(value.as_u64() as i32)),
-        NT::BigInt => Ok(CqlValue::BigInt(value.as_u64() as i64)),
-        NT::Counter => Ok(CqlValue::Counter(scylla::value::Counter(
-            value.as_u64() as i64
-        ))),
-        NT::Float => Ok(CqlValue::Float(value.as_f64() as f32)),
-        NT::Double => Ok(CqlValue::Double(value.as_f64())),
-        NT::Boolean => Ok(CqlValue::Boolean(value.as_u64() != 0)),
+        NT::TinyInt => Ok(CqlValue::TinyInt(bind_int(value, "tinyint")?)),
+        NT::SmallInt => Ok(CqlValue::SmallInt(bind_int(value, "smallint")?)),
+        NT::Int => Ok(CqlValue::Int(bind_int(value, "int")?)),
+        NT::BigInt => Ok(CqlValue::BigInt(bind_int(value, "bigint")?)),
+        NT::Counter => Ok(CqlValue::Counter(scylla::value::Counter(bind_int(
+            value, "counter",
+        )?))),
+        NT::Float => Ok(CqlValue::Float(bind_f32(value)?)),
+        NT::Double => Ok(CqlValue::Double(bind_f64(value)?)),
+        NT::Boolean => Ok(CqlValue::Boolean(bind_bool(value)?)),
         NT::Text | NT::Ascii => Ok(CqlValue::Text(value.to_display_string())),
         NT::Blob => match value {
             Value::Bytes(b) => Ok(CqlValue::Blob(b.to_vec())),
@@ -148,7 +153,9 @@ fn vector_float_from_value(value: &Value) -> Result<CqlValue, String> {
                 ));
             }
             bytes
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect()
         }

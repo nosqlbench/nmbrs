@@ -29,7 +29,7 @@
 //!   in a text note instead of silently aggregated.
 //! - View tables carry designation columns only (no auto spine
 //!   columns), keyed by the anchor sweep's coordinate label(s).
-//! - The rollup window is a fixed generous lookback ([`WINDOW`]); the
+//! - The rollup window is a fixed generous lookback (`WINDOW`); the
 //!   execution selection narrows actual sample ranges.
 
 use std::collections::BTreeMap;
@@ -195,11 +195,11 @@ impl Walk {
 /// observer's `recall_*` families for ANN ops with ground truth.
 fn known_families(phase: &WorkloadPhase) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for (name, _) in &phase.metrics {
+    for name in phase.metrics.keys() {
         out.push(name.clone());
     }
     for op in &phase.ops {
-        for (name, _) in &op.metrics {
+        for name in op.metrics.keys() {
             out.push(name.clone());
         }
         // Op-level poll wrappers: `poll` is a RESERVED op key, so the

@@ -90,7 +90,7 @@ via `ctx.wires.write`:
 - `count` → `Value::U64(body.element_count())`
 - `ok` → `Value::Bool(true)`
 
-**Typing:** Fixed by SRD-66 §"Surface 4": Json / u64 / bool.
+**Typing:** Fixed by SRD-66 §"Surface 4": json / u64 / bool.
 
 ### (4) Adapter-direct captures
 

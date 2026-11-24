@@ -19,11 +19,23 @@ ignore = [
     # ttf-parser: via plotters' bundled-font glyph rasterizer; retire when
     # plotters moves off ab_glyph 0.2.
     "RUSTSEC-2026-0192",
-    # lru 0.12 unsoundness: reachable only through ratatui 0.29 (and
-    # vectordata); fixed in lru >= 0.18.2, which needs the ratatui 0.30
-    # upgrade of nmbrs-tui. Tracked as a follow-up.
-    "RUSTSEC-2026-0002",
-    "RUSTSEC-2026-0253",
+    # pin-utils: same dev-only PTY harness (portable-pty -> nix 0.25).
+    "RUSTSEC-2026-0441",
+    # chrono: the scylla driver's CQL time types and plotters' time axes;
+    # retire when both move to a maintained time crate.
+    "RUSTSEC-2026-0543",
+    # basic-toml: build-time only, inside askama's derive macro (nmbrs-web
+    # templates); retire when askama drops it.
+    "RUSTSEC-2026-0374",
+    # unsafe-libyaml: under serde_yaml 0.9, which parses every workload.
+    # Retire by moving nmbrs-workload, nmbrs-runtime, nmbrs-adapter-openapi
+    # and nmbrs to a maintained YAML crate. Tracked as a follow-up.
+    "RUSTSEC-2024-0449",
+    # Not listed because cargo-deny reports `unsound` advisories for direct
+    # dependencies only: lru 0.12 (RUSTSEC-2026-0002, RUSTSEC-2026-0253),
+    # reached through ratatui 0.29 and vectordata; fixed in lru >= 0.18.2,
+    # which needs the ratatui 0.30 upgrade of nmbrs-tui. Tracked as a
+    # follow-up.
 ]
 
 [licenses]
@@ -43,14 +55,17 @@ allow = [
     "BSL-1.0",
     "CDLA-Permissive-2.0",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
-    "OpenSSL",
 ]
 confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Dev-dependencies on internal crates are version-less `path` dependencies
+# on purpose (root Cargo.toml, `[workspace.dependencies]`): cargo drops them
+# when packaging, which is what lets nmbrs-runtime dev-depend on adapters
+# that depend on it. Every other wildcard is still refused.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

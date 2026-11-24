@@ -182,7 +182,7 @@ fn default_with_arg_exprs() -> Result<Vec<WithArgExpr>, ParseError> {
                 at: 0,
             });
         };
-        out.extend(w.bindings.into_iter());
+        out.extend(w.bindings);
     }
     Ok(out)
 }
@@ -2147,7 +2147,7 @@ fn expand_with_template(
         return expand_with_expr(was_before, wa.expr);
     }
     let mut combined: Vec<WithArgExpr> = was_before.to_vec();
-    for (formal, actual) in wa.args.iter().zip(args.into_iter()) {
+    for (formal, actual) in wa.args.iter().zip(args) {
         combined.push(WithArgExpr {
             name: formal.clone(),
             args: Vec::new(),

@@ -80,13 +80,15 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Member directories: the root manifest declares `members = ["crates/*"]`,
-/// so every directory under `crates/` holding a `Cargo.toml` is a member.
+/// The product crates: the root manifest declares
+/// `members = ["crates/*", "xtask"]`, so every directory under `crates/`
+/// holding a `Cargo.toml` is one. `xtask` is the repository's own task
+/// runner, with no dependencies, and is outside the dependency rules.
 fn workspace_members(root: &Path) -> Vec<PathBuf> {
     let txt = fs::read_to_string(root.join("Cargo.toml")).expect("read root Cargo.toml");
     assert!(
-        txt.contains(r#"members = ["crates/*"]"#),
-        "root Cargo.toml no longer declares `members = [\"crates/*\"]`; update workspace_members()"
+        txt.contains(r#"members = ["crates/*", "xtask"]"#),
+        "root Cargo.toml no longer declares `members = [\"crates/*\", \"xtask\"]`; update workspace_members()"
     );
     let mut out: Vec<PathBuf> = fs::read_dir(root.join("crates"))
         .expect("read crates/")

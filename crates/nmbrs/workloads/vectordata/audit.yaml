@@ -6,11 +6,20 @@
 # of each query, and each query's filtered ground truth in global
 # ordinals) and one `label_NN` profile per value (that value's base
 # vectors, its queries, and their ground truth in label-local
-# ordinals). Recall measured against such a dataset is only as good as
-# the dataset: a label profile built from the wrong rows, or ground
-# truth translated through the wrong ordinal map, reads as a database
-# recall problem that no tuning will fix. This workload checks the
-# dataset before anyone blames the database.
+# ordinals). A label profile holds either the queries whose predicate
+# is its value, in base order, or — a shared-query partition, as
+# `veks` writes when it partitions without predicates — every query,
+# its rows indexed by the base query ordinal. A label profile holding
+# exactly as many queries as the base profile is read as shared.
+#
+# Recall measured against such a dataset is only as good as the
+# dataset: a label profile built from the wrong rows, or ground truth
+# translated through the wrong ordinal map, reads as a database recall
+# problem that no tuning will fix. This workload checks the dataset
+# before anyone blames the database: when it passes, oracle and
+# filtered ground truth name the same neighbors (up to how a tie at
+# the depth boundary was broken, which either side may break either
+# way), and a recall deficit is the system's.
 #
 # Every check is a named assertion binding (`is_positive(...)`). The
 # first one that fails stops the run with a non-zero exit, naming the
@@ -30,13 +39,36 @@
 #   label_base_rows_match_metadata  a label profile has one base vector per
 #                                   base vector carrying its value
 #   label_query_rows_match_predicates  ... and one query per query carrying it
+#                                   (or, shared, one per query)
 #   label_gt_rows_match_queries     ... and one ground-truth row per query
 #   label_gt_not_negative,          every label ground-truth index is a
 #   label_gt_in_range               label-local base ordinal
+#   label_gt_distinct               no label ground-truth row repeats an index
+#   label_gt_depth_matches_filtered_gt  for each query carrying the label's
+#                                   value, its label ground truth is as deep
+#                                   as its filtered ground truth
+#   filtered_gt_distances_match_indices  ... its filtered ground truth has
+#                                   one stored distance per index
+#   label_gt_matches_filtered_gt    ... and, translated to global ordinals,
+#                                   names the same base vectors, but for
+#                                   a tie at the depth boundary broken
+#                                   the other way (verified by distance)
+#   label_base_payload_matches      each label base vector is the base vector
+#                                   it stands for, bit for bit
+#   label_query_payload_matches     ... and likewise each label query
+#
+# Ordinals read out of a list are i64; the label checks narrow them to
+# row indices with `__i64_to_u64`, the range-checked adapter, which the
+# range checks before them guarantee cannot fail.
+#
+# The last five read through the ordinal map: the base vectors carrying
+# a label's value, ascending, are its label-local base ordinals
+# (`metadata_ordinals_of`), and the queries whose predicate is that
+# value, ascending, are its label-local queries (`predicate_ordinals_of`).
 #
 # Usage:
 #   nmbrs run workload=vectordata/audit dataset=<name>
-#   nmbrs run workload=vectordata/audit dataset=<name> base=default prefix=label_
+#   nmbrs run workload=vectordata/audit dataset=<name> base=default oracles_prefix=label_
 #
 # `dataset` is a vectordata catalog name (`nmbrs` resolves it through
 # the catalogs in `$VECTORDATA_HOME`, else `~/.config/vectordata`).
@@ -44,16 +76,25 @@
 description: |
   Audit a label-partitioned filtered-kNN dataset for internal
   consistency: predicates against metadata, the filtered ground truth,
-  and every label profile's row counts and ground-truth ranges.
+  and every label profile's row counts, ground truth, and vectors
+  against the base profile they were cut from.
 params:
   adapter: stdout
   dataset: example
   # The profile carrying the whole dataset: all base and query vectors,
-  # metadata_content, metadata_predicates, and filtered_neighbor_indices.
+  # metadata_content, metadata_predicates, filtered_neighbor_indices,
+  # filtered_neighbor_distances, and its distance_function.
   base: default
-  # Label profiles are the profiles whose names start with this prefix
-  # and end in their value (`label_00`, `label_07`, …).
-  prefix: label_
+  # Label (oracle) profiles are the profiles whose names start with this
+  # prefix and end in their value (`label_00`, `label_07`, …); the same
+  # parameter the vector suite and `vectordata/inventory` declare.
+  oracles_prefix: label_
+  # Relative tolerance of a boundary tie: a recomputed distance d ties
+  # the stored boundary distance b when |d − b| <= tie_tolerance ×
+  # (|b| + 1). Stored distances are f32 sums in some accumulation
+  # order; the recomputation is an f64 sum, so equal distances agree
+  # to roughly the dimension times f32 epsilon, well inside this.
+  tie_tolerance: "0.0001"
 
 scenarios:
   default:
@@ -62,10 +103,13 @@ scenarios:
     - metadata_has_predicate
     - filtered_gt_rows
     - filtered_gt_ranges
-    - for_each: "profile in matching_profiles('{dataset}', '{prefix}')"
+    - for_each: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
       phases:
         - label_rows
         - label_gt_ranges
+        - label_gt_translation
+        - label_base_payloads
+        - label_query_payloads
     - audit_passed
 
 phases:
@@ -76,7 +120,7 @@ phases:
     bindings: |
       base_rows  := vector_count("{dataset}:{base}")
       query_rows := query_count("{dataset}:{base}")
-      labels     := matching_profiles("{dataset}", "{prefix}")
+      labels     := matching_profiles("{dataset}", "{oracles_prefix}")
     ops:
       banner:
         stmt: "auditing {dataset}: {base_rows} base vectors, {query_rows} queries; label profiles: {labels}"
@@ -149,7 +193,8 @@ phases:
       label_profile_names_a_value := is_positive(regex_match("{profile}", "[0-9]+$"))
       value := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
       label_base_rows_match_metadata := is_positive(u64_eq(vector_count("{dataset}:{profile}"), metadata_count_of("{dataset}:{base}", value)))
-      label_query_rows_match_predicates := is_positive(u64_eq(query_count("{dataset}:{profile}"), predicate_count_of("{dataset}:{base}", value)))
+      shared_queries := u64_eq(query_count("{dataset}:{profile}"), query_count("{dataset}:{base}"))
+      label_query_rows_match_predicates := is_positive(u64_or(shared_queries, u64_eq(query_count("{dataset}:{profile}"), predicate_count_of("{dataset}:{base}", value))))
       label_gt_rows_match_queries := is_positive(u64_eq(vector_count(dataset_open("{dataset}:{profile}", "neighbor_indices")), query_count("{dataset}:{profile}")))
     ops:
       check:
@@ -172,6 +217,89 @@ phases:
       check:
         stdout: silent
         stmt: "{label_gt_not_negative} {label_gt_in_range}"
+
+  # One row per label ground-truth entry, `depth` for each query
+  # carrying the label's value (its `matching`-th, ascending): the
+  # entry is distinct within its row, and its base vector, as a global
+  # ordinal, is in that query's filtered ground truth — or is tied with
+  # the filtered row's last entry. With both rows equally deep, that is
+  # the two rows naming the same SET of base vectors up to how a tie at
+  # the depth boundary was broken. A shared-query partition's row for
+  # the query is at the query's base ordinal; otherwise at its rank
+  # among the matching.
+  #
+  # A tie is verified, not taken on the label row's word: the entry's
+  # distance to the query is recomputed under the dataset's own metric
+  # and must equal the filtered row's stored boundary distance within
+  # `tie_tolerance`. A mistranslated ordinal names some other vector,
+  # which is not at the boundary distance and fails.
+  label_gt_translation:
+    cycles: "{label_gt_entries}"
+    concurrency: 1
+    bindings: |
+      input label_gt_entry: u64
+      const value          := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      const base_ordinals  := metadata_ordinals_of("{dataset}:{base}", value)
+      const query_ordinals := predicate_ordinals_of("{dataset}:{base}", value)
+      const depth          := neighbor_count("{dataset}:{profile}")
+      const shared_queries := u64_eq(query_count("{dataset}:{profile}"), query_count("{dataset}:{base}"))
+      label_gt_entries := u64_mul(predicate_count_of("{dataset}:{base}", value), depth)
+      matching     := u64_div(label_gt_entry, depth)
+      slot         := u64_mod(label_gt_entry, depth)
+      query        := __i64_to_u64(vec_at_i32(query_ordinals, matching))
+      label_row    := neighbor_indices_at("{dataset}:{profile}", select_u64(shared_queries, query, matching))
+      const metric         := dataset_distance_function("{dataset}:{base}")
+      filtered_row := filtered_neighbor_indices_at("{dataset}:{base}", query)
+      filtered_distances := filtered_neighbor_distances_at("{dataset}:{base}", query)
+      local        := vec_at_i32(label_row, slot)
+      global       := vec_at_i32(base_ordinals, __i64_to_u64(local))
+      boundary     := vec_at_f32(filtered_distances, u64_sub(depth, 1))
+      recomputed   := vec_distance(metric, query_vector_at("{dataset}:{base}", query), vector_at("{dataset}:{base}", __i64_to_u64(global)))
+      slack        := f64_mul(tie_tolerance, f64_add(select_f64(f64_lt(boundary, 0.0), f64_sub(0.0, boundary), boundary), 1.0))
+      tied         := u64_and(f64_le(f64_sub(recomputed, boundary), slack), f64_le(f64_sub(boundary, recomputed), slack))
+      label_gt_distinct := is_positive(u64_eq(vec_position_i32(label_row, local), slot))
+      label_gt_depth_matches_filtered_gt := is_positive(u64_eq(vec_len_i32(filtered_row), vec_len_i32(label_row)))
+      filtered_gt_distances_match_indices := is_positive(u64_eq(vec_len_f32(filtered_distances), vec_len_i32(filtered_row)))
+      label_gt_matches_filtered_gt := is_positive(u64_or(vec_contains_i32(filtered_row, global), tied))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{label_gt_distinct} {label_gt_depth_matches_filtered_gt} {filtered_gt_distances_match_indices} {label_gt_matches_filtered_gt}"
+
+  # One row per label base vector: it is the base vector its
+  # label-local ordinal maps to.
+  label_base_payloads:
+    cycles: "{label_rows}"
+    concurrency: 1
+    bindings: |
+      input label_base_vector: u64
+      const value         := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      const base_ordinals := metadata_ordinals_of("{dataset}:{base}", value)
+      label_rows := vector_count("{dataset}:{profile}")
+      global     := __i64_to_u64(vec_at_i32(base_ordinals, label_base_vector))
+      label_base_payload_matches := is_positive(vec_eq_f32(vector_at("{dataset}:{profile}", label_base_vector), vector_at("{dataset}:{base}", global)))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{label_base_payload_matches}"
+
+  # One row per label query: it is the query its label-local ordinal
+  # maps to (in a shared-query partition, the query at its own ordinal).
+  label_query_payloads:
+    cycles: "{label_queries}"
+    concurrency: 1
+    bindings: |
+      input label_query: u64
+      const value          := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      const query_ordinals := predicate_ordinals_of("{dataset}:{base}", value)
+      const shared_queries := u64_eq(query_count("{dataset}:{profile}"), query_count("{dataset}:{base}"))
+      label_queries := query_count("{dataset}:{profile}")
+      global        := select_u64(shared_queries, label_query, __i64_to_u64(vec_at_i32(query_ordinals, label_query)))
+      label_query_payload_matches := is_positive(vec_eq_f32(query_vector_at("{dataset}:{profile}", label_query), query_vector_at("{dataset}:{base}", global)))
+    ops:
+      check:
+        stdout: silent
+        stmt: "{label_query_payload_matches}"
 
   audit_passed:
     cycles: 1

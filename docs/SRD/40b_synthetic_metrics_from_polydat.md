@@ -491,9 +491,9 @@ Each `MetricKind` variant maps to a concrete instrument from
 Type conversion at the wrapper:
 
 - The Polydat expression returns a `polydat::node::Value`. The
-  wrapper expects a numeric variant (`U64`, `F64`, or any
+  wrapper expects a numeric variant (`u64`, `f64`, or any
   bool/int that converts cleanly). Non-numeric variants
-  (`Str`, vectors) are a per-cycle warning + skip-record.
+  (`str`, vectors) are a per-cycle warning + skip-record.
 - `Gauge` records the value as `f64` directly; `Histogram` and
   `Counter` cast to `u64` (truncating fractional parts after
   any `format:` rounding, §1).

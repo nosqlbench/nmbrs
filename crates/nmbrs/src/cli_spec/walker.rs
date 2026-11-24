@@ -17,7 +17,7 @@
 //!    inspect [`ParsedCommand::positionals`] themselves).
 //!
 //! The walker accepts both `--flag value` and `--flag=value`
-//! forms, plus aliases declared on each [`Flag`]. Bool flags
+//! forms, and a flag's single-dash short form. Bool flags
 //! never consume the next token.
 
 use super::*;
@@ -92,6 +92,16 @@ pub fn parse(root: &Command, argv: &[String]) -> Result<ParsedCommand, String> {
         });
     }
 
+    // A group with no handler of its own takes no arguments, so a
+    // word after it can only be a mistyped subcommand.
+    if current.handler.is_none()
+        && !current.subcommands.is_empty()
+        && let Some(tok) = remaining.first()
+        && !tok.starts_with('-')
+    {
+        return Err(unknown_command_error(current, tok, &path));
+    }
+
     // Generic parse against the leaf's declared flags.
     let mut flags: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut bools: BTreeSet<String> = BTreeSet::new();
@@ -110,7 +120,7 @@ pub fn parse(root: &Command, argv: &[String]) -> Result<ParsedCommand, String> {
                 None => (tok.clone(), None),
             };
             let f = lookup_flag(current, &raw_name)
-                .ok_or_else(|| format!("unknown flag '{raw_name}' for `{}`", path.join(" ")))?;
+                .ok_or_else(|| unknown_flag_error(current, &raw_name, &path))?;
             consume_flag(
                 f,
                 &raw_name,
@@ -180,10 +190,43 @@ pub fn parse(root: &Command, argv: &[String]) -> Result<ParsedCommand, String> {
     })
 }
 
+/// The error for a flag `cmd` does not declare, naming the closest declared
+/// flag when one is near (a retired session spelling names its replacement).
+fn unknown_flag_error(cmd: &Command, name: &str, path: &[String]) -> String {
+    let suggestion = nmbrs_runtime::session::retired_flag_replacement(name)
+        .or_else(|| nmbrs_runtime::suggest::closest_match(name, cmd.flags.iter().map(|f| f.long)));
+    let base = format!("unknown flag '{name}' for `{}`", path.join(" "));
+    match suggestion {
+        Some(s) => format!("{base}. Did you mean '{s}'?"),
+        None => base,
+    }
+}
+
+/// The command path to write for a retired command spelling under
+/// `path` (`nmbrs plot` was a second name for `nmbrs report plot`).
+fn retired_command_replacement(path: &[String], name: &str) -> Option<&'static str> {
+    match (path, name) {
+        ([root], "plot") if root == "nmbrs" => Some("nmbrs report plot"),
+        ([root], "table") if root == "nmbrs" => Some("nmbrs report table"),
+        _ => None,
+    }
+}
+
+/// The error for a word that names no subcommand of `cmd`: the
+/// replacement for a retired spelling, else the closest subcommand.
+fn unknown_command_error(cmd: &Command, name: &str, path: &[String]) -> String {
+    let base = format!("unknown command '{name}' for `{}`", path.join(" "));
+    if let Some(r) = retired_command_replacement(path, name) {
+        return format!("{base}. Did you mean `{r}`?");
+    }
+    match nmbrs_runtime::suggest::closest_match(name, cmd.subcommands.iter().map(|s| s.name)) {
+        Some(s) => format!("{base}. Did you mean `{} {s}`?", path.join(" ")),
+        None => base,
+    }
+}
+
 fn lookup_flag<'a>(cmd: &'a Command, name: &str) -> Option<&'a Flag> {
-    cmd.flags
-        .iter()
-        .find(|f| f.long == name || f.aliases.contains(&name))
+    cmd.flags.iter().find(|f| f.long == name)
 }
 
 fn lookup_short<'a>(cmd: &'a Command, dashed: &str) -> Option<&'a Flag> {
@@ -268,7 +311,6 @@ mod tests {
         Flag {
             long,
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "",
@@ -280,7 +322,6 @@ mod tests {
         Flag {
             long,
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "",
@@ -331,6 +372,15 @@ mod tests {
         let root = cmd_leaf("nmbrs", vec![]);
         let err = parse(&root, &["--bogus".into()]).unwrap_err();
         assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn unknown_flag_names_the_closest_declared_flag() {
+        let root = cmd_leaf("nmbrs", vec![flag_value("--tofile"), flag_bool("--tree")]);
+        let err = parse(&root, &["--to-file=x.json".into()]).unwrap_err();
+        assert!(err.contains("Did you mean '--tofile'?"), "{err}");
+        let err = parse(&root, &["--wildly-different".into()]).unwrap_err();
+        assert!(!err.contains("Did you mean"), "{err}");
     }
 
     #[test]
@@ -391,6 +441,16 @@ mod tests {
         .unwrap();
         assert_eq!(p.path, vec!["nmbrs", "metrics", "list"]);
         assert_eq!(p.flag("--db"), Some("x"));
+
+        // A word naming no subcommand of a handler-less group is an
+        // error naming the closest one; a retired command names its
+        // replacement.
+        let err = parse(&root, &["metircs".into()]).unwrap_err();
+        assert!(err.contains("Did you mean `nmbrs metrics`?"), "{err}");
+        let err = parse(&root, &["metrics".into(), "lsit".into()]).unwrap_err();
+        assert!(err.contains("Did you mean `nmbrs metrics list`?"), "{err}");
+        let err = parse(&root, &["plot".into(), "all".into()]).unwrap_err();
+        assert!(err.contains("Did you mean `nmbrs report plot`?"), "{err}");
     }
 
     #[test]

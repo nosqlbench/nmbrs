@@ -618,21 +618,13 @@ async fn test_error_reporting() -> Result<()> {
         .await
         .expect_err("Should have failed!");
     println!("Got error {} kind {:?}", err, err.kind());
-    match *err.kind() {
-        ErrorKind::CassErrorResult(
-            CassErrorCode::SERVER_INVALID_QUERY,
-            _,
-            _,
-            -1,
-            -1,
-            -1,
-            _,
-            _,
-            _,
-            _,
-            _,
-        ) => (),
-        ref k => panic!("Unexpected error kind {}", k),
+    match err.kind() {
+        ErrorKind::CassErrorResult(details)
+            if details.code == CassErrorCode::SERVER_INVALID_QUERY
+                && details.actual == -1
+                && details.required == -1
+                && details.num_failures == -1 => {}
+        k => panic!("Unexpected error kind {}", k),
     }
 
     // UTF-8 error - return an invalid UTF-8 string

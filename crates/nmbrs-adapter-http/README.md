@@ -62,7 +62,7 @@ op_templates:
     description: "Add a pet"
     abstract:
       needs:
-        name: String
+        name: str
         owner_id: u64
     method: POST
     uri: "{base_url}/pets"

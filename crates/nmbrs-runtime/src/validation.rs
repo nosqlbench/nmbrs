@@ -40,7 +40,7 @@ fn wrapper_describe_assignment(s: WrapperSubject) -> Option<String> {
     let strict = template
         .params
         .get("strict")
-        .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s == "true")))
+        .and_then(|v| nmbrs_workload::boolean::json_bool("strict", v).ok())
         .unwrap_or(false);
     let mut parts: Vec<String> = Vec::new();
     if let Some(v) = template.params.get("verify") {
@@ -86,7 +86,7 @@ inventory::submit! {
 /// Closed vocabulary of op-template `params:` keys the runtime
 /// itself consumes (validation, batching, polling, op weighting,
 /// adapter selection). Joined at validation time with
-/// [`crate::runner::KNOWN_PARAMS`] (workload/CLI-level keys that
+/// `crate::runner::KNOWN_PARAMS` (workload/CLI-level keys that
 /// get blast-merged into every op's params during parse) and the
 /// adapter's
 /// [`crate::adapter::DriverAdapter::known_op_params`] declarations
@@ -115,7 +115,6 @@ pub const CORE_OP_PARAMS: &[&str] = &[
     "ratio",
     // Adapter selection.
     "adapter",
-    "driver",
     // Daemon-op declaration. `daemon` marks an op for cycle-pool
     // dispatch onto a daemon fiber (with per-op-name cap);
     // `daemon_cancel_grace_ms` overrides the phase-exit drain budget.
@@ -513,11 +512,9 @@ impl ValidatingDispenser {
         let wires_for_parse: Option<&dyn WireSource> =
             canonical_wires.as_ref().map(|w| w as &dyn WireSource);
         let relevancy = parse_relevancy(template, program, wires_for_parse)?;
-        let strict = template
-            .params
-            .get("strict")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let strict = template.params.get("strict").map_or(Ok(false), |v| {
+            nmbrs_workload::boolean::json_bool("strict", v)
+        })?;
 
         if assertions.is_empty() && relevancy.is_none() {
             return Ok((inner, None));
@@ -588,7 +585,7 @@ impl ValidatingDispenser {
                             .abstract_interface
                             .as_ref()
                             .and_then(|i| i.results.get(&cfg.actual_field))
-                            .and_then(|kw| polydat::ast::PortType::from_keyword(kw));
+                            .copied();
                         Some(ActualProjection { segs, target })
                     }
                     None => None,

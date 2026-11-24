@@ -55,8 +55,8 @@ For most workloads, the model just works. Examples:
 input cycle: u64
 id      := mod(hash(cycle), 1000000)         # pure: cycle → u64
 shard   := id % 16                           # pure: u64 → u64
-name    := number_to_words(id)               # pure: u64 → String
-greeting := "hello {name}"                   # pure: String → String
+name    := number_to_words(id)               # pure: u64 → str
+greeting := "hello {name}"                   # pure: str → str
 ```
 
 Every node is pure. Const folding works freely; identity is

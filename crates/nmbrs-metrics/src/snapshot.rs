@@ -675,7 +675,7 @@ pub enum MetricValue {
     Histogram(HistogramValue),
     /// OpenMetrics §5.3 (Histogram) / §5.4 (GaugeHistogram):
     /// explicit cumulative `le`-keyed buckets. The owning
-    /// [`MetricFamily::r#type()`] tag (`Histogram` vs
+    /// [`MetricFamily::type`] tag (`Histogram` vs
     /// `GaugeHistogram`) decides whether bucket counts are
     /// constrained monotonic — see `nmbrs-metrics::validation`.
     BucketedHistogram(BucketedHistogramValue),
@@ -872,7 +872,7 @@ pub enum BucketBound {
 ///
 /// Histogram (§5.3) bucket counts are required to be
 /// monotonically non-decreasing; GaugeHistogram (§5.4)
-/// permits decreases. The owning [`MetricFamily::r#type()`]
+/// permits decreases. The owning [`MetricFamily::type`]
 /// tag distinguishes which constraint applies; the validation
 /// helper in `crate::validation::check_bucket_monotonicity`
 /// enforces it for `Histogram` families.
@@ -1366,7 +1366,7 @@ impl MetricSet {
     /// `(family_name, unit)` pair find the same family by the
     /// suffixed name.
     ///
-    /// Equivalent to [`insert_metric`] when `unit` is `None`.
+    /// Equivalent to [`Self::insert_metric`] when `unit` is `None`.
     pub fn insert_metric_with_unit(
         &mut self,
         family_name: impl Into<String>,
@@ -1399,7 +1399,7 @@ impl MetricSet {
     }
 
     /// Insert a counter observation. Convenience over
-    /// [`insert_metric`] that builds the [`CounterValue`] for you.
+    /// [`Self::insert_metric`] that builds the [`CounterValue`] for you.
     pub fn insert_counter(
         &mut self,
         family_name: impl Into<String>,
@@ -1416,7 +1416,7 @@ impl MetricSet {
         );
     }
 
-    /// Counter variant of [`insert_metric_with_unit`]. `cumulative` is the
+    /// Counter variant of [`Self::insert_metric_with_unit`]. `cumulative` is the
     /// counter's running total (the cadence capture path passes the
     /// instrument's absolute); per-interval deltas are derived downstream.
     pub fn insert_counter_with_unit(
@@ -1437,7 +1437,7 @@ impl MetricSet {
         );
     }
 
-    /// Insert a gauge observation. Convenience over [`insert_metric`].
+    /// Insert a gauge observation. Convenience over [`Self::insert_metric`].
     pub fn insert_gauge(
         &mut self,
         family_name: impl Into<String>,
@@ -1454,7 +1454,7 @@ impl MetricSet {
         );
     }
 
-    /// Gauge variant of [`insert_metric_with_unit`].
+    /// Gauge variant of [`Self::insert_metric_with_unit`].
     pub fn insert_gauge_with_unit(
         &mut self,
         family_name: impl Into<String>,
@@ -1474,7 +1474,7 @@ impl MetricSet {
     }
 
     /// Insert a histogram observation. Convenience over
-    /// [`insert_metric`] that wraps the HDR reservoir into a
+    /// [`Self::insert_metric`] that wraps the HDR reservoir into a
     /// [`HistogramValue`] and computes `count`/`sum` from it.
     pub fn insert_histogram(
         &mut self,
@@ -1492,7 +1492,7 @@ impl MetricSet {
         );
     }
 
-    /// Histogram variant of [`insert_metric_with_unit`].
+    /// Histogram variant of [`Self::insert_metric_with_unit`].
     pub fn insert_histogram_with_unit(
         &mut self,
         family_name: impl Into<String>,
@@ -1511,7 +1511,7 @@ impl MetricSet {
         );
     }
 
-    /// Like [`insert_histogram_with_unit`] but stamps the **cumulative**
+    /// Like [`Self::insert_histogram_with_unit`] but stamps the **cumulative**
     /// observation count (the instrument's lifetime total) onto the
     /// value, so `HistogramValue::cumulative_count` is the authoritative
     /// running total — like the counter's `cumulative`. The cadence

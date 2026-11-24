@@ -299,7 +299,7 @@ pub fn all_controls() -> Vec<ControlEntry> {
         })
         .collect();
     for reg in inventory::iter::<crate::adapter::AdapterRegistration> {
-        let owner_name = (reg.names)().first().copied().unwrap_or("?");
+        let owner_name = reg.name;
         for d in (reg.supported_controls)() {
             out.push(ControlEntry {
                 desc: d,

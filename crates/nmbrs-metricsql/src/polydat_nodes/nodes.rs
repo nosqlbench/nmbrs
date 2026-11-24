@@ -6,7 +6,7 @@
 //! metrics-access service ([`nmbrs_metrics::queryapi::live_access`]),
 //! evaluates the expression through this crate's engine, and projects
 //! the result [`Vector`] into a `Value` by result-type affinity
-//! ([`super::project`]).
+//! ([`super::project()`]).
 //!
 //! | node | shape | output |
 //! |---|---|---|
@@ -222,7 +222,7 @@ fn metricsql(
 }
 
 /// Evaluate a MetricsQL query → f64 (single value). Intrinsically
-/// `Nondeterministic` — see [`metricsql`].
+/// `Nondeterministic` — see `metricsql`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads live metrics framed by the cadence pipeline; value changes over the run"),
@@ -235,7 +235,7 @@ fn metricsql_scalar(
 }
 
 /// Evaluate a MetricsQL query → VecF64 (instant vector). Intrinsically
-/// `Nondeterministic` — see [`metricsql`].
+/// `Nondeterministic` — see `metricsql`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads live metrics framed by the cadence pipeline; value changes over the run"),
@@ -250,7 +250,7 @@ fn metricsql_vector(
 }
 
 /// Evaluate a MetricsQL query → VecF64 (windowed series). Intrinsically
-/// `Nondeterministic` — see [`metricsql`].
+/// `Nondeterministic` — see `metricsql`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads live metrics framed by the cadence pipeline; value changes over the run"),

@@ -138,55 +138,73 @@ pub enum GutterKind {
     Labeled,
 }
 
-/// Parse an op's `gutter:` param value into its `(during, final)`
+/// A declared gutter cell: the shape it renders as and the template
+/// that feeds it. A `Labeled` template carries its label and value
+/// joined by US (`\u{1f}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GutterTemplate {
+    pub kind: GutterKind,
+    pub template: String,
+}
+
+impl GutterTemplate {
+    pub fn new(kind: GutterKind, template: impl Into<String>) -> Self {
+        Self {
+            kind,
+            template: template.into(),
+        }
+    }
+}
+
+/// An op's parsed `gutter:` param: the form rendered while the op runs
+/// and the `final:` form rendered once at phase end.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GutterTemplates {
+    pub during: Option<GutterTemplate>,
+    pub finish: Option<GutterTemplate>,
+}
+
+/// Parse an op's `gutter:` param value into its during and final
 /// template forms. Shared by the wrapper-cascade arm (which builds
-/// the [`GutterDispenser`] and stores the specs on the activity) and
+/// the [`GutterDispenser`] and stores the templates on the activity) and
 /// the poll wrapper (which re-publishes the during form per poll
 /// iteration so a single long drain op keeps a live cell).
-pub fn parse_specs(
-    v: Option<&serde_json::Value>,
-) -> (Option<(GutterKind, String)>, Option<(GutterKind, String)>) {
-    let parse_forms =
-        |obj: &serde_json::Map<String, serde_json::Value>| -> Option<(GutterKind, String)> {
-            if let Some(m) = obj.get("labeled").and_then(|x| x.as_object()) {
-                let name = m
-                    .get("name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let value = m
-                    .get("value")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                return Some((GutterKind::Labeled, format!("{name}{}{value}", '\u{1f}')));
-            }
-            if let Some(t) = obj.get("bar").and_then(|x| x.as_str()) {
-                Some((GutterKind::Bar, t.to_string()))
-            } else if let Some(t) = obj.get("spark").and_then(|x| x.as_str()) {
-                Some((GutterKind::Spark, t.to_string()))
-            } else {
-                obj.get("text")
-                    .and_then(|x| x.as_str())
-                    .map(|t| (GutterKind::Text, t.to_string()))
-            }
-        };
-    match v {
-        Some(serde_json::Value::String(s)) if !s.is_empty() => {
-            (Some((GutterKind::Text, s.clone())), None)
+pub fn parse_templates(v: Option<&serde_json::Value>) -> GutterTemplates {
+    let parse_forms = |obj: &serde_json::Map<String, serde_json::Value>| -> Option<GutterTemplate> {
+        if let Some(m) = obj.get("labeled").and_then(|x| x.as_object()) {
+            let name = m.get("name").and_then(|x| x.as_str()).unwrap_or("");
+            let value = m.get("value").and_then(|x| x.as_str()).unwrap_or("");
+            return Some(GutterTemplate::new(
+                GutterKind::Labeled,
+                format!("{name}{}{value}", '\u{1f}'),
+            ));
         }
-        Some(serde_json::Value::Object(obj)) => {
-            let during = parse_forms(obj);
-            let fin = match obj.get("final") {
+        if let Some(t) = obj.get("bar").and_then(|x| x.as_str()) {
+            Some(GutterTemplate::new(GutterKind::Bar, t))
+        } else if let Some(t) = obj.get("spark").and_then(|x| x.as_str()) {
+            Some(GutterTemplate::new(GutterKind::Spark, t))
+        } else {
+            obj.get("text")
+                .and_then(|x| x.as_str())
+                .map(|t| GutterTemplate::new(GutterKind::Text, t))
+        }
+    };
+    match v {
+        Some(serde_json::Value::String(s)) if !s.is_empty() => GutterTemplates {
+            during: Some(GutterTemplate::new(GutterKind::Text, s.as_str())),
+            finish: None,
+        },
+        Some(serde_json::Value::Object(obj)) => GutterTemplates {
+            during: parse_forms(obj),
+            finish: match obj.get("final") {
                 Some(serde_json::Value::String(s)) if !s.is_empty() => {
-                    Some((GutterKind::Text, s.clone()))
+                    Some(GutterTemplate::new(GutterKind::Text, s.as_str()))
                 }
                 Some(serde_json::Value::Object(fobj)) => parse_forms(fobj),
                 _ => None,
-            };
-            (during, fin)
-        }
-        _ => (None, None),
+            },
+        },
+        _ => GutterTemplates::default(),
     }
 }
 
@@ -194,10 +212,10 @@ pub fn parse_specs(
 /// spec. `None` on substitution failure or (for the numeric kinds) a
 /// non-numeric render — callers leave the last good value in place.
 pub(crate) fn render_spec(
-    kind: GutterKind,
-    template: &str,
+    declared: &GutterTemplate,
     wires: &dyn crate::wires::WireSource,
 ) -> Option<GutterSpec> {
+    let (kind, template) = (declared.kind, declared.template.as_str());
     let rendered = match crate::wires::substitute_via_wires(template, wires) {
         Ok(s) => s,
         Err(e) => {
@@ -243,8 +261,7 @@ pub(crate) fn render_spec(
 /// rendered string to parse as `f64`.
 pub struct GutterDispenser {
     inner: Arc<dyn OpDispenser>,
-    kind: GutterKind,
-    template: String,
+    template: GutterTemplate,
     /// Shared slot owned by the activity (see `Activity::gutter`).
     /// Writes here are visible to the display fold without a
     /// separate channel.
@@ -254,20 +271,18 @@ pub struct GutterDispenser {
 impl GutterDispenser {
     pub fn wrap(
         inner: Arc<dyn OpDispenser>,
-        kind: GutterKind,
-        template: String,
+        template: GutterTemplate,
         gutter_state: Arc<arc_swap::ArcSwapOption<GutterSpec>>,
     ) -> Arc<dyn OpDispenser> {
         Arc::new(Self {
             inner,
-            kind,
             template,
             gutter_state,
         })
     }
 
     fn publish(&self, wires: &dyn crate::wires::WireSource) {
-        if let Some(spec) = render_spec(self.kind, &self.template, wires) {
+        if let Some(spec) = render_spec(&self.template, wires) {
             self.gutter_state.store(Some(Arc::new(spec)));
         }
     }
@@ -341,8 +356,7 @@ mod tests {
         let inner = Arc::new(FakeInner { error: None });
         let d = GutterDispenser::wrap(
             inner,
-            GutterKind::Text,
-            "queue depth ok".into(),
+            GutterTemplate::new(GutterKind::Text, "queue depth ok"),
             state.clone(),
         );
         let (fields, pulls) = empty_ctx();
@@ -358,7 +372,11 @@ mod tests {
     async fn bar_form_parses_and_clamps_fraction() {
         let state = Arc::new(arc_swap::ArcSwapOption::empty());
         let inner = Arc::new(FakeInner { error: None });
-        let d = GutterDispenser::wrap(inner, GutterKind::Bar, "1.7".into(), state.clone());
+        let d = GutterDispenser::wrap(
+            inner,
+            GutterTemplate::new(GutterKind::Bar, "1.7"),
+            state.clone(),
+        );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);
         let _ = d.execute(0, &ctx).await.expect("inner ok");
@@ -377,8 +395,7 @@ mod tests {
         let inner = Arc::new(FakeInner { error: None });
         let d = GutterDispenser::wrap(
             inner,
-            GutterKind::Spark,
-            "not-a-number".into(),
+            GutterTemplate::new(GutterKind::Spark, "not-a-number"),
             state.clone(),
         );
         let (fields, pulls) = empty_ctx();
@@ -398,7 +415,11 @@ mod tests {
         let inner = Arc::new(FakeInner {
             error: Some("boom"),
         });
-        let d = GutterDispenser::wrap(inner, GutterKind::Text, "never".into(), state.clone());
+        let d = GutterDispenser::wrap(
+            inner,
+            GutterTemplate::new(GutterKind::Text, "never"),
+            state.clone(),
+        );
         let (fields, pulls) = empty_ctx();
         let ctx = ExecCtx::new(&fields, &pulls);
         assert!(d.execute(0, &ctx).await.is_err());

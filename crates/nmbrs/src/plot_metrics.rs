@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! `nmbrs plot` (metrics-DB form) — render a PNG line plot from
+//! `nmbrs report plot` (metrics-DB form) — render a PNG line plot from
 //! the metrics db produced by a previous run.
 //!
 //! Companion to `nmbrs summary`: same source (the session's
@@ -12,7 +12,8 @@
 //! finished session.
 //!
 //! Spec layout follows the `summary` family:
-//!   nmbrs plot --metric <pattern>            # required: which metric family
+//! ```text
+//!   nmbrs report plot --metric <pattern>           # required: which metric family
 //!             --x <label_key>               # required: label whose values become the X axis
 //!             [--series <label_key>]        # optional: one line per distinct value of this label
 //!             [--filter <key>=<value> ...]  # restrict rows to matching label values
@@ -24,10 +25,11 @@
 //!             [--x-scale linear|log]
 //!             [--y-scale linear|log]
 //!             [--width <px>] [--height <px>]
+//! ```
 //!
 //! Worked example — "mean recall@10 vs limit at k=10":
 //!
-//!   nmbrs plot \
+//!   nmbrs report plot \
 //!     --metric recall@10.mean \
 //!     --x limit \
 //!     --filter k=10 \
@@ -36,7 +38,7 @@
 //!
 //! Worked example — one line per profile:
 //!
-//!   nmbrs plot \
+//!   nmbrs report plot \
 //!     --metric recall@10.mean \
 //!     --x limit \
 //!     --series profile \
@@ -267,7 +269,7 @@ fn parse_spec(spec: &str) -> Result<PlotMetricsOpts, String> {
     // a parent template's default can be overridden.
     let parse_axis_bound = |s: &str| -> Result<Option<f64>, String> {
         let t = s.trim();
-        if t.eq_ignore_ascii_case("auto") || t.is_empty() {
+        if t == "auto" || t.is_empty() {
             return Ok(None);
         }
         t.parse()
@@ -344,20 +346,14 @@ fn parse_spec(spec: &str) -> Result<PlotMetricsOpts, String> {
         } else if let Some(rest) = line.strip_prefix("color:").map(str::trim) {
             // Channel encoding: hue keyed to the value of this label
             // (one color per distinct value), instead of one color per
-            // series. `color: off` / `none` reverts to color-by-series.
-            opts.color_label = match rest {
-                "" | "off" | "none" => None,
-                k => Some(k.to_string()),
-            };
+            // series. `color: none` reverts to color-by-series.
+            opts.color_label = channel_label("color", rest)?;
         } else if let Some(rest) = line.strip_prefix("shape:").map(str::trim) {
             // Channel encoding: marker shape keyed to the value of this
             // label (one shape per distinct value). Orthogonal to
-            // `color:`. `shape: off` / `none` reverts to the single
+            // `color:`. `shape: none` reverts to the single
             // `marker` shape.
-            opts.shape_label = match rest {
-                "" | "off" | "none" => None,
-                k => Some(k.to_string()),
-            };
+            opts.shape_label = channel_label("shape", rest)?;
         } else if let Some(rest) = line.strip_prefix("x1:").map(str::trim) {
             // Paired-coordinate mode: x-positions come from
             // the *values* of this metricsql query, paired
@@ -388,13 +384,14 @@ fn parse_spec(spec: &str) -> Result<PlotMetricsOpts, String> {
             //                  and aren't the x label)
             //   * `k`            → Explicit(["k"]) — single label
             //   * `k,limit`      → Explicit(["k", "limit"]) — list
-            //   * `none|off`     → explicitly disable per-point
+            //   * `none`         → explicitly disable per-point
             //                      labels (overrides a `*` set by
             //                      the y1 compact-pair shorthand)
             // Empty string is rejected so a typo doesn't
             // silently disable the feature.
             let trimmed = rest.trim();
-            if matches!(trimmed, "none" | "off" | "false") {
+            reject_none_synonym("point-label1", trimmed)?;
+            if trimmed == "none" {
                 // Explicit opt-out — clear any prior spec
                 // (e.g. set by the compact-pair shorthand's
                 // third positional element).
@@ -437,11 +434,10 @@ fn parse_spec(spec: &str) -> Result<PlotMetricsOpts, String> {
             // axis's side. Per-axis `yN-side:` still wins
             // when set; this fans the value out to any
             // axis that doesn't carry its own override.
-            let v = rest.to_ascii_lowercase();
-            if v != "left" && v != "right" {
+            if rest != "left" && rest != "right" {
                 return Err(format!("y-side: expected `left` or `right`, got `{rest}`"));
             }
-            opts.secondary_side_default = Some(v);
+            opts.secondary_side_default = Some(rest.to_string());
         } else if line.starts_with("y-label:")
             || line.starts_with("y-legend:")
             || line.starts_with("y-scale:")
@@ -768,7 +764,7 @@ fn split_kv_directive(line: &str) -> Option<(&str, &str)> {
     Some((key, value))
 }
 
-/// Parsed CLI options for `nmbrs plot` (metrics form).
+/// Parsed CLI options for `nmbrs report plot` (metrics form).
 #[derive(Debug)]
 struct PlotMetricsOpts {
     metric: Option<String>,
@@ -939,11 +935,9 @@ struct PlotMetricsOpts {
     x_max: Option<f64>,
     y_min: Option<f64>,
     y_max: Option<f64>,
-    /// Legend placement. Accepts the long form (`top-left`,
-    /// `bottom-right`, `center`, …) or one/two-letter codes
-    /// (`tl`, `br`, `c`, `t`, `b`, `l`, `r`). `None` ⇒
-    /// upper-right (the existing default). `Some("none")`
-    /// suppresses the legend.
+    /// Legend placement: one of [`LEGEND_POSITIONS`] (`top-left`,
+    /// `bottom-right`, `center`, …). `None` ⇒ top-right (the
+    /// default). `Some("none")` suppresses the legend.
     legend: Option<String>,
     /// Native MetricsQL expression. When `Some`, the renderer
     /// bypasses the legacy DSL's SQL builder and routes through
@@ -1155,11 +1149,12 @@ enum DatapointsMode {
 
 impl DatapointsMode {
     fn from_keyword(s: &str) -> Result<Self, String> {
-        match s.trim().to_ascii_lowercase().as_str() {
+        reject_none_synonym("y-datapoints", s.trim())?;
+        match s.trim() {
             "inline" => Ok(DatapointsMode::Inline),
             "extremes" => Ok(DatapointsMode::Extremes),
             "callouts" => Ok(DatapointsMode::Callouts),
-            "none" | "off" | "false" => Ok(DatapointsMode::None),
+            "none" => Ok(DatapointsMode::None),
             other => Err(format!(
                 "y-datapoints: expected `inline`, `extremes`, `callouts`, \
                  or `none`, got `{other}`"
@@ -1295,14 +1290,13 @@ fn parse_y_axis_directive(line: &str) -> Option<ParsedAxisDirective<'_>> {
     let after = &line[2..];
     let (sub, value): (&str, &str) = if let Some(rest) = after.strip_prefix(':') {
         ("", rest.trim())
-    } else if let Some(rest) = after.strip_prefix('-') {
+    } else {
+        let rest = after.strip_prefix('-')?;
         // `y2-min:0.5` → sub="min", value="0.5". The colon
         // is the value separator inside the sub-directive
         // body.
         let (sub, value) = rest.split_once(':')?;
         (sub.trim(), value.trim())
-    } else {
-        return None;
     };
     Some(ParsedAxisDirective {
         axis_num,
@@ -1351,7 +1345,7 @@ fn apply_axis_directive(
             axis.legend_format = Some(strip_quotes(value).to_string());
         }
         "side" => {
-            let v = value.trim().to_ascii_lowercase();
+            let v = value.trim().to_string();
             if v != "left" && v != "right" {
                 return Err(format!(
                     "{prefix}-side: expected `left` or `right`, got `{value}`"
@@ -2084,7 +2078,7 @@ fn parse_series_key_to_labels(series_key: &str) -> std::collections::HashMap<Str
 /// runs outside the closure's scope.
 fn parse_axis_bound_value(s: &str) -> Result<Option<f64>, String> {
     let t = s.trim();
-    if t.eq_ignore_ascii_case("auto") || t.is_empty() {
+    if t == "auto" || t.is_empty() {
         return Ok(None);
     }
     t.parse()
@@ -2295,7 +2289,7 @@ fn apply_y_plural_labels(
 /// as numbers errors.
 fn parse_range_spec(s: &str) -> Result<(Option<f64>, Option<f64>), String> {
     let trimmed = s.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+    if trimmed.is_empty() || trimmed == "auto" {
         return Ok((None, None));
     }
     let parse_endpoint = |p: &str| -> Result<Option<f64>, String> {
@@ -2334,7 +2328,8 @@ fn parse_range_spec(s: &str) -> Result<(Option<f64>, Option<f64>), String> {
 ///
 /// - empty / whitespace ⇒ `None` (the parser shouldn't even
 ///   call this for empty strings; defensive).
-/// - the bare keyword `auto` (case-insensitive) ⇒ `Auto`.
+/// - the bare keyword `auto` (exact; `AUTO` is not a keyword and
+///   falls through to `Query`) ⇒ `Auto`.
 /// - comma-separated numbers (`1, 2, 4.5, 8`) ⇒ `Literal`.
 ///   Whitespace between values is ignored; trailing commas
 ///   tolerated.
@@ -2347,7 +2342,7 @@ fn parse_tick_spec(s: &str) -> TickSpec {
     if trimmed.is_empty() {
         return TickSpec::None;
     }
-    if trimmed.eq_ignore_ascii_case("auto") {
+    if trimmed == "auto" {
         return TickSpec::Auto;
     }
     // Numeric-list sniff: every comma-split fragment must
@@ -2511,7 +2506,7 @@ pub fn is_no_data_error(msg: &str) -> bool {
     msg.contains(PLOT_NO_DATA_PREFIX)
 }
 
-/// Entry point for `nmbrs report plot` / `nmbrs plot` (the metrics-db
+/// Entry point for `nmbrs report plot` / `nmbrs report plot` (the metrics-db
 /// plotting path), dispatched from `report_cmd` and the post-run
 /// report step in `run.rs`. Distinct from `wiring visualize`, which
 /// plots a wiring expression through the plotter adapter.
@@ -2520,8 +2515,8 @@ pub fn plot_metrics_command(args: &[String]) {
 
     // Two stored-spec entry points before the normal flag-parse
     // path:
-    //   - `nmbrs plot --name <N>`  → render the stored plot
-    //   - `nmbrs plot all`         → render every stored plot
+    //   - `nmbrs report plot --name <N>`  → render the stored plot
+    //   - `nmbrs report plot all`         → render every stored plot
     // Stored specs live in the metrics db's `session_metadata`
     // table under `plot.<name>` keys (written by the runner at
     // end-of-run; see `nmbrs-runtime::runner`).
@@ -2533,7 +2528,7 @@ pub fn plot_metrics_command(args: &[String]) {
     let opts = match parse_args(args) {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("nmbrs plot: {e}");
+            eprintln!("nmbrs report plot: {e}");
             print_usage();
             std::process::exit(1);
         }
@@ -2544,21 +2539,21 @@ pub fn plot_metrics_command(args: &[String]) {
         // failures (parser errors, db open errors, etc.)
         // remain hard exits.
         if is_no_data_error(&e) && !is_strict_mode(args) {
-            eprintln!("nmbrs plot: warning: {}", strip_no_data_prefix(&e));
+            eprintln!("nmbrs report plot: warning: {}", strip_no_data_prefix(&e));
             return;
         }
-        eprintln!("nmbrs plot: {e}");
+        eprintln!("nmbrs report plot: {e}");
         std::process::exit(1);
     }
 }
 
 /// Detect SRD-15 strict mode from the arg list (`--strict`)
-/// or env var (`NMBRS_STRICT`). Mirrors the convention in
+/// or env var (`NMBRS_STRICT=true`). Mirrors the convention in
 /// `crates/nmbrs-runtime/src/runner.rs`. Local helper because
 /// `plot_metrics_command` only sees the per-invocation
 /// args slice — not the global runner context.
 fn is_strict_mode(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--strict") || std::env::var("NMBRS_STRICT").is_ok()
+    args.iter().any(|a| a == "--strict") || crate::report_cmd::env_flag_or_exit("NMBRS_STRICT")
 }
 
 /// Strip the [`PLOT_NO_DATA_PREFIX`] sentinel from an
@@ -2621,6 +2616,18 @@ pub fn plot_metrics_command_result(args: &[String]) -> Result<(), String> {
 /// Extracted so `run_stored` (the `--name <N>` / `all` modes)
 /// can reuse the same pipeline.
 fn render_one(opts: PlotMetricsOpts) -> Result<(), String> {
+    // Closed-vocabulary style values are checked before any query
+    // runs, so a bad `legend:` / `*-scale:` errors even when the plot
+    // then has no data (which returns before the renderer).
+    parse_legend_spec(opts.legend.as_deref())?;
+    if let Some(out) = &opts.output {
+        figure_is_svg(out)?;
+    }
+    check_axis_scale("x-scale", &opts.xscale)?;
+    check_axis_scale("y1-scale", &opts.yscale)?;
+    for axis in &opts.secondary_axes {
+        check_axis_scale(&format!("{}-scale", axis.name), &axis.scale)?;
+    }
     // SRD-46 routing, resolved once. `none` suppresses the item
     // before any query runs; a plot's only rendered form is the
     // image in the session directory (plus its markdown section),
@@ -2924,8 +2931,8 @@ fn render_one(opts: PlotMetricsOpts) -> Result<(), String> {
     // 3. Output path. Default to PNG — the bundled DejaVu Sans
     //    font (registered by `register_bundled_font`) makes the
     //    bitmap backend hermetic, no system fonts required.
-    //    Pass `--output …svg` for vector output (also works,
-    //    same code path picks the SVG backend by extension).
+    //    Pass `--output …svg` for vector output; the extension
+    //    must be exactly `.png` or `.svg` (`figure_is_svg`).
     let out_path = opts.output.clone().unwrap_or_else(|| {
         let dir = db_path
             .parent()
@@ -3111,7 +3118,7 @@ fn render_one(opts: PlotMetricsOpts) -> Result<(), String> {
     // Upsert into the framing markdown report (default
     // `<db_dir>/summary.md`) unless `--no-report` /
     // `--report=skip` was passed. The anchor uses the plot's
-    // file stem so `nmbrs plot --name X` and a re-run of the
+    // file stem so `nmbrs report plot --name X` and a re-run of the
     // same name update the same section in place.
     if !opts.report_disabled {
         let report_path = opts.report.clone().unwrap_or_else(|| {
@@ -3232,7 +3239,7 @@ fn run_stored(stored: StoredArgs) {
         .unwrap_or_else(nmbrs_runtime::session::latest_metrics_db);
     if !db_path.exists() {
         eprintln!(
-            "nmbrs plot: metrics db not found at '{}'.",
+            "nmbrs report plot: metrics db not found at '{}'.",
             db_path.display()
         );
         std::process::exit(1);
@@ -3245,8 +3252,10 @@ fn run_stored(stored: StoredArgs) {
             Ok(specs) => specs,
             Err(e) => {
                 match &stored.workload {
-                    Some(path) => eprintln!("nmbrs plot: workload '{}': {e}", path.display()),
-                    None => eprintln!("nmbrs plot: {e}"),
+                    Some(path) => {
+                        eprintln!("nmbrs report plot: workload '{}': {e}", path.display())
+                    }
+                    None => eprintln!("nmbrs report plot: {e}"),
                 }
                 std::process::exit(1);
             }
@@ -3254,16 +3263,16 @@ fn run_stored(stored: StoredArgs) {
     if stored_specs.is_empty() {
         match &stored.workload {
             Some(path) => eprintln!(
-                "nmbrs plot: workload '{}' has no `plot:` entries.",
+                "nmbrs report plot: workload '{}' has no `plot:` entries.",
                 path.display()
             ),
             None => {
                 eprintln!(
-                    "nmbrs plot: '{}' has no stored named plots.",
+                    "nmbrs report plot: '{}' has no stored named plots.",
                     db_path.display()
                 );
                 eprintln!();
-                eprintln!("Use `nmbrs plot \"<spec>\"` for an ad-hoc plot, define");
+                eprintln!("Use `nmbrs report plot \"<spec>\"` for an ad-hoc plot, define");
                 eprintln!("a `plot:` block in a workload YAML, or pass");
                 eprintln!("`workload=<file.yaml>` to source named plots from one.");
             }
@@ -3274,7 +3283,7 @@ fn run_stored(stored: StoredArgs) {
         Some(name) => {
             let Some(spec) = stored_specs.iter().find(|(n, _)| n == &name) else {
                 eprintln!(
-                    "nmbrs plot: no stored plot named '{name}' in '{}'",
+                    "nmbrs report plot: no stored plot named '{name}' in '{}'",
                     db_path.display()
                 );
                 eprintln!();
@@ -3333,13 +3342,13 @@ fn run_stored(stored: StoredArgs) {
         let opts = match parse_args(&child_args) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("nmbrs plot '{name}': {e}");
+                eprintln!("nmbrs report plot '{name}': {e}");
                 any_failed = true;
                 continue;
             }
         };
         if let Err(e) = render_one(opts) {
-            eprintln!("nmbrs plot '{name}': {e}");
+            eprintln!("nmbrs report plot '{name}': {e}");
             any_failed = true;
         }
     }
@@ -3472,7 +3481,7 @@ pub fn metric_for_plot_name(
 
 /// Public listing for shell completion: every distinct label
 /// All distinct metric family names recorded in `db_path`.
-/// Used by tab-completion for `nmbrs plot --metric` so the user
+/// Used by tab-completion for `nmbrs report plot --metric` so the user
 /// gets the closed vocabulary of the session's actual metrics
 /// rather than having to remember exact identifiers.
 ///
@@ -3556,26 +3565,24 @@ fn derive_stored_output_path(db_path: &Path, name: &str) -> PathBuf {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
     // Naming convention: `<name>_plot.<ext>`. Default
-    // extension is PNG; a stored `name` carrying its own
-    // extension (`myplot.svg`) overrides the default, with
-    // the `_plot` suffix inserted before the extension.
+    // extension is PNG; a stored `name` ending in a figure
+    // extension (`myplot.svg` / `myplot.png`, exact) picks that
+    // format, with the `_plot` suffix inserted before it. Any
+    // other dot is part of the name (`recall_0.95` →
+    // `recall_0.95_plot.png`), never a format.
     let p = PathBuf::from(name);
-    if let Some(ext) = p.extension() {
-        let stem = p
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| name.to_string());
-        let ext_s = ext.to_string_lossy();
-        dir.join(format!("{stem}_plot.{ext_s}"))
-    } else {
-        dir.join(format!("{name}_plot.png"))
+    match (p.file_stem(), p.extension().and_then(|e| e.to_str())) {
+        (Some(stem), Some(ext @ ("svg" | "png"))) => {
+            dir.join(format!("{}_plot.{ext}", stem.to_string_lossy()))
+        }
+        _ => dir.join(format!("{name}_plot.png")),
     }
 }
 
 fn print_usage() {
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  nmbrs plot --metric <pattern> --x <label_key> [options...]");
+    eprintln!("  nmbrs report plot --metric <pattern> --x <label_key> [options...]");
     eprintln!();
     eprintln!("Required:");
     eprintln!("  --metric <pattern>     Metric family name (e.g. recall@10.mean)");
@@ -3597,7 +3604,7 @@ fn print_usage() {
     eprintln!("  --height <px>          Image height (default: 640)");
     eprintln!();
     eprintln!("Example — recall@10 vs limit at k=10:");
-    eprintln!("  nmbrs plot --metric recall@10.mean --x limit --filter k=10");
+    eprintln!("  nmbrs report plot --metric recall@10.mean --x limit --filter k=10");
 }
 
 fn parse_args(args: &[String]) -> Result<PlotMetricsOpts, String> {
@@ -4840,6 +4847,33 @@ struct RenderedAxis<'a> {
     side: &'a str,
 }
 
+/// A figure's output format, from its file extension: exactly `.svg`
+/// (vector) or `.png` (bitmap), case-sensitive. Any other extension —
+/// `.SVG`, `.jpg`, none — is an error rather than PNG bytes written
+/// under a misleading name. Returns `true` for SVG.
+fn figure_is_svg(out_path: &Path) -> Result<bool, String> {
+    match out_path.extension().and_then(|e| e.to_str()) {
+        Some("svg") => Ok(true),
+        Some("png") => Ok(false),
+        _ => Err(format!(
+            "plot output '{}': the file extension must be `.png` or `.svg`",
+            out_path.display()
+        )),
+    }
+}
+
+/// An axis scale is `auto` (or unset), `linear`, `log`, or a
+/// [`scale_snap`] mode (`dec`, `bin`); any other value is an error
+/// rather than a quiet linear axis.
+fn check_axis_scale(directive: &str, value: &str) -> Result<(), String> {
+    match value {
+        "" | "auto" | "linear" | "log" | "dec" | "bin" => Ok(()),
+        other => Err(format!(
+            "{directive}: `{other}` is not a scale; expected `auto`, `linear`, `log`, `dec`, or `bin`"
+        )),
+    }
+}
+
 // The plot configuration is intrinsically wide; threading it as
 // explicit args keeps the renderer free of a catch-all opts struct.
 #[allow(clippy::too_many_arguments)]
@@ -4950,7 +4984,7 @@ fn render_plot(
     // `pad > x_min`, which collapses every datapoint to the
     // log axis's left edge.
     let resolve_scale = |user: &str, ticks: &[f64]| -> bool {
-        let want_auto = user.is_empty() || user.eq_ignore_ascii_case("auto");
+        let want_auto = user.is_empty() || user == "auto";
         if want_auto {
             if !ticks.is_empty() {
                 matches!(detect_scale_from_ticks(ticks), DetectedScale::Log)
@@ -4958,7 +4992,7 @@ fn render_plot(
                 false
             }
         } else {
-            user.eq_ignore_ascii_case("log")
+            user == "log"
         }
     };
     let x_log = resolve_scale(&opts.xscale, x_ticks);
@@ -5163,11 +5197,7 @@ fn render_plot(
     // hermetic path; PNG goes through the bitmap backend (which
     // needs system fonts to render text labels — fails fast with
     // a clear error if they're missing).
-    let is_svg = out_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.eq_ignore_ascii_case("svg"))
-        .unwrap_or(false);
+    let is_svg = figure_is_svg(out_path)?;
 
     let legend_spec = parse_legend_spec(opts.legend.as_deref())?;
     let legend_explicit = opts.legend.is_some();
@@ -5309,22 +5339,13 @@ fn render_plot(
     Ok(())
 }
 
-/// Resolved legend placement. `Suppressed` = `--legend none` /
-/// `--legend off`.
+/// Resolved legend placement. `Suppressed` = `--legend none`.
 #[derive(Debug, Clone)]
 enum LegendSpec {
     Position(SeriesLabelPosition),
     Suppressed,
 }
 
-/// Parse a user-supplied legend code into a [`LegendSpec`].
-/// Accepts the long form (`top-left`, `bottom-right`, `center`,
-/// `top`, `bottom`, `left`, `right`, plus `top-center`,
-/// `bottom-center`) or one/two-letter codes (`tl`, `tr`, `bl`,
-/// `br`, `t`, `b`, `l`, `r`, `c`, `tc`, `bc`).
-///
-/// Returns the existing default (UpperRight) when input is
-/// `None`. Returns `Suppressed` for `none` / `off`.
 /// Snap an axis range to a tick-friendly boundary based on the
 /// chosen scale mode. The endpoints are widened *outward*
 /// (never inward) so all data stays in view; user-pinned
@@ -5775,7 +5796,8 @@ fn style_override_matches(o: &PlotStyleOverride, series_name: &str) -> bool {
 /// - `bin` snaps to power-of-2 boundaries
 ///   (2⌊log2⌋…2⌈log2⌉) — useful for axes swept by doubling
 ///   (concurrency, batch-size sweeps).
-/// - `linear` / `log` / unknown / empty: pass through. (`log`
+/// - `linear` / `log` / `auto` / empty: pass through (other values
+///   are rejected up front by [`check_axis_scale`]). (`log`
 ///   is handled by an axis-type switch elsewhere; the range
 ///   stays as-is for the log-scale builder to interpret.)
 fn scale_snap(lo: f64, hi: f64, scale: &str, pinned_lo: bool, pinned_hi: bool) -> (f64, f64) {
@@ -5827,42 +5849,88 @@ fn scale_snap(lo: f64, hi: f64, scale: &str, pinned_lo: bool, pinned_hi: bool) -
     (new_lo, new_hi)
 }
 
+/// The plot spec's one "turn this off" word is `none`. The other
+/// words for it (`off`, `false`, `hide`) are errors naming `none`,
+/// never a second spelling.
+fn reject_none_synonym(directive: &str, value: &str) -> Result<(), String> {
+    match value {
+        "off" | "false" | "hide" => Err(format!(
+            "{directive}: `{value}` is not a plot-spec value; write `{directive}: none` to turn it off"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// A channel-encoding directive (`color:` / `shape:`): a label name,
+/// or `none` for the default per-series styling. An empty value is
+/// an error rather than a quiet `none`.
+fn channel_label(directive: &str, value: &str) -> Result<Option<String>, String> {
+    reject_none_synonym(directive, value)?;
+    match value {
+        "" => Err(format!(
+            "{directive}: needs a label name, or `none` for per-series styling"
+        )),
+        "none" => Ok(None),
+        k => Ok(Some(k.to_string())),
+    }
+}
+
+/// The legend positions, one name each, plus `none` to suppress.
+const LEGEND_POSITIONS: [(&str, SeriesLabelPosition); 9] = [
+    ("top-left", SeriesLabelPosition::UpperLeft),
+    ("top", SeriesLabelPosition::UpperMiddle),
+    ("top-right", SeriesLabelPosition::UpperRight),
+    ("left", SeriesLabelPosition::MiddleLeft),
+    ("center", SeriesLabelPosition::MiddleMiddle),
+    ("right", SeriesLabelPosition::MiddleRight),
+    ("bottom-left", SeriesLabelPosition::LowerLeft),
+    ("bottom", SeriesLabelPosition::LowerMiddle),
+    ("bottom-right", SeriesLabelPosition::LowerRight),
+];
+
+/// Retired legend spellings (upper/lower/middle long forms and the
+/// one/two-letter shortcodes) and the position name that replaced
+/// each. They are errors naming the replacement, never accepted.
+fn retired_legend_replacement(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "upper-left" | "tl" | "ul" => "top-left",
+        "top-center" | "upper" | "upper-center" | "t" | "tc" | "uc" | "u" => "top",
+        "upper-right" | "tr" | "ur" => "top-right",
+        "middle-left" | "l" | "ml" | "cl" => "left",
+        "middle" | "c" | "m" | "mm" | "mc" => "center",
+        "middle-right" | "r" | "mr" | "cr" => "right",
+        "lower-left" | "bl" | "ll" => "bottom-left",
+        "bottom-center" | "lower" | "lower-center" | "b" | "bc" | "lc" => "bottom",
+        "lower-right" | "br" | "lr" => "bottom-right",
+        _ => return None,
+    })
+}
+
+/// Parse a legend position into a [`LegendSpec`]: one of
+/// [`LEGEND_POSITIONS`] or `none` (suppress), matched exactly.
+/// Unset is the default, `top-right`.
 fn parse_legend_spec(arg: Option<&str>) -> Result<LegendSpec, String> {
     let Some(raw) = arg else {
         return Ok(LegendSpec::Position(SeriesLabelPosition::UpperRight));
     };
-    let key = raw.trim().to_ascii_lowercase();
-    let pos = match key.as_str() {
-        "none" | "off" | "hide" => return Ok(LegendSpec::Suppressed),
-        // Long form
-        "top-left" | "upper-left" => SeriesLabelPosition::UpperLeft,
-        "top" | "top-center" | "upper" | "upper-center" => SeriesLabelPosition::UpperMiddle,
-        "top-right" | "upper-right" => SeriesLabelPosition::UpperRight,
-        "left" | "middle-left" => SeriesLabelPosition::MiddleLeft,
-        "center" | "middle" => SeriesLabelPosition::MiddleMiddle,
-        "right" | "middle-right" => SeriesLabelPosition::MiddleRight,
-        "bottom-left" | "lower-left" => SeriesLabelPosition::LowerLeft,
-        "bottom" | "bottom-center" | "lower" | "lower-center" => SeriesLabelPosition::LowerMiddle,
-        "bottom-right" | "lower-right" => SeriesLabelPosition::LowerRight,
-        // Single / two-letter shortcodes
-        "tl" | "ul" => SeriesLabelPosition::UpperLeft,
-        "t" | "tc" | "uc" | "u" => SeriesLabelPosition::UpperMiddle,
-        "tr" | "ur" => SeriesLabelPosition::UpperRight,
-        "l" | "ml" | "cl" => SeriesLabelPosition::MiddleLeft,
-        "c" | "m" | "mm" | "mc" => SeriesLabelPosition::MiddleMiddle,
-        "r" | "mr" | "cr" => SeriesLabelPosition::MiddleRight,
-        "bl" | "ll" => SeriesLabelPosition::LowerLeft,
-        "b" | "bc" | "lc" => SeriesLabelPosition::LowerMiddle,
-        "br" | "lr" => SeriesLabelPosition::LowerRight,
-        other => {
-            return Err(format!(
-                "--legend: unknown position '{other}' (try: top-left, top, \
-             top-right, left, center, right, bottom-left, bottom, \
-             bottom-right; shortcodes tl/t/tr/l/c/r/bl/b/br; or `none` to suppress)"
-            ));
-        }
-    };
-    Ok(LegendSpec::Position(pos))
+    let key = raw.trim();
+    reject_none_synonym("legend", key)?;
+    if key == "none" {
+        return Ok(LegendSpec::Suppressed);
+    }
+    if let Some((_, pos)) = LEGEND_POSITIONS.iter().find(|(n, _)| *n == key) {
+        return Ok(LegendSpec::Position(pos.clone()));
+    }
+    let names: Vec<&str> = LEGEND_POSITIONS.iter().map(|(n, _)| *n).collect();
+    match retired_legend_replacement(key) {
+        Some(canonical) => Err(format!(
+            "legend: `{key}` is not a position; write `{canonical}`"
+        )),
+        None => Err(format!(
+            "legend: unknown position `{key}`; expected one of {}, or `none` to suppress",
+            names.join(", ")
+        )),
+    }
 }
 
 /// Pick which series points should get a numeric annotation
@@ -5896,7 +5964,7 @@ fn datapoint_label_indices(ys: &[f64], mode: DatapointsMode) -> Vec<usize> {
 }
 
 /// Format a numeric data value for inline label display.
-/// Picks precision adaptively so [0,1] reads with four
+/// Picks precision adaptively so `[0,1]` reads with four
 /// decimals (recall-like quantities) and large magnitudes
 /// drop fractional digits.
 fn format_datapoint(y: f64) -> String {
@@ -6471,7 +6539,7 @@ where
                 let label = format!("{clabel}={val}");
                 chart
                     .draw_series(LineSeries::new(
-                        Vec::<(f64, f64)>::new().into_iter(),
+                        Vec::<(f64, f64)>::new(),
                         col.stroke_width(default_stroke),
                     ))
                     .map_err(|e| format!("draw color-channel legend: {e}"))?
@@ -6492,7 +6560,7 @@ where
                 let label = format!("{slabel}={val}");
                 chart
                     .draw_series(LineSeries::new(
-                        Vec::<(f64, f64)>::new().into_iter(),
+                        Vec::<(f64, f64)>::new(),
                         neutral.stroke_width(default_stroke),
                     ))
                     .map_err(|e| format!("draw shape-channel legend: {e}"))?
@@ -6570,7 +6638,7 @@ where
             let swatch_len = fz(20);
             chart
                 .draw_series(LineSeries::new(
-                    empty.into_iter(),
+                    empty,
                     placeholder_color.stroke_width(swatch_stroke),
                 ))
                 .map_err(|e| format!("draw {} pending placeholder: {e}", axis.name))?
@@ -6925,12 +6993,12 @@ where
     //   - multiple series / non-default series naming (the
     //     "the legend has something useful to show" case), OR
     //   - explicitly requested a position via `--legend` (any
-    //     value other than the default — `--legend tl`,
+    //     value other than the default — `--legend top-left`,
     //     `--legend center`, …) — override the auto-skip so a
     //     single-series plot still gets a labelled box when
     //     the user asked for one.
     //
-    // `LegendSpec::Suppressed` (`--legend none|off|hide`) skips
+    // `LegendSpec::Suppressed` (`--legend none`) skips
     // unconditionally.
     let auto_show =
         series.len() + y2_count > 1 || series.keys().any(|k| !k.is_empty()) || y2_count > 0;
@@ -8043,16 +8111,120 @@ mod tests {
 
     #[test]
     fn color_and_shape_channel_directives_parse() {
-        // `color:` / `shape:` set the channel labels; `off`/`none`
-        // clear them back to legacy per-series-index styling.
+        // `color:` / `shape:` set the channel labels; `none` clears
+        // them back to per-series-index styling.
         let opts =
             parse_spec("x over y\nseries: a,b\ncolor: rerank_k_strategy\nshape: pruning_strategy")
                 .unwrap();
         assert_eq!(opts.color_label.as_deref(), Some("rerank_k_strategy"));
         assert_eq!(opts.shape_label.as_deref(), Some("pruning_strategy"));
-        let opts = parse_spec("x over y\ncolor: off\nshape: none").unwrap();
+        let opts = parse_spec("x over y\ncolor: none\nshape: none").unwrap();
         assert_eq!(opts.color_label, None);
         assert_eq!(opts.shape_label, None);
+    }
+
+    #[test]
+    fn legend_positions_have_one_name_each() {
+        for name in [
+            "top-left",
+            "top",
+            "top-right",
+            "left",
+            "center",
+            "right",
+            "bottom-left",
+            "bottom",
+            "bottom-right",
+        ] {
+            assert!(
+                matches!(parse_legend_spec(Some(name)), Ok(LegendSpec::Position(_))),
+                "{name}"
+            );
+        }
+        for (retired, canonical) in [
+            ("br", "bottom-right"),
+            ("tl", "top-left"),
+            ("upper-right", "top-right"),
+            ("bottom-center", "bottom"),
+            ("middle", "center"),
+        ] {
+            let err = parse_legend_spec(Some(retired)).expect_err(retired);
+            assert!(
+                err.contains(&format!("write `{canonical}`")),
+                "{retired}: {err}"
+            );
+        }
+        assert!(
+            parse_legend_spec(Some("Top-Left")).is_err(),
+            "case-sensitive"
+        );
+        assert!(parse_legend_spec(Some("NONE")).is_err(), "case-sensitive");
+    }
+
+    #[test]
+    fn stored_output_path_takes_only_figure_extensions() {
+        let db = Path::new("/s/metrics.db");
+        assert_eq!(
+            derive_stored_output_path(db, "p"),
+            Path::new("/s/p_plot.png")
+        );
+        assert_eq!(
+            derive_stored_output_path(db, "p.svg"),
+            Path::new("/s/p_plot.svg")
+        );
+        assert_eq!(
+            derive_stored_output_path(db, "recall_0.95"),
+            Path::new("/s/recall_0.95_plot.png")
+        );
+    }
+
+    #[test]
+    fn figure_format_is_exactly_png_or_svg() {
+        assert_eq!(figure_is_svg(Path::new("a/b.svg")), Ok(true));
+        assert_eq!(figure_is_svg(Path::new("a/b.png")), Ok(false));
+        for bad in ["b.SVG", "b.Png", "b.jpg", "b"] {
+            let err = figure_is_svg(Path::new(bad)).expect_err(bad);
+            assert!(err.contains("`.png` or `.svg`"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn axis_scale_is_a_closed_case_sensitive_set() {
+        for ok in ["", "auto", "linear", "log", "dec", "bin"] {
+            assert!(check_axis_scale("x-scale", ok).is_ok(), "{ok}");
+        }
+        for bad in ["Log", "LOG", "linaer", "logarithmic"] {
+            assert!(check_axis_scale("x-scale", bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn none_is_the_only_off_word_in_the_plot_spec() {
+        for (spec, directive) in [
+            ("x over y\ncolor: off", "color"),
+            ("x over y\nshape: off", "shape"),
+            ("x over y\npoint-label1: false", "point-label1"),
+        ] {
+            let err = parse_spec(spec).expect_err(spec);
+            assert!(
+                err.contains(&format!("write `{directive}: none`")),
+                "{spec}: {err}"
+            );
+        }
+        assert!(
+            parse_spec("x over y\ncolor:").is_err(),
+            "empty color: is not `none`"
+        );
+        assert!(DatapointsMode::from_keyword("off").is_err());
+        assert!(matches!(
+            DatapointsMode::from_keyword("none"),
+            Ok(DatapointsMode::None)
+        ));
+        assert!(parse_legend_spec(Some("hide")).is_err());
+        assert!(matches!(
+            parse_legend_spec(Some("none")),
+            Ok(LegendSpec::Suppressed)
+        ));
     }
 
     #[test]
@@ -9243,8 +9415,10 @@ mod tests {
     #[test]
     fn parse_tick_spec_auto_keyword() {
         assert!(matches!(parse_tick_spec("auto"), TickSpec::Auto));
-        assert!(matches!(parse_tick_spec("AUTO"), TickSpec::Auto));
-        assert!(matches!(parse_tick_spec(" Auto "), TickSpec::Auto));
+        assert!(matches!(parse_tick_spec(" auto "), TickSpec::Auto));
+        // Keywords are case-sensitive: `AUTO` is a MetricsQL tick
+        // query (a metric selector), not the `auto` keyword.
+        assert!(matches!(parse_tick_spec("AUTO"), TickSpec::Query(_)));
     }
 
     #[test]
@@ -9330,7 +9504,8 @@ mod tests {
     fn parse_range_spec_auto_or_empty() {
         assert_eq!(parse_range_spec("").unwrap(), (None, None));
         assert_eq!(parse_range_spec("auto").unwrap(), (None, None));
-        assert_eq!(parse_range_spec("AUTO").unwrap(), (None, None));
+        // Keywords are case-sensitive: `AUTO` is not `auto`.
+        assert!(parse_range_spec("AUTO").is_err());
     }
 
     #[test]

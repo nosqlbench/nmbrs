@@ -1542,14 +1542,14 @@ impl SummaryOpts {
     }
 }
 
-/// Whether a token is a `key=value` run/read param (`session=…`, `phases=…`,
-/// `cycles=…`) rather than a summary spec.
+/// Whether a token is a `key=value` run/read param (`phases=…`, `cycles=…`)
+/// rather than a summary spec.
 ///
 /// These reach the renderer because callers forward their whole argument tail.
 /// Without this test the first one became `opts.spec` — an ad-hoc spec whose
 /// directives are all unrecognised, which renders the DEFAULT summary table
-/// under the requested item's name and file. `nmbrs table compaction_shape
-/// session=<dir>` produced a generic activity table titled "Summary" and
+/// under the requested item's name and file: `nmbrs report table compaction_shape
+/// phases=load` produced a generic activity table titled "Summary" and
 /// reported success. A key=value token is never a spec: a spec body starts with
 /// a directive keyword, and `key=value` with no space is the param shape.
 fn is_kv_param_token(tok: &str) -> bool {
@@ -1784,11 +1784,10 @@ mod tests {
     #[test]
     fn kv_param_tokens_do_not_become_spec() {
         // Callers forward their whole argument tail, so run/read params land
-        // here. Taken as a spec, `session=<dir>` renders the DEFAULT summary
-        // table under the requested item's name and reports success — a wrong
-        // table that looks right. `nmbrs table compaction_shape session=<dir>`
-        // did exactly that.
-        for tok in ["session=/tmp/s", "phases=load", "cycles=1..10", "tries=3"] {
+        // here. Taken as a spec, a `key=value` token renders the DEFAULT
+        // summary table under the requested item's name and reports success —
+        // a wrong table that looks right.
+        for tok in ["phases=load", "cycles=1..10", "tries=3"] {
             let opts = parse_args(&[s(tok)]);
             assert!(
                 opts.spec.is_none(),

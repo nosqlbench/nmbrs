@@ -335,7 +335,7 @@ pub trait MetricCatalog: Send + Sync {
 /// Three layers, evaluated in order:
 ///
 /// 1. **Time-based TTL** — every cached entry expires after
-///    [`CachedCatalog::ttl`] (default: 1 second). Aggressive
+///    the TTL set by [`CachedCatalog::with_ttl`] (default: 1 second). Aggressive
 ///    by design: completion users tap repeatedly, so the
 ///    cache absorbs bursts but yields to fresh data quickly.
 /// 2. **Generation counter** — [`CachedCatalog::invalidate`]

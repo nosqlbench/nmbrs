@@ -878,8 +878,8 @@ required.
 The partition spec language above lives at the operator surface
 (CLI / YAML strings). Past the parser, partitions flow through GK
 wires as **two first-class value types** that Polydat nodes can consume
-and produce the same way they handle `U64`, `F64`, `Str`, or
-`VecF32`. This is what lets `until_elapsed` accept a partition's
+and produce the same way they handle `u64`, `f64`, `str`, or
+`vec_f32`. This is what lets `until_elapsed` accept a partition's
 cardinality, lets modulo operations stay inside a partition's
 range, and lets the workload author derive one partition from
 another via standard composition.
@@ -970,7 +970,7 @@ P3 JIT eligibility rules as the rest of the stdlib.
 | `clamp_in(n, p)`               | `u64, Partition → u64`                          | `max(p.start_ord, min(n, p.end_ord - 1))`. Saturating projection rather than modulo. |
 | `random_in(p, seed)`           | `Partition, u64 → u64`                          | `p.start_ord + hash(seed) mod cardinality(p)`. Deterministic per seed (xxHash3, same entropy source as `hash`). |
 | `subdivide(p, n)`              | `Partition, u64 → PartitionList`                | Splits `p` into `n` near-equal sub-partitions (sizes differ by ≤ 1 ordinal; boundary math identical to the `*/N` tail token). Indices restart at 0 with `count = n`; `base_extent` propagates; pct fields interpolate the parent's span. Errors when `n` is 0 or exceeds `cardinality(p)`. Also usable directly as a comprehension source (`for: "inner in subdivide(outer, n)"`). |
-| `partitions(spec[, extent])`   | `Str[, u64] → PartitionList`                    | Parses a spec string and resolves it against `[0, extent)` (extent defaults to 100, so pure-percentage specs resolve in `[0, 100)` directly). The canonical "use a spec without binding it to a cursor first" entry — this is what `for:` clauses iterate. |
+| `partitions(spec[, extent])`   | `str[, u64] → PartitionList`                    | Parses a spec string and resolves it against `[0, extent)` (extent defaults to 100, so pure-percentage specs resolve in `[0, 100)` directly). The canonical "use a spec without binding it to a cursor first" entry — this is what `for:` clauses iterate. |
 
 (The design draft had a `resolve(spec, extent)` function;
 `partitions(spec[, extent])` is its shipped name — one node does

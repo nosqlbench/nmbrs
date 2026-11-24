@@ -256,7 +256,7 @@ pub struct WrappersConfig {
 /// the three legal forms.
 ///
 /// The lower-case slot keys here mirror the
-/// [`Event::slot_name`] return values
+/// `nmbrs_runtime::lifecycle::EventType::slot_name` return values
 /// (`on_phase_end`, `on_update`, …) so workload yaml
 /// uses the same vocabulary the design doc uses.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -833,13 +833,10 @@ pub enum PulseSpec {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StopConditionSpec {
     /// Polydat predicate over runtime-state wires, evaluating to bool.
-    /// Canonical key `condition:`; `when:` accepted as an alias.
-    #[serde(alias = "condition")]
     pub when: String,
     /// Scope levels this predicate is DETECTED/evaluated at (the declared
-    /// fan-out; see [`ScopeLevel`]). Canonical key `per:`; `each:` accepted
-    /// as an alias. Defaults to the declaring scope (`self`).
-    #[serde(default = "default_each", deserialize_with = "de_each", alias = "per")]
+    /// fan-out; see [`ScopeLevel`]). Defaults to the declaring scope (`self`).
+    #[serde(default = "default_each", deserialize_with = "de_each")]
     pub each: Vec<ScopeLevel>,
     /// Firing trigger (legacy string form). `None` → a sensible default per
     /// condition kind. Superseded by `pulse:`; retained for compatibility.
@@ -850,13 +847,12 @@ pub struct StopConditionSpec {
     /// `phase_end`).
     #[serde(default)]
     pub pulse: Option<PulseSpec>,
-    /// Effect on fire: `"fail"` or `"stop"`. Canonical key `action:`;
-    /// `effect:` accepted as an alias. `None` → `fail`.
-    #[serde(default, alias = "action")]
+    /// Effect on fire: `"stop"`, `"fail"` or `"abort"`. `None` → `fail`.
+    #[serde(default)]
     pub effect: Option<String>,
     /// The ACTION target scope — where the effect lands, independent of
-    /// where it is detected (`per:`). `None` → the innermost (most
-    /// specific) level of `per:`, i.e. act in place (historical
+    /// where it is detected (`each:`). `None` → the innermost (most
+    /// specific) level of `each:`, i.e. act in place (historical
     /// behaviour). Set e.g. `at: workload` to route a phase-detected stop
     /// out to the enclosing workload shell.
     #[serde(default)]
@@ -864,7 +860,7 @@ pub struct StopConditionSpec {
 }
 
 impl StopConditionSpec {
-    /// SRD-83 Part 5 — the closed `action:`/`effect:` verb vocabulary.
+    /// SRD-83 Part 5 — the closed `effect:` verb vocabulary.
     /// `stop` = Interrupted+Succeeded (a clean early halt that keeps the
     /// partial result); `fail` = Interrupted+Failed; `abort` = `fail`
     /// plus cancelling in-flight ops.
@@ -911,14 +907,9 @@ pub struct ContinueIfSpec {
     pub when: String,
     /// Scope level whose sweep ends on a false predicate. Defaults to
     /// `scenario` (the enclosing comprehension); `workload` halts the run.
-    /// Canonical key `per:`; `each:` accepted as an alias. (For a
-    /// `continue_if` gate this level is both detection and action — the
-    /// full `per:`/`at:` split for gates is a later step.)
-    #[serde(
-        default = "default_continue_if_each",
-        deserialize_with = "de_each",
-        alias = "per"
-    )]
+    /// (For a `continue_if` gate this level is both detection and action —
+    /// the full `each:`/`at:` split for gates is a later step.)
+    #[serde(default = "default_continue_if_each", deserialize_with = "de_each")]
     pub each: Vec<ScopeLevel>,
 }
 
@@ -1334,7 +1325,7 @@ pub struct WorkloadPhase {
     /// **Sugar:** a bare **string** value is shorthand for `{ objective: <str> }`
     /// with every other field defaulted (`method: sweep`, no `servo:`) — so
     /// `optimize: "0 - err_rate"` ≡ `optimize: { objective: "0 - err_rate" }`.
-    /// See [`de_optimize`].
+    /// See `de_optimize`.
     #[serde(
         default,
         deserialize_with = "de_optimize",
@@ -1385,10 +1376,10 @@ impl OptimizeBlock {
     /// Parse a phase `optimize:` value from already-parsed JSON, applying the
     /// string sugar (a bare string ≡ `{ objective: <string> }`). Used by the
     /// hand-rolled phase parser, which builds [`WorkloadPhase`] field-by-field
-    /// rather than through the derive (so it doesn't see [`de_optimize`]).
+    /// rather than through the derive (so it doesn't see `de_optimize`).
     ///
     /// Branches explicitly rather than going through the untagged
-    /// [`OptimizeSpec`] so a malformed *map* keeps its precise serde error
+    /// `OptimizeSpec` so a malformed *map* keeps its precise serde error
     /// (e.g. `missing field 'objective'`) instead of the untagged enum's
     /// generic "did not match any variant".
     pub fn from_yaml_value(v: &serde_json::Value) -> Result<OptimizeBlock, serde_json::Error> {
@@ -1627,8 +1618,9 @@ impl<'de> serde::Deserialize<'de> for Checkpoint {
     where
         D: serde::Deserializer<'de>,
     {
-        // The YAML accepts strings, booleans, and mappings —
-        // each meaning a different declaration form. Serde's
+        // The YAML accepts a short form (`idempotent` / `none`)
+        // or a mapping with sub-properties — one spelling per
+        // meaning; a bool or bare null is an error naming them. Serde's
         // visitor pattern lets us handle each input shape
         // directly without going through a typed-value
         // intermediate, which means this works equally well
@@ -1639,21 +1631,25 @@ impl<'de> serde::Deserialize<'de> for Checkpoint {
             type Value = Checkpoint;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("checkpoint declaration: short string ('idempotent' / 'none' / etc), bool, or mapping with sub-properties")
+                f.write_str("checkpoint declaration: 'idempotent', 'none', or a mapping with sub-properties")
             }
 
             fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<Checkpoint, E> {
-                let trimmed = s.trim().to_ascii_lowercase();
-                match trimmed.as_str() {
+                match s {
                     "idempotent" => Ok(Checkpoint::default()),
-                    "none" | "no" | "false" | "off" | "" => Ok(Checkpoint {
+                    "none" => Ok(Checkpoint {
                         idempotent: false,
                         hashed: true,
                         verify: None,
                     }),
+                    "true" | "false" => Err(E::custom(format!(
+                        "checkpoint: {s} is not a checkpoint form; \
+                         write `checkpoint: {}`",
+                        if s == "true" { "idempotent" } else { "none" }
+                    ))),
                     other => Err(E::custom(format!(
                         "checkpoint: unknown short form '{other}'; \
-                         expected 'idempotent', 'none', 'no', 'false', or a mapping"
+                         expected 'idempotent', 'none', or a mapping"
                     ))),
                 }
             }
@@ -1663,24 +1659,14 @@ impl<'de> serde::Deserialize<'de> for Checkpoint {
             }
 
             fn visit_bool<E: serde::de::Error>(self, b: bool) -> Result<Checkpoint, E> {
-                if b {
-                    Ok(Checkpoint::default())
-                } else {
-                    Ok(Checkpoint {
-                        idempotent: false,
-                        hashed: true,
-                        verify: None,
-                    })
-                }
+                self.visit_str(if b { "true" } else { "false" })
             }
 
             fn visit_unit<E: serde::de::Error>(self) -> Result<Checkpoint, E> {
-                // Bare `null` ≡ `none`.
-                Ok(Checkpoint {
-                    idempotent: false,
-                    hashed: true,
-                    verify: None,
-                })
+                Err(E::custom(
+                    "checkpoint: empty value; write `checkpoint: idempotent` \
+                     or `checkpoint: none`",
+                ))
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Checkpoint, M::Error>
@@ -1955,17 +1941,32 @@ impl BindingsDef {
 /// wires the bound implementation must deliver via captures
 /// (`yields`), and wires it must deliver by projecting the
 /// result body via `result:` bindings (`results`, SRD-109 Part
-/// 3), each `name -> polydat type name` (`u64`, `f64`, `String`,
-/// `vec_f32`, `vec_i64`, …). BTreeMaps so the SRD-107 config
-/// digest serializes stably.
+/// 3), each `name -> polydat type`. A workload writes the type as
+/// its polydat keyword (`u64`, `f64`, `str`, `vec_f32`, `vec_i64`,
+/// …); the parser resolves it through
+/// [`crate::port_types::resolve_type_keyword`], and the maps
+/// serialize each type back as that keyword. BTreeMaps so the
+/// SRD-107 config digest serializes stably.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct OpInterface {
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub needs: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub yields: std::collections::BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub results: std::collections::BTreeMap<String, String>,
+    #[serde(
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty",
+        with = "crate::port_types::keyword_map"
+    )]
+    pub needs: std::collections::BTreeMap<String, polydat::ast::PortType>,
+    #[serde(
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty",
+        with = "crate::port_types::keyword_map"
+    )]
+    pub yields: std::collections::BTreeMap<String, polydat::ast::PortType>,
+    #[serde(
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty",
+        with = "crate::port_types::keyword_map"
+    )]
+    pub results: std::collections::BTreeMap<String, polydat::ast::PortType>,
 }
 
 /// A normalized op template — the canonical form.
@@ -2068,10 +2069,9 @@ pub struct ParsedOp {
     /// op without awaiting.
     ///
     /// YAML forms accepted:
-    /// - `daemon: false` / `daemon: 0` / `daemon: "off"`
-    ///   → not a daemon (cycle-pool op).
-    /// - `daemon: true` / `daemon: 1` / `daemon: "on"`
-    ///   → daemon, max 1 concurrent fiber per phase activation.
+    /// - `daemon: false` / `daemon: 0` → not a daemon (cycle-pool op).
+    /// - `daemon: true` / `daemon: 1` → daemon, max 1 concurrent
+    ///   fiber per phase activation.
     /// - `daemon: <N>` (N ≥ 1) → daemon, max N concurrent
     ///   fibers per phase activation.
     ///
@@ -2217,7 +2217,7 @@ pub fn parse_daemon_spec_value(v: &serde_json::Value) -> Result<DaemonSpec, Stri
             } else if n.as_i64().is_some_and(|i| i < 0) {
                 Err(format!(
                     "daemon: {n} — negative integers are invalid. \
-                     Use 0 / false / \"off\" to disable, or a positive \
+                     Use 0 or false to disable, or a positive \
                      integer for the max-fibers cap.",
                 ))
             } else {
@@ -2227,13 +2227,12 @@ pub fn parse_daemon_spec_value(v: &serde_json::Value) -> Result<DaemonSpec, Stri
                 ))
             }
         }
-        serde_json::Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
-            "true" | "on" => Ok(DaemonSpec::MaxFibers(1)),
-            "false" | "off" => Ok(DaemonSpec::Disabled),
+        serde_json::Value::String(s) => match s.as_str() {
+            "true" => Ok(DaemonSpec::MaxFibers(1)),
+            "false" => Ok(DaemonSpec::Disabled),
             other => Err(format!(
-                "daemon: \"{other}\" — unknown string form. \
-                 Accepted: \"on\" / \"off\" / \"true\" / \"false\", \
-                 or use a boolean / non-negative integer directly.",
+                "daemon: \"{other}\" — not a daemon setting; \
+                 write true / false or a non-negative integer cap.",
             )),
         },
         serde_json::Value::Null => {
@@ -2611,34 +2610,21 @@ mod daemon_spec_tests {
         );
     }
     #[test]
-    fn str_on_is_max_1() {
-        assert_eq!(
-            parse_daemon_spec_value(&json!("on")).unwrap(),
-            DaemonSpec::MaxFibers(1)
-        );
+    fn str_true_and_false_are_the_string_forms() {
         assert_eq!(
             parse_daemon_spec_value(&json!("true")).unwrap(),
             DaemonSpec::MaxFibers(1)
         );
         assert_eq!(
-            parse_daemon_spec_value(&json!("ON")).unwrap(),
-            DaemonSpec::MaxFibers(1)
-        );
-    }
-    #[test]
-    fn str_off_is_disabled() {
-        assert_eq!(
-            parse_daemon_spec_value(&json!("off")).unwrap(),
-            DaemonSpec::Disabled
-        );
-        assert_eq!(
             parse_daemon_spec_value(&json!("false")).unwrap(),
             DaemonSpec::Disabled
         );
-        assert_eq!(
-            parse_daemon_spec_value(&json!("OFF")).unwrap(),
-            DaemonSpec::Disabled
-        );
+        for retired in ["on", "off", "ON", "TRUE"] {
+            assert!(
+                parse_daemon_spec_value(&json!(retired)).is_err(),
+                "{retired} must not be read as a daemon setting"
+            );
+        }
     }
     #[test]
     fn negative_int_rejected() {
@@ -2700,8 +2686,7 @@ pub struct TraverseSpec {
     ///
     /// Every capture otherwise repeats the same prefix — `/value/0/x`,
     /// `/value/0/y` — which is the shape envelope responses force
-    /// (`{value, status, …}`). `poll.json_path` already exists for exactly
-    /// this reason on exactly this data; this is the same idea for captures.
+    /// (`{value, status, …}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// What to do when a declared capture resolves to nothing.

@@ -900,7 +900,7 @@ mod inner {
         /// — because the deferred `metric_instance → executions` FK
         /// must be satisfiable at the snapshot COMMIT even when a metric
         /// races ahead of this call (see the guard in
-        /// [`Self::upsert_instance`]). When such a placeholder is
+        /// `Self::upsert_instance`). When such a placeholder is
         /// present the real verb/started_at/snapshots overwrite it;
         /// when a **completed** row already exists (a genuine duplicate
         /// `exec_id`, e.g. a resume that reuses an id) the
@@ -2068,8 +2068,8 @@ mod inner {
     impl SqliteReporter {
         /// Print a data-driven summary of all metrics collected in this session.
         ///
-        /// Thin wrapper around [`format_summary`] that emits to stdout.
-        /// See [`format_summary`] for column-discovery semantics.
+        /// Thin wrapper around [`Self::format_summary`] that emits to stdout.
+        /// See [`Self::format_summary`] for column-discovery semantics.
         pub fn print_summary(&self, config: &ReportConfig) {
             let rendered = self.format_summary(config);
             if !rendered.is_empty() {
@@ -2985,11 +2985,9 @@ mod inner {
                 }
             }
             self.batch_touched.clear();
-            if batched {
-                if let Err(e) = self.conn.execute_batch("COMMIT") {
-                    crate::diag::warn(&format!("sqlite snapshot commit failed: {e}"));
-                    let _ = self.conn.execute_batch("ROLLBACK");
-                }
+            if batched && let Err(e) = self.conn.execute_batch("COMMIT") {
+                crate::diag::warn(&format!("sqlite snapshot commit failed: {e}"));
+                let _ = self.conn.execute_batch("ROLLBACK");
             }
         }
 

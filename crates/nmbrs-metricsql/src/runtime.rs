@@ -57,7 +57,7 @@ use crate::streaming::{CompileError, StreamingPlan, compile_streaming};
 pub struct PlanId(u64);
 
 /// Pluggable sample-feed contract. The runtime calls
-/// [`fetch_since`] once per tick per registered matcher
+/// [`Self::fetch_since`] once per tick per registered matcher
 /// set; the feed returns every series with samples in
 /// `(since_ms, latest_ts]` (the `since_ms` bound is
 /// exclusive — the runtime advances watermarks by 1ms to
@@ -65,7 +65,7 @@ pub struct PlanId(u64);
 ///
 /// Two implementations ship in this push:
 ///
-/// - [`PullFeed`] — wraps any [`DataSource`]; polls on a
+/// - [`PullFeed`] — wraps any [`MetricAccess`]; polls on a
 ///   cadence the caller drives via
 ///   [`ContinuousQueryRuntime::tick`].
 /// - `PushFeed` — channel-based real-time ingest; lands
@@ -74,7 +74,7 @@ pub trait SampleFeed: Send + Sync {
     /// Fetch every matching series with samples newer than
     /// `since_ms` (exclusive lower bound) and at most
     /// `until_ms` (inclusive upper bound). The runtime
-    /// derives `until_ms` from [`latest_ts`] before the
+    /// derives `until_ms` from [`Self::latest_ts`] before the
     /// call.
     fn fetch_since(
         &self,
@@ -90,7 +90,7 @@ pub trait SampleFeed: Send + Sync {
     fn latest_ts(&self) -> Result<Option<i64>, DataSourceError>;
 }
 
-/// Pull-style feed: wraps any [`DataSource`] and polls on
+/// Pull-style feed: wraps any [`MetricAccess`] and polls on
 /// the runtime's tick cadence. Watermark advancement
 /// happens in the runtime, not here — the feed is
 /// stateless w.r.t. consumers.
@@ -105,7 +105,7 @@ impl<D: MetricAccess + ?Sized + Send + Sync> SampleFeed for PullFeed<D> {
         since_ms: i64,
         until_ms: i64,
     ) -> Result<Vector, DataSourceError> {
-        // `since_ms` is exclusive; `DataSource::fetch` is
+        // `since_ms` is exclusive; `MetricAccess::select_range` is
         // inclusive on both ends. Add 1 to convert.
         let start = since_ms.saturating_add(1);
         if start > until_ms {

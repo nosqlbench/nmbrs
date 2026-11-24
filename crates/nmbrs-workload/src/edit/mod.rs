@@ -21,7 +21,7 @@
 //!    ([`splice`]) — bytes outside the located range stay
 //!    byte-identical.
 //! 6. **Roundtrip-parse** the result with the existing
-//!    [`super::parse_workload`] to verify the mutation
+//!    [`crate::parse::parse_workload`] to verify the mutation
 //!    didn't break the workload schema.
 //! 7. **Rotate backups** ([`backup::rotate`]) — old
 //!    `.bak` → `.bak.prev`, current → `.bak`.
@@ -29,7 +29,7 @@
 //!    rename ([`backup::commit_temp`]).
 //!
 //! Failure at any step rolls back the backup pair so the
-//! invariant "<workload>.bak == content prior to the most
+//! invariant "`<workload>.bak` == content prior to the most
 //! recent successful edit" holds.
 //!
 //! ## Public surface

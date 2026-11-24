@@ -729,7 +729,7 @@ impl OpDispenser for HttpDispenser {
             } else {
                 Err(ExecutionError::Op(AdapterError {
                     error_name: format!("HttpStatus{}", status),
-                    message: format!("HTTP {} {}: {}", status, full_url, &body_text),
+                    message: format!("HTTP {} {}: {}", status, full_url, body_text),
                     retryable: (500..600).contains(&status),
                 }))
             }
@@ -986,7 +986,7 @@ mod tests {
 
 inventory::submit! {
     nmbrs_runtime::adapter::AdapterRegistration {
-        names: || &["http"],
+        name: "http",
         known_params: || &["base_url", "host", "timeout"],
         display_preference: |_params| nmbrs_runtime::adapter::DisplayPreference::Auto,
         supported_controls: || &[],

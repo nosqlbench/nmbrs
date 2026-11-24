@@ -283,50 +283,22 @@ fn control_set(
 // control(name) — read a dynamic control's gauge-projection
 // =========================================================================
 
-/// Read the current committed value of a dynamic control as an
-/// `f64`, projected through the control's reified gauge.
-///
-/// Signature: `control(name: String) -> f64`
-///
-/// Resolves by walking up the component tree from the session
-/// root for the first declaration that matches the given name
-/// (honoring branch scope). Returns `0.0` in every case where
-/// no numeric value is available:
-///
-/// - Name doesn't resolve to any declared control.
-/// - Control is declared but was built without
-///   [`nmbrs_metrics::controls::ControlBuilder::reify_as_gauge`],
-///   i.e. no f64 projection was registered.
-/// - Control has a projection but the current value's
-///   `to_f64` returned `None` (e.g. an enum-valued control
-///   sitting on a `None`-projected variant).
-///
-/// This is deliberately silent rather than error-raising: a
-/// workload running at cycle time cannot usefully "handle" a
-/// missing control, and the alternative (panicking or
-/// returning a sentinel like `NaN`) propagates poison
-/// downstream. For typed reads of non-numeric controls use
-/// [`ControlStr`] (`control_str`) / [`ControlBool`]
-/// (`control_bool`), which have explicit defaults for the same
-/// missing-control cases. Operators verify controls exist via
-/// `dryrun=controls` before running.
-
 /// Resolve a control's erased handle for a cycle-time read or write (SRD-89).
 ///
-/// **Per-execution first, lock-free:** consults the current execution's
-/// per-phase control map (`execution_context::current_control`) — an `ArcSwap`
-/// load + `HashMap` get, touching no component lock and walking no tree. Under
-/// concurrent in-process executions (SRD-88) this is what makes a same-named
-/// control (`concurrency` / `rate`) resolve to THIS execution's own instance,
-/// so a neighbour's servo can't drive this phase (the SRD-89 §2b cross-talk).
+/// **The running fiber's phase first, lock-free:** consults the current
+/// component's control snapshot ([`current_phase_control`]) — no component
+/// lock, no tree walk. Under concurrent in-process executions (SRD-88) this is
+/// what makes a same-named control (`concurrency` / `rate`) resolve to THIS
+/// execution's own instance, so a neighbour's servo can't drive this phase
+/// (the SRD-89 §2b cross-talk).
 ///
-/// **Fallback — the global `SESSION_ROOT` walk:** when there is no scoped
-/// execution (single-run / dryrun / TUI control-edit), no map yet, or a
-/// session-tier control not in the per-exec map, resolve by walking up from the
-/// installed session root via [`Component::find_control_erased_up`]. This is the
-/// pre-SRD-89 path, so single-run output is byte-identical (axiom A1). The walk
-/// holds a single, non-nested read guard on the session root (which has no
-/// parent), released before the caller projects the value.
+/// **Fallback — the session-root walk:** with no fiber scope (a control edit
+/// from outside a running phase: the TUI `e` prompt, the web control endpoint,
+/// `dryrun=controls`), or for a session-tier control the snapshot doesn't
+/// carry, resolve by walking up from the installed session root via
+/// [`Component::find_control_erased_up`]. The walk holds a single, non-nested
+/// read guard on the session root (which has no parent), released before the
+/// caller projects the value.
 fn resolve_control(name: &str) -> Option<Arc<dyn nmbrs_metrics::controls::ErasedControl>> {
     // Resolve from the running fiber's **current component** — its phase-tier
     // control snapshot (walk-up from its own phase component, first match), read
@@ -362,9 +334,22 @@ fn control_value_string(name: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Read a dynamic control's current reified-gauge value as `f64`, by
-/// walk-up from the live session root. `0.0` when there is no session root,
-/// the control is absent, or it has no reified gauge.
+/// Read a dynamic control's current value as `f64`, projected through the
+/// control's reified gauge and resolved as `resolve_control` describes.
+/// `0.0` in every case where no numeric value is available:
+///
+/// - the name doesn't resolve to any declared control;
+/// - the control was built without
+///   [`nmbrs_metrics::controls::ControlBuilder::reify_as_gauge`], so it has
+///   no f64 projection;
+/// - the projection returned `None` for the current value (an enum-valued
+///   control on a variant with no numeric form).
+///
+/// This is deliberately not an error: a workload at cycle time cannot
+/// usefully handle a missing control, and a panic or a `NaN` sentinel
+/// poisons everything downstream. `control_str` and `control_bool` read
+/// non-numeric controls with explicit defaults for the same cases, and
+/// operators verify controls exist with `dryrun=controls` before running.
 ///
 /// Signature: `control(name: const str) -> f64`. Intrinsically
 /// `Nondeterministic`: the control value changes over the run (operator
@@ -414,7 +399,7 @@ fn control_u64(name: Const<&str>) -> u64 {
 /// reified-gauge value is non-zero. Missing / unreified controls → `false`.
 ///
 /// Signature: `control_bool(name: const str) -> bool`. Intrinsically
-/// `Nondeterministic` (live control read) — see [`control_u64`].
+/// `Nondeterministic` (live control read) — see `control_u64`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads a live dynamic control value; changes over the run"),
@@ -427,7 +412,7 @@ fn control_bool(name: Const<&str>) -> bool {
 /// (the erased-control `value_string()` rendering). Missing controls → `""`.
 ///
 /// Signature: `control_str(name: const str) -> str`. Intrinsically
-/// `Nondeterministic` (live control read) — see [`control_u64`].
+/// `Nondeterministic` (live control read) — see `control_u64`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads a live dynamic control value; changes over the run"),
@@ -441,7 +426,7 @@ fn control_str(name: Const<&str>) -> String {
 // =========================================================================
 
 /// Sugar for `control("rate")` — the current rate-limiter target (ops/sec).
-/// Intrinsically `Nondeterministic` (live control read) — see [`control`].
+/// Intrinsically `Nondeterministic` (live control read) — see `control`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads the live rate control; changes over the run"),
@@ -451,7 +436,7 @@ fn rate() -> f64 {
 }
 
 /// Sugar for `control("concurrency")` — the current fiber count for the
-/// nearest phase. Intrinsically `Nondeterministic` — see [`control`].
+/// nearest phase. Intrinsically `Nondeterministic` — see `control`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads the live concurrency control; changes over the run"),

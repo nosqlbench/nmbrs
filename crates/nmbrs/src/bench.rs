@@ -1088,10 +1088,8 @@ fn bench_single_expr(expr: &str, args: &BenchArgs) -> Option<ExprResult> {
                         bench_hybrid_ns = stats.min;
                     }
                 }
-                "P3" => {
-                    if stats.min < bench_p3_ns || bench_p3_ns == 0.0 {
-                        bench_p3_ns = stats.min;
-                    }
+                "P3" if (stats.min < bench_p3_ns || bench_p3_ns == 0.0) => {
+                    bench_p3_ns = stats.min;
                 }
                 _ => {}
             }
@@ -1315,7 +1313,6 @@ fn bench_flags() -> Vec<crate::cli_spec::Flag> {
     let b = |long: &'static str, help: &'static str| Flag {
         long,
         short: None,
-        aliases: &[],
         arity: Arity::Bool,
         value: ValueProvider::None,
         help,
@@ -1325,7 +1322,6 @@ fn bench_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--cycles",
             short: Some("-c"),
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Cycles per iteration.",
@@ -1334,7 +1330,6 @@ fn bench_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--threads",
             short: Some("-t"),
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Worker threads.",
@@ -1343,7 +1338,6 @@ fn bench_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--engine",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Engine to bench (or `all`).",
@@ -1352,7 +1346,6 @@ fn bench_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--iters",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Fixed iteration count.",

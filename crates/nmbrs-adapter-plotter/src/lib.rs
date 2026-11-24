@@ -881,7 +881,7 @@ fn atty_stdout() -> bool {
 
 inventory::submit! {
     nmbrs_runtime::adapter::AdapterRegistration {
-        names: || &["plotter", "plot"],
+        name: "plotter",
         known_params: || &["mode", "fade", "lanes", "render", "width", "height", "no_color"],
         display_preference: |_params| nmbrs_runtime::adapter::DisplayPreference::Off,
         supported_controls: || &[],
@@ -901,9 +901,9 @@ inventory::submit! {
             };
             let width = params.get("width").and_then(|s| s.parse().ok()).unwrap_or(0);
             let height = params.get("height").and_then(|s| s.parse().ok()).unwrap_or(0);
-            let no_color = params.get("no_color")
-                .map(|s| s == "true" || s == "1" || s == "on")
-                .unwrap_or(false);
+            let no_color = params
+                .get("no_color")
+                .map_or(Ok(false), |s| nmbrs_workload::boolean::parse_bool("no_color", s))?;
             Ok(std::sync::Arc::new(PlotterAdapter::with_config(PlotterConfig {
                 mode, fade, lanes, render, width, height, no_color,
             })) as std::sync::Arc<dyn nmbrs_runtime::adapter::DriverAdapter>)

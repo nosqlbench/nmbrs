@@ -4,7 +4,7 @@
 //! Time-weighted exponentially-weighted moving average.
 //!
 //! An [`Ewma`] holds a single scalar estimate of a stream and
-//! updates it on every [`Self::record`] using a time-decayed
+//! updates it on every [`Ewma::record`] using a time-decayed
 //! weight: samples taken close together weigh nearly equal;
 //! samples separated by more than the configured half-life
 //! weigh markedly less than fresh ones.

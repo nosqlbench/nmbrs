@@ -184,7 +184,7 @@ fn list_blueprints() -> Result<(), String> {
         return Ok(());
     }
     let name_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(4).max(4);
-    println!("{:name_w$}  {:>5}  {}", "name", "slots", "description");
+    println!("{:name_w$}  {:>5}  description", "name", "slots");
     for (name, slots, desc) in &rows {
         println!("{name:name_w$}  {slots:>5}  {desc}");
     }

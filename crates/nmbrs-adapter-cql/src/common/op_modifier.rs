@@ -7,7 +7,7 @@
 //! Defines the universal field name list and the factory trait
 //! each engine implements to bridge from a resolved Polydat scope
 //! value into an engine-specific
-//! [`OpFieldModifier`](nmbrs_runtime::op_modifier::OpFieldModifier).
+//! [`OpFieldModifier`].
 //!
 //! See [`SRD 73`](../../../../docs/SRD/73_op_field_modifiers.md)
 //! §"CQL universal field superset" for naming rationale.
@@ -56,7 +56,7 @@ pub const CQL_UNIVERSAL_FIELDS: &[&str] = &[
 
 /// Engines implement this to translate a resolved Polydat [`Value`]
 /// into a typed
-/// [`OpFieldModifier`](nmbrs_runtime::op_modifier::OpFieldModifier).
+/// [`OpFieldModifier`].
 ///
 /// The factory is called once per universal field that the user
 /// bound in the Polydat scope. Returning `Ok(None)` means "this

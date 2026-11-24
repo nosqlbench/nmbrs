@@ -41,6 +41,13 @@ pub struct ActivityReadoutContext {
     pub concurrency: usize,
     pub elapsed_secs: f64,
     pub consumed: u64,
+    /// Cursor ordinals consumed and the cursor's extent, for a phase
+    /// with a declared cursor; both `0` otherwise. A batched phase
+    /// strides several rows per op, so its completion fraction is
+    /// `rows_consumed / rows_total`, never ops over the row extent
+    /// ([`ReadoutContext::progress_fraction`]).
+    pub rows_consumed: u64,
+    pub rows_total: u64,
     pub status_metric_chips: String,
     pub depth_indent: String,
     pub use_color: bool,
@@ -108,6 +115,12 @@ impl ReadoutContext for ActivityReadoutContext {
     }
     fn consumed(&self) -> u64 {
         self.consumed
+    }
+    fn rows_consumed(&self) -> u64 {
+        self.rows_consumed
+    }
+    fn rows_total(&self) -> u64 {
+        self.rows_total
     }
     fn status_metric_chips(&self) -> String {
         self.status_metric_chips.clone()
@@ -279,7 +292,7 @@ pub struct InlineRefreshContext {
     /// Both `0` for non-cursor phases (plain `cycles:`), where the
     /// display keeps the op-denominated `cycles:` chip. `rows_total
     /// > 0` selects the row-denominated `rows:{consumed}/{total}`
-    /// chip + rows/s rate.
+    /// > chip + rows/s rate.
     pub rows_consumed: u64,
     pub rows_total: u64,
     pub status_metric_chips: String,
@@ -514,15 +527,12 @@ pub fn fire_lifecycle(
     // shape (overridden for session-scope contexts that
     // collapse to a literal `"session"`). Replay reads
     // stable tuples (slot, subject_kind, subject_id, ...).
-    let subject_id = ctx.subject_id();
     crate::readouts::snapshot::capture(
         snapshot_writer,
-        event.slot_name(),
-        ctx.subject_exec_id(),
-        event.subject_kind().as_str(),
-        &subject_id,
+        event,
+        ctx,
         "binder",
-        crate::readouts::snapshot::lod_str(crate::readouts::Lod::Labeled),
+        crate::readouts::Lod::Labeled,
         &rendered,
     );
 }
@@ -612,7 +622,7 @@ pub fn resolve_phase_coord_by_id(
 /// Whether a dispenser status counter is INTERNAL — published only to feed a
 /// derived display metric, never rendered as its own `<name>/s` throughput
 /// chip. The convention is a **leading underscore**: `_batch_writes` backs the
-/// `rows/batch` average (see [`rows_per_batch`]) but must not clutter the
+/// `rows/batch` average (see `rows_per_batch`) but must not clutter the
 /// operator-facing chip row as `_batch_writes/s`. Every surface that turns a
 /// dispenser counter into a chip filters on this one predicate, so the
 /// convention has a single point of truth. `find_counter`-style lookups pass
@@ -906,6 +916,40 @@ mod tests {
             ctx2.eta_secs().is_none(),
             "zero-row cursor phase must have no ETA"
         );
+    }
+
+    /// The phase-end ✓ line meters a batched phase by rows: 11,623
+    /// ops of 70 rows against a 1M-row cursor is 81% done, which the
+    /// op basis rendered as 1% (a live load read as stalled).
+    #[test]
+    fn phase_end_progress_uses_row_basis_for_cursor_phases() {
+        let ctx = super::ActivityReadoutContext {
+            phase_name: "load".into(),
+            phase_seq: None,
+            phase_labels: String::new(),
+            cycles_completed: 11_623,
+            cycles_total: 1_000_000,
+            ops_ok: 11_623,
+            skips: 0,
+            errors: 0,
+            retries: 0,
+            concurrency: 1,
+            elapsed_secs: 1.0,
+            consumed: 813_610,
+            rows_consumed: 813_610,
+            rows_total: 1_000_000,
+            status_metric_chips: String::new(),
+            depth_indent: String::new(),
+            use_color: false,
+            memo: String::new(),
+            outcome: crate::phase_outcome::Outcome::failed(),
+            outcome_errors: Vec::new(),
+            outcome_resume_cursor: None,
+            open_ended: false,
+        };
+        use crate::readouts::ReadoutContext;
+        let f = ctx.progress_fraction().expect("a bounded phase");
+        assert!((f - 0.81361).abs() < 1e-9, "fraction={f}");
     }
 
     use super::{is_internal_counter, rows_per_batch};

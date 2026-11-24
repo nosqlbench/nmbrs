@@ -23,10 +23,14 @@
 //!
 //! ## Lifecycle
 //!
-//! - [`register`] adds a trigger and returns a [`TriggerId`].
-//! - [`unregister`] removes a trigger by id (no-op if absent).
-//! - The executor calls [`fire_phase_completed`] /
-//!   [`fire_phase_failed`] immediately after the observer's
+//! - [`register`](crate::phase_end_triggers::register) adds a trigger
+//!   and returns a [`TriggerId`](crate::phase_end_triggers::TriggerId).
+//! - [`unregister`](crate::phase_end_triggers::unregister) removes a
+//!   trigger by id (no-op if absent).
+//! - The executor calls
+//!   [`fire_phase_completed`](crate::phase_end_triggers::fire_phase_completed) /
+//!   [`fire_phase_failed`](crate::phase_end_triggers::fire_phase_failed)
+//!   immediately after the observer's
 //!   matching callback. Triggers run on a single worker
 //!   thread in FIFO registration order so a panic in one
 //!   trigger doesn't take down the others (each call is

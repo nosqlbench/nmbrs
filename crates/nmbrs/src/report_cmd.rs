@@ -20,8 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Top-level dispatch for `nmbrs report ...` and the unadvertised
-/// `nmbrs plot ...` / `nmbrs table ...` aliases.
+/// Top-level dispatch for `nmbrs report ...`.
 ///
 /// The `workload=<file>` token may appear anywhere in the args
 /// list — it's pulled out for source resolution, then re-injected
@@ -118,8 +117,7 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
 
     // Promote `nmbrs report plot ...` / `nmbrs report table ...` to
     // the kind-filtered form, peeling the kind keyword off so the
-    // remaining arg list looks like a top-level `nmbrs plot ...`
-    // / `nmbrs table ...` invocation.
+    // remaining arg list is the kind's own argument list.
     let (kind_filter, rest) = if matches!(kind_filter, KindFilter::Any) {
         match rest.first().map(String::as_str) {
             Some("plot") => (KindFilter::Plot, rest[1..].to_vec()),
@@ -246,7 +244,7 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
         }
     }
 
-    // `--rebuild` (or `NMBRS_REPORT_REBUILD=1`) wipes the
+    // `--rebuild` (or `NMBRS_REPORT_REBUILD=true`) wipes the
     // declared target markdown files before any renderer
     // touches them. The set comes from the resolved item
     // list — files outside the declared targets stay
@@ -272,7 +270,7 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
     }
 
     // SRD-15 strict mode: when `--strict` is on the arg list
-    // (or `NMBRS_STRICT` is set), figure-render no-data errors
+    // (or `NMBRS_STRICT=true`), figure-render no-data errors
     // remain hard failures. Without strict mode, "no-data"
     // results from incremental / auto-render paths are
     // downgraded to warnings so a workload reporting before
@@ -345,7 +343,10 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
         // (and `--synthesized` rendering) always reflect the fixtures.
         Some("synth") => {
             match workload_path.as_deref() {
-                None => eprintln!("nmbrs report synth: needs --workload <file>"),
+                None => {
+                    eprintln!("nmbrs report synth: needs workload=<file>");
+                    std::process::exit(2);
+                }
                 Some(p) => {
                     match nmbrs_workload::parse::parse_workload_from_path(
                         p,
@@ -363,12 +364,12 @@ pub fn report_command(args: &[String], kind_filter: KindFilter) {
             }
             Vec::new()
         }
-        // Flag-form: `nmbrs plot --name X --series Y ...` — the
+        // Flag-form: `nmbrs report plot --name X --series Y ...` — the
         // user is driving the renderer directly with its own
         // flags. Pass the whole arg list straight through
         // without trying to interpret any token as a glob.
         // Equivalent to the positional form for stored-name
-        // selection (`nmbrs plot X`) but lets the user supply
+        // selection (`nmbrs report plot X`) but lets the user supply
         // ad-hoc `--metric`/`--filter`/etc.
         Some(arg) if arg.starts_with("--") => {
             forward_renderer_flags(
@@ -679,7 +680,7 @@ fn tail_has_vocab_flag(args: &[String]) -> bool {
 }
 
 /// SRD-64 flag-form dispatch for `nmbrs report <kind> <name>
-/// [flags]`. Builds a [`ReportItem`] from the CLI flag list,
+/// [flags]`. Builds a [`ReportItem`](nmbrs_workload::report::ReportItem) from the CLI flag list,
 /// renders to the session's scratch directory, and (when
 /// `--add` is set) routes through the workload-edit primitive.
 ///
@@ -699,16 +700,11 @@ fn dispatch_new_item(
             std::process::exit(2);
         }
     };
-    // `extract_workload` peels `--workload <path>` off the
-    // top-level args before dispatch, so by the time we get
-    // here the builder hasn't seen it. Backfill the dispatch's
-    // `workload` field from the captured path so `--add`'s
-    // workload-resolution can use it.
-    if result.dispatch.workload.is_none()
-        && let Some(p) = workload_path
-    {
-        result.dispatch.workload = Some(p.to_string_lossy().into_owned());
-    }
+    // `extract_workload` peels `workload=<path>` off the
+    // top-level args before dispatch, so the builder never sees
+    // it. Fill the dispatch's `workload` field from the captured
+    // path so `--add`'s workload-resolution can use it.
+    result.dispatch.workload = workload_path.map(|p| p.to_string_lossy().into_owned());
 
     if result.dispatch.add {
         run_add(&result, session_dir);
@@ -852,7 +848,8 @@ fn die(prefix: &str, msg: &str) -> ! {
 ///   `<new>` item.
 ///
 /// Flags accepted:
-/// - `--workload <path>` — explicit workload override.
+/// - `workload=<path>` — explicit workload override (peeled by
+///   `extract_workload`).
 /// - `--replace` — destructive overwrite.
 /// - `--dry-run` — print intended change, don't write.
 ///
@@ -864,20 +861,15 @@ fn run_rename(
     session_dir: &std::path::Path,
     extracted_workload: Option<&std::path::Path>,
 ) {
-    let mut parsed = match parse_rename_args(args) {
+    let parsed = match parse_rename_args(args) {
         Ok(p) => p,
         Err(e) => die("nmbrs report rename", &e),
     };
-    // `extract_workload` peels `--workload <path>` off before
-    // dispatch reaches us; backfill so the workload-resolution
-    // sees the user-supplied path.
-    if parsed.workload.is_none()
-        && let Some(p) = extracted_workload
-    {
-        parsed.workload = Some(p.to_string_lossy().into_owned());
-    }
+    // `extract_workload` peels `workload=<path>` off before
+    // dispatch reaches us.
+    let workload = extracted_workload.map(|p| p.to_string_lossy().into_owned());
 
-    let workload_path = match resolve_workload_for_add(parsed.workload.as_deref(), session_dir) {
+    let workload_path = match resolve_workload_for_add(workload.as_deref(), session_dir) {
         Ok(p) => p,
         Err(e) => die("nmbrs report rename", &e),
     };
@@ -913,7 +905,6 @@ fn run_rename(
 struct RenameArgs {
     old: String,
     new: String,
-    workload: Option<String>,
     replace: bool,
     dry_run: bool,
 }
@@ -921,7 +912,6 @@ struct RenameArgs {
 fn parse_rename_args(args: &[String]) -> Result<RenameArgs, String> {
     let mut old: Option<String> = None;
     let mut new: Option<String> = None;
-    let mut workload: Option<String> = None;
     let mut replace = false;
     let mut dry_run = false;
 
@@ -936,14 +926,6 @@ fn parse_rename_args(args: &[String]) -> Result<RenameArgs, String> {
             "--dry-run" => {
                 dry_run = true;
                 i += 1;
-            }
-            "--workload" => {
-                workload = Some(
-                    args.get(i + 1)
-                        .ok_or("--workload requires a value")?
-                        .clone(),
-                );
-                i += 2;
             }
             // Session-resolution flags pass through (consumed
             // by the top-level resolver before run_rename is
@@ -973,7 +955,6 @@ fn parse_rename_args(args: &[String]) -> Result<RenameArgs, String> {
     Ok(RenameArgs {
         old: old.ok_or("missing <old> name; usage: nmbrs report rename <old> <new>")?,
         new: new.ok_or("missing <new> name; usage: nmbrs report rename <old> <new>")?,
-        workload,
         replace,
         dry_run,
     })
@@ -982,7 +963,7 @@ fn parse_rename_args(args: &[String]) -> Result<RenameArgs, String> {
 /// Resolve which workload YAML the `--add` should mutate.
 ///
 /// Order of precedence:
-/// 1. `--workload <path>` if explicitly passed.
+/// 1. `workload=<path>` if explicitly passed.
 /// 2. `<session>/checkpoint.jsonl::workload_path`, when the
 ///    session was launched with a workload-file invocation
 ///    that recorded the path.
@@ -994,7 +975,7 @@ fn resolve_workload_for_add(
     if let Some(p) = explicit {
         let path = std::path::PathBuf::from(p);
         if !path.exists() {
-            return Err(format!("--workload '{}' does not exist", path.display(),));
+            return Err(format!("workload={} does not exist", path.display()));
         }
         return Ok(path);
     }
@@ -1008,14 +989,14 @@ fn resolve_workload_for_add(
     // directly until a future event type carries the workload
     // path explicitly.
     Err(format!(
-        "no --workload <path> given; pass --workload <file.yaml> to \
+        "no workload given; pass workload=<file.yaml> to \
          point at the workload to mutate (session at {})",
         session_dir.display(),
     ))
 }
 
 /// Pass-through for the flag-form invocation: the user typed
-/// `nmbrs plot --name X` (or `nmbrs table --filter k=v`). Forward
+/// `nmbrs report plot --name X` (or `nmbrs report table --filter k=v`). Forward
 /// everything to the renderer, including the workload= token
 /// if present.
 fn forward_renderer_flags(
@@ -1055,7 +1036,7 @@ fn forward_renderer_flags(
             }
             eprintln!(
                 "nmbrs report: flag-form selection requires a kind \
-                (use `nmbrs plot --<flag>...` or `nmbrs table --<flag>...`)"
+                (use `nmbrs report plot --<flag>...` or `nmbrs report table --<flag>...`)"
             );
             std::process::exit(2);
         }
@@ -1170,10 +1151,10 @@ fn db_flag_path(args: &[String]) -> Option<PathBuf> {
         } else {
             a.strip_prefix("--db=")
         };
-        if let Some(list) = list {
-            if let Some(first) = list.split(',').map(str::trim).find(|s| !s.is_empty()) {
-                return Some(PathBuf::from(first));
-            }
+        if let Some(list) = list
+            && let Some(first) = list.split(',').map(str::trim).find(|s| !s.is_empty())
+        {
+            return Some(PathBuf::from(first));
         }
     }
     None
@@ -1247,30 +1228,20 @@ fn extract_workload(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        // Capture the workload path from any of:
-        //   workload=<path>        (positional key=value form)
-        //   --workload <path>      (space-separated flag form)
-        //   --workload=<path>      (= form)
+        // The workload path is `workload=<path>`, the same kv every
+        // command takes. `--workload` is not a flag.
         if let Some(p) = a.strip_prefix("workload=") {
             workload_path = Some(PathBuf::from(p));
             i += 1;
             continue;
         }
-        if let Some(p) = a.strip_prefix("--workload=") {
-            workload_path = Some(PathBuf::from(p));
-            i += 1;
-            continue;
-        }
-        if a == "--workload" {
-            if let Some(v) = args.get(i + 1) {
-                workload_path = Some(PathBuf::from(v));
-                i += 2;
-                continue;
-            }
-            // Trailing `--workload` with no value — let the
-            // downstream parser surface the error.
-            i += 1;
-            continue;
+        if a == "--workload" || a.starts_with("--workload=") {
+            let value = a
+                .strip_prefix("--workload=")
+                .or_else(|| args.get(i + 1).map(String::as_str))
+                .unwrap_or("<file>");
+            eprintln!("error: unrecognized flag '--workload'. Did you mean 'workload={value}'?");
+            std::process::exit(2);
         }
         if FLAGS_WITH_VALUES.contains(&a.as_str()) {
             // Skip the flag and its value.
@@ -1345,7 +1316,7 @@ pub(crate) fn plot_body_specs(
             // lines OUT of the body into `series_overrides` —
             // the report-cmd path then converts them into
             // `--style` CLI args at dispatch. But the
-            // `nmbrs plot --name X --workload Y` path goes
+            // `nmbrs report plot --name X workload=Y` path goes
             // directly to `parse_spec(body)` and would miss
             // them. Re-append in the canonical
             // `style key=value:k=v k=v` shape so the
@@ -1956,11 +1927,21 @@ fn render_all(
 
 /// Detect SRD-15 strict mode from the args passed to
 /// `report_command`. Mirrors the convention used by the
-/// runner: `--strict` literally on the arg list, or the
-/// `NMBRS_STRICT` env var set. When strict is on, no-data
+/// runner: `--strict` literally on the arg list, or
+/// `NMBRS_STRICT=true`. When strict is on, no-data
 /// figure-render errors keep their hard-failure semantics.
 fn is_strict_mode(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--strict") || std::env::var("NMBRS_STRICT").is_ok()
+    args.iter().any(|a| a == "--strict") || env_flag_or_exit("NMBRS_STRICT")
+}
+
+/// Read a boolean `NMBRS_*` env flag (unset = `false`; set =
+/// `true` / `false`). Any other value is a usage error: print it
+/// and exit 2 rather than guess.
+pub(crate) fn env_flag_or_exit(name: &str) -> bool {
+    nmbrs_workload::boolean::env_flag(name).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        std::process::exit(2);
+    })
 }
 
 /// True when `--rebuild` is on the arg list. Activates the
@@ -1971,7 +1952,7 @@ fn is_strict_mode(args: &[String]) -> bool {
 /// the new declaration set without orphan sections from the
 /// previous render.
 fn is_rebuild_mode(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--rebuild") || std::env::var("NMBRS_REPORT_REBUILD").is_ok()
+    args.iter().any(|a| a == "--rebuild") || env_flag_or_exit("NMBRS_REPORT_REBUILD")
 }
 
 /// True when `--clean` is on the arg list. Activates the
@@ -1983,7 +1964,7 @@ fn is_rebuild_mode(args: &[String]) -> bool {
 /// current declaration set — no orphan artifacts from
 /// prior runs.
 fn is_clean_mode(args: &[String]) -> bool {
-    args.iter().any(|a| a == "--clean") || std::env::var("NMBRS_REPORT_CLEAN").is_ok()
+    args.iter().any(|a| a == "--clean") || env_flag_or_exit("NMBRS_REPORT_CLEAN")
 }
 
 /// Remove every top-level `.png` and `.md` file under
@@ -2110,7 +2091,7 @@ pub fn render_session_reports(db_path: &Path) -> Result<usize, Vec<String>> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let strict = std::env::var("NMBRS_STRICT").is_ok();
+    let strict = env_flag_or_exit("NMBRS_STRICT");
     let failures = render_all(
         &items,
         KindFilter::Any,
@@ -2357,7 +2338,7 @@ fn render_one(
     //
     // Skipped when the operator already supplied a `--db`, the same guard
     // `forward_renderer_flags` uses. Injecting a second one made the renderer
-    // see TWO dbs, which routes through `db_merge` — so `session=<dir> --db
+    // see TWO dbs, which routes through `db_merge` — so `--session=<dir> --db
     // <same dir>/metrics.db` merged a database with itself, turning a
     // seconds-long render into a multi-minute one that looks like a hang.
     let passthrough_has_db = passthrough
@@ -3233,7 +3214,6 @@ fn report_subleaf(subname: &'static str, help: &'static str) -> crate::cli_spec:
         crate::cli_spec::Flag {
             long: "--db",
             short: None,
-            aliases: &[],
             arity: crate::cli_spec::Arity::Value,
             value: crate::cli_spec::ValueProvider::Path,
             help: "Metrics database path (default: logs/latest/metrics.db).",
@@ -3242,19 +3222,16 @@ fn report_subleaf(subname: &'static str, help: &'static str) -> crate::cli_spec:
         crate::cli_spec::Flag {
             long: "--session",
             short: None,
-            aliases: &[],
             arity: crate::cli_spec::Arity::Value,
             value: crate::completion::SESSION_NAME_VALUE,
             help: "Session name or path.",
             repeatable: false,
         },
-        crate::completion::workload_flag("Workload file providing the report: block."),
     ];
     if subname == "show" {
         flags.push(crate::cli_spec::Flag {
             long: "--name",
             short: None,
-            aliases: &[],
             arity: crate::cli_spec::Arity::Value,
             value: crate::cli_spec::ValueProvider::Custom(
                 crate::completion::report_any_name_provider,
@@ -3269,7 +3246,7 @@ fn report_subleaf(subname: &'static str, help: &'static str) -> crate::cli_spec:
         category: Category::Tools,
         level: Level::Secondary,
         flags,
-        kv_params: crate::completion::REPORT_KV,
+        kv_params: crate::completion::WORKLOAD_KV,
         dynamic_options: None,
         positionals: Vec::new(),
         subcommands: Vec::new(),
@@ -3319,7 +3296,6 @@ pub fn spec() -> crate::cli_spec::Command {
             crate::cli_spec::Flag {
                 long: "--synthesized",
                 short: None,
-                aliases: &[],
                 arity: crate::cli_spec::Arity::Bool,
                 value: crate::cli_spec::ValueProvider::None,
                 help: "Render the SRD-109 synthesized section even when an \
@@ -3329,7 +3305,6 @@ pub fn spec() -> crate::cli_spec::Command {
             crate::cli_spec::Flag {
                 long: "--rebuild",
                 short: None,
-                aliases: &[],
                 arity: crate::cli_spec::Arity::Bool,
                 value: crate::cli_spec::ValueProvider::None,
                 help: "Wipe declared target markdown files before rendering.",
@@ -3338,14 +3313,13 @@ pub fn spec() -> crate::cli_spec::Command {
             crate::cli_spec::Flag {
                 long: "--clean",
                 short: None,
-                aliases: &[],
                 arity: crate::cli_spec::Arity::Bool,
                 value: crate::cli_spec::ValueProvider::None,
                 help: "Remove rendered report outputs and exit.",
                 repeatable: false,
             },
         ],
-        kv_params: crate::completion::REPORT_KV,
+        kv_params: crate::completion::WORKLOAD_KV,
         dynamic_options: None,
         positionals: Vec::new(),
         handler: Some(Handler::Sync(handle)),
@@ -3473,7 +3447,7 @@ fn kind_subleaf(
 
 /// `nmbrs report rename` — typed flag set declared in
 /// cli_spec so completion offers `--replace`, `--dry-run`,
-/// `--workload`.
+/// `workload=`.
 fn rename_subleaf() -> crate::cli_spec::Command {
     use crate::cli_spec::{
         Arity, Category, Command, Flag, Handler, Level, ParsedCommand, ValueProvider,
@@ -3490,11 +3464,9 @@ fn rename_subleaf() -> crate::cli_spec::Command {
         category: Category::Tools,
         level: Level::Secondary,
         flags: vec![
-            crate::completion::workload_flag("Override the workload file to mutate."),
             Flag {
                 long: "--replace",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Overwrite if `<new>` already exists.",
@@ -3503,14 +3475,13 @@ fn rename_subleaf() -> crate::cli_spec::Command {
             Flag {
                 long: "--dry-run",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Print intended change without writing.",
                 repeatable: false,
             },
         ],
-        kv_params: &[],
+        kv_params: crate::completion::WORKLOAD_KV,
         dynamic_options: None,
         positionals: Vec::new(),
         subcommands: Vec::new(),
@@ -3579,62 +3550,6 @@ fn scratch_subleaf() -> crate::cli_spec::Command {
             child("clean", "Remove scratch entries.", h_clean),
             child("promote", "Promote scratch to workload.", h_promote),
         ],
-    }
-}
-
-/// `nmbrs plot …` — unadvertised alias for `nmbrs report plot …`.
-pub fn plot_alias_spec() -> crate::cli_spec::Command {
-    use crate::cli_spec::{Category, Command, Handler, Level, ParsedCommand};
-    fn handle(p: ParsedCommand) -> Result<(), String> {
-        report_command(&p.raw, KindFilter::Plot);
-        Ok(())
-    }
-    Command {
-        name: "plot",
-        help: "Alias for `nmbrs report plot`.",
-        category: Category::Tools,
-        level: Level::Secondary,
-        flags: Vec::new(),
-        kv_params: &[],
-        dynamic_options: None,
-        positionals: Vec::new(),
-        subcommands: Vec::new(),
-        handler: Some(Handler::Sync(handle)),
-        raw_args: true,
-        // Same completion node as the real subcommand. Without this the
-        // alias — the spelling most operators actually type — completed
-        // NOTHING: not its flags, not `session=`, not report names.
-        completion_override: Some(|| {
-            crate::completion::kind_subcommand_node(nmbrs_workload::report::Kind::Plot)
-        }),
-    }
-}
-
-/// `nmbrs table …` — unadvertised alias for `nmbrs report table …`.
-pub fn table_alias_spec() -> crate::cli_spec::Command {
-    use crate::cli_spec::{Category, Command, Handler, Level, ParsedCommand};
-    fn handle(p: ParsedCommand) -> Result<(), String> {
-        report_command(&p.raw, KindFilter::Table);
-        Ok(())
-    }
-    Command {
-        name: "table",
-        help: "Alias for `nmbrs report table`.",
-        category: Category::Tools,
-        level: Level::Secondary,
-        flags: Vec::new(),
-        kv_params: &[],
-        dynamic_options: None,
-        positionals: Vec::new(),
-        subcommands: Vec::new(),
-        handler: Some(Handler::Sync(handle)),
-        raw_args: true,
-        // Same completion node as the real subcommand. Without this the
-        // alias — the spelling most operators actually type — completed
-        // NOTHING: not its flags, not `session=`, not report names.
-        completion_override: Some(|| {
-            crate::completion::kind_subcommand_node(nmbrs_workload::report::Kind::Table)
-        }),
     }
 }
 

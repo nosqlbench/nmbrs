@@ -87,8 +87,6 @@ impl ConditionalDispenser {
     }
 }
 
-/// Test whether a resolved field value is truthy.
-
 impl WrappingDispenser for ConditionalDispenser {}
 
 impl OpDispenser for ConditionalDispenser {

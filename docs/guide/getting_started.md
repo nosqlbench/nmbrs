@@ -48,7 +48,7 @@ nmbrs copy capacity_probe         # materialize one locally for editing
 
 Output:
 ```
-nmbrs: 2 ops selected, 10 cycles, 1 threads, driver=stdout
+nmbrs: 2 ops selected, 10 cycles, 1 threads, adapter=stdout
 nmbrs: stanza length=2, sequencer=Bucket
 INSERT INTO users (id, name) VALUES (527897, 'user_0');
 SELECT * FROM users WHERE id=460078;
@@ -165,8 +165,8 @@ the latest data without waiting for the run to finish.
 |------|--------------------|
 | `report` | `nmbrs report all --session <SESSION>` |
 | `report:<args>` | `nmbrs report <args> --session <SESSION>` |
-| `plot` | `nmbrs plot all --session <SESSION>` |
-| `plot:<name>` | `nmbrs plot --name <name> --session <SESSION>` |
+| `plot` | `nmbrs report plot all --session <SESSION>` |
+| `plot:<name>` | `nmbrs report plot --name <name> --session <SESSION>` |
 
 Examples:
 

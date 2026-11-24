@@ -3,7 +3,7 @@
 
 //! Assembles the root [`Command`] spec by pulling each
 //! subcommand's `spec()` from its owning module. main.rs
-//! calls [`root`] once at startup; the same value drives the
+//! calls [`root()`] once at startup; the same value drives the
 //! parser, completion, and help.
 
 use super::*;
@@ -31,13 +31,10 @@ pub fn root() -> Command {
             crate::session_cmd::spec(),
             crate::inspector::spec(),
             crate::report_cmd::spec(),
-            crate::report_cmd::plot_alias_spec(),
-            crate::report_cmd::table_alias_spec(),
             crate::metrics_cmd::spec(),
             crate::describe::spec(),
             crate::blueprint_cmd::spec(),
             crate::copy_cmd::spec(),
-            crate::diag_cmd::spec(),
             crate::bench::spec(),
             crate::replay::spec(),
             crate::checkpoint_cmd::spec(),

@@ -6,11 +6,12 @@ source: nb-apis/adapters-api/src/main/java/workload_definition/04_op_template_ba
 Op templates are the recipes provided by users for an operation. These hold examples of payload
 data, metadata that configures the driver, timeout settings and so on.
 
-The field name used in workload templates to represent operations can often be symbolic to users.
-For this reason, several names are allowed: ops, op, operations, statements, statement. It doesn't
-matter whether the value is provided as a map, list, or scalar. These all allow for the same
-level of templating. Map forms are preferred, since they include naming in a more streamlined
-structure. When you use list form, you have to provide the name as a separate field.
+Op templates go under `ops:`. It doesn't matter whether the value is provided as a map, list, or
+scalar. These all allow for the same level of templating. Map forms are preferred, since they
+include naming in a more streamlined structure. When you use list form, you have to provide the
+name as a separate field. A workload or block with a single op may write it under `op:` instead,
+as a statement string or as the op template's map. No other spelling is accepted: `operations:`,
+`statements:` and `statement:` are errors that name `ops:`.
 
 A name is automatically provided by the API when there is one missing.
 

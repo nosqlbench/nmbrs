@@ -45,8 +45,9 @@ cargo install nmbrs
 ```
 
 The default build uses only pure-Rust dependencies and needs no C/C++
-toolchain. Besides `nmbrs`, the package also installs two auxiliary tools
-for vector-search datasets: `vectordata-audit` and `trace-recall`.
+toolchain. Vector-search datasets are inspected and audited with the
+bundled `vectordata/inventory` and `vectordata/audit` workloads
+(`nmbrs run workload=vectordata/audit dataset=<name>`).
 
 Enable shell completion (bash; `nmbrs completions --shell <bash|zsh|fish|elvish|powershell>`
 prints the script for a specific shell):
@@ -139,7 +140,7 @@ flags. The main ones:
 | `report` (`plot`, `table`) | Render the items in a workload's `report:` block |
 | `wiring visualize` | Plot a binding expression in the terminal |
 | `bench` | Micro-benchmarks (for example `bench wiring`) |
-| `attach` | Connect to the introspection socket of a run started with `inspector=on` |
+| `attach` | Connect to the introspection socket of a run started with `inspector=true` |
 | `replay`, `checkpoint` | Walk readout snapshots / the checkpoint log of a session |
 | `web` | Run the web dashboard |
 | `completions` | Print the shell-completion script |
@@ -173,6 +174,9 @@ nmbrs describe wiring functions
 nmbrs describe wiring stdlib
 nmbrs bench wiring 'hash(cycle)' cycles=1M threads=1:8*2
 ```
+
+`describe wiring functions` lists every node by category, then the
+overloaded names (such as `vec_dot`) with the typed form each one builds.
 
 `wiring visualize` evaluates an expression across a range of cycles and plots
 it in the terminal. Output wire names pick the plot mode: plain names plot

@@ -718,17 +718,17 @@ f32 on the way out would be lossy and split the family across precisions.
 |---|---|---|
 | `metricsql(q)` | any | `Value::Json` (full labeled series / matrix) |
 | `metricsql_scalar(q)` | 1 label-less series × 1 sample | `f64` |
-| `metricsql_vector(q)` | instant vector (N series × 1 sample) | `VecF64` (values; labels dropped) |
-| `metricsql_window(q)` | range vector, **single** series × M samples | `VecF64` (the window's values) |
+| `metricsql_vector(q)` | instant vector (N series × 1 sample) | `vec_f64` (values; labels dropped) |
+| `metricsql_window(q)` | range vector, **single** series × M samples | `vec_f64` (the window's values) |
 
 MetricsQL/PromQL has exactly four result types — **scalar, instant vector, range
 vector, string**. String is producible only by a bare string literal (no selector,
 aggregate, or rollup yields it; `label_join`/`label_replace` return vectors), so
 there is **no** `metricsql_string`: the typed accessors **error** on a string — or
 any shape that does not match — PromQL-type-checker-style. The label-bearing shapes
-a flat `VecF64` cannot carry (an instant vector with N>1 series, or a range
+a flat `vec_f64` cannot carry (an instant vector with N>1 series, or a range
 *matrix* of N>1 series × M samples) are the job of the general `metricsql(...) →
-Json`, which preserves labels and the 2-D shape; the typed accessors assert down to
+json`, which preserves labels and the 2-D shape; the typed accessors assert down to
 the single-series / scalar cases.
 
 **Dependency + coverage.** `nmbrs-metricsql` evaluates against the `MetricAccess`

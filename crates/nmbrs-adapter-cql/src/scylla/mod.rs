@@ -180,9 +180,9 @@ impl DriverAdapter for ScyllaCqlAdapter {
             // itself) into `fields.values`; only the named bind points
             // belong on the wire, in the order they appeared in the
             // statement text.
-            let bind_names = nmbrs_workload::bindpoints::referenced_bindings(&stmt_text);
+            let bind_names = nmbrs_workload::bindpoints::referenced_bindings(&stmt_text)?;
             let prepared_text =
-                nmbrs_workload::bindpoints::replace_bind_points_with_markers(&stmt_text);
+                nmbrs_workload::bindpoints::replace_bind_points_with_markers(&stmt_text)?;
             // Workload-author lvalue assertions per bind-point: a
             // `{name:*}` or `{name:<polydat-type>}` suffix in the
             // statement text overrides the cluster-side parameter
@@ -192,7 +192,7 @@ impl DriverAdapter for ScyllaCqlAdapter {
             // walking the same statement text in the same order.
             let lvalue_specs: Vec<Option<nmbrs_workload::bindpoints::LvalueSpec>> = {
                 use nmbrs_workload::bindpoints::{BindPoint, extract_bind_points};
-                extract_bind_points(&stmt_text)
+                extract_bind_points(&stmt_text)?
                     .into_iter()
                     .filter_map(|bp| match bp {
                         BindPoint::Reference { lvalue_spec, .. } => Some(lvalue_spec),
@@ -268,15 +268,14 @@ impl DriverAdapter for ScyllaCqlAdapter {
                     //      it overrides the cluster-side type for
                     //      verification — this is the per-bindpoint
                     //      opt-in for type fusion (`:*` → Str-lvalue,
-                    //      anything goes; `:<type>` → asserted type
-                    //      from `PortType::from_workload_name`).
+                    //      anything goes; `:<type>` → the asserted type
+                    //      the bind-point parser resolved).
                     //   2. Otherwise fall back to the cluster-side
                     //      type via `binder_meta::cql_to_polydat`. Any
                     //      cluster type lacking a precise polydat
                     //      mapping warns (per-slot) so the operator
                     //      can see which slots are un-typed.
                     let col_specs = prep.get_variable_col_specs();
-                    let mut slot_build_err: Option<String> = None;
                     let slots: Vec<polydat::binder::BinderSlot> = col_specs.iter()
                     .zip(bind_names.iter())
                     .enumerate()
@@ -304,32 +303,17 @@ impl DriverAdapter for ScyllaCqlAdapter {
                                     );
                                     (cluster_lvalue, true)
                                 }
-                                Some(LvalueSpec::Explicit(type_name)) => {
-                                    match polydat::ast::PortType::from_workload_name(type_name) {
-                                        Some(pt) => {
-                                            nmbrs_runtime::diag!(
-                                                nmbrs_runtime::observer::LogLevel::Info,
-                                                "scylla op '{op}' field '{field}' slot [{idx}] wire `{name}`: \
-                                                 `:{type_name}` lvalue assertion seen on this bind-point \
-                                                 — using workload-asserted polydat type `{type_name}` \
-                                                 (cluster reports `{cluster_lvalue}`).",
-                                                op = template.name,
-                                                field = stmt_field,
-                                            );
-                                            (pt, false)
-                                        }
-                                        None => {
-                                            slot_build_err = Some(format!(
-                                                "scylla op '{op}' field '{field}' slot [{idx}] wire `{name}`: \
-                                                 unknown polydat type name `{type_name}` in lvalue spec \
-                                                 `:{type_name}`. Accepted names: u64, f64, u32, i32, \
-                                                 i64, f32, bool, str, bytes, json, vec_f32, vec_i32.",
-                                                op = template.name,
-                                                field = stmt_field,
-                                            ));
-                                            (cluster_lvalue, false)
-                                        }
-                                    }
+                                Some(LvalueSpec::Explicit(asserted)) => {
+                                    nmbrs_runtime::diag!(
+                                        nmbrs_runtime::observer::LogLevel::Info,
+                                        "scylla op '{op}' field '{field}' slot [{idx}] wire `{name}`: \
+                                         `:{asserted}` lvalue assertion seen on this bind-point \
+                                         — using workload-asserted polydat type `{asserted}` \
+                                         (cluster reports `{cluster_lvalue}`).",
+                                        op = template.name,
+                                        field = stmt_field,
+                                    );
+                                    (*asserted, false)
                                 }
                                 None => {
                                     if let Some(cql_label) = fallback {
@@ -376,9 +360,6 @@ impl DriverAdapter for ScyllaCqlAdapter {
                         }
                     })
                     .collect();
-                    if let Some(msg) = slot_build_err {
-                        return Err(msg);
-                    }
                     if !slots.is_empty() {
                         let binder = polydat::binder::Binder::Positional {
                             field: stmt_field.to_string(),

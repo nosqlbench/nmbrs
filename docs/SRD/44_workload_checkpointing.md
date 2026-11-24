@@ -77,8 +77,12 @@ phases:
 | Form | Meaning |
 |------|---------|
 | `checkpoint: idempotent` | Equivalent to `checkpoint: { idempotent: true, hashed: true }`. |
-| `checkpoint: none` (or `false`, `no`) | Explicitly not skip-eligible. Equivalent to no declaration. |
+| `checkpoint: none` | Explicitly not skip-eligible. Equivalent to no declaration. |
 | `checkpoint: { … }` | Full form with sub-properties. |
+
+These are the only short forms: `checkpoint: true` / `false`, and a bare
+`checkpoint:` with no value, are load errors that name the short form to
+write.
 
 ### Sub-properties
 

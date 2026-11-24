@@ -84,10 +84,11 @@ impl ScopedPredicate {
     }
 }
 
-/// Canonical runtime-state wire names a stop-condition predicate may
-/// read. A predicate references the ones it needs; the rest are absent
-/// from its kernel and skipped at injection.
 pub mod wire {
+    //! Canonical runtime-state wire names a stop-condition predicate may
+    //! read. A predicate references the ones it needs; the rest are absent
+    //! from its kernel and skipped at injection.
+    //!
     //! Predicate vocabulary. Every counter wire is named EXACTLY as
     //! its registered instrument (`ActivityMetrics::register_on`), so
     //! the guard language and the metric namespace are one vocabulary

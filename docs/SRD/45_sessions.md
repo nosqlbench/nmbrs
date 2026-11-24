@@ -77,12 +77,11 @@ NMBRS_SESSION='restart,path:/tmp/scratch'
 
 Long-form flag wins over umbrella value when both are set.
 
-### Legacy env
+### Retired env
 
-`SESSION_DIRECTORY` is the pre-SRD-04 name for
-`NMBRS_SESSION_PATH`. Honored as a deprecated fallback with a
-one-line `Warn` on read; remove from your shell config and
-use `NMBRS_SESSION_PATH` instead.
+`SESSION_DIRECTORY`, the pre-SRD-04 name for
+`NMBRS_SESSION_PATH`, is no longer read. Use
+`NMBRS_SESSION_PATH`.
 
 ---
 
@@ -119,8 +118,7 @@ Always maintained. Points at the active session.
 
 `purge_stale_sessions_at_startup(args)` runs first in `nmbrs::main()`. It resolves
 the spec and applies lifecycle cleanup (`--session-keep` /
-`--session-shelflife`, aliases `--sessions-max` /
-`--sessions-shelflife`). That is all it does.
+`--session-shelflife`). That is all it does.
 
 **It does not touch `logs/latest`.** It used to: when the path was concrete at
 startup it repointed the symlink so that read-side subcommands defaulting to
@@ -146,7 +144,7 @@ Responsibility is now split along the read/write line:
 ```
 $ export NMBRS_SESSION_PATH=/data/runs/today
 $ nmbrs run workload=foo.yaml                    # claims latest -> today
-$ nmbrs plot                                     # reads /data/runs/today/metrics.db
+$ nmbrs report plot                                     # reads /data/runs/today/metrics.db
 $ nmbrs report --session=logs/older              # reads older; latest stays on today
 $ nmbrs run workload=foo.yaml --resume-latest    # still resumes today
 ```

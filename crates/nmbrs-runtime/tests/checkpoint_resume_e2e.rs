@@ -74,7 +74,7 @@ phases:
     in_dir(&dir, || {
         run_args(&[
             format!("workload={}", workload_path.display()),
-            "driver=stdout".into(),
+            "adapter=stdout".into(),
             format!("filename={}", stdout_path.display()),
         ])
     });
@@ -99,7 +99,7 @@ phases:
     in_dir(&dir, || {
         run_args(&[
             format!("workload={}", workload_path.display()),
-            "driver=stdout".into(),
+            "adapter=stdout".into(),
             format!("filename={}", stdout_path.display()),
             format!("resume={}", session_dir.display()),
         ])
@@ -186,7 +186,7 @@ phases:
     in_dir(&dir, || {
         run_args(&[
             format!("workload={}", workload_path.display()),
-            "driver=stdout".into(),
+            "adapter=stdout".into(),
             format!("filename={}", stdout_path.display()),
         ])
     });
@@ -205,7 +205,7 @@ phases:
     in_dir(&dir, || {
         run_args(&[
             format!("workload={}", workload_path.display()),
-            "driver=stdout".into(),
+            "adapter=stdout".into(),
             format!("filename={}", stdout_path.display()),
             format!("resume={}", session_dir.display()),
         ])

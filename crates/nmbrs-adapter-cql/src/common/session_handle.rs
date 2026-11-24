@@ -50,7 +50,7 @@ const SERVER_LIMIT_BACKOFF: f64 = 0.9;
 
 /// Async settings-read surface over a pooled CQL session.
 ///
-/// One impl per driver ([`crate::cassandra_cpp`] / [`crate::scylla`]). The
+/// One impl per driver (`crate::cassandra_cpp` / `crate::scylla`). The
 /// handle owns an `Arc<dyn CqlSettingsSource>`; it never exposes the raw
 /// driver session type. `read` returns the setting value **in bytes**, or
 /// `None` on any failure (view absent, older C*, permission, timeout) after

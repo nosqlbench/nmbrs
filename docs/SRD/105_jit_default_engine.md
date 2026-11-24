@@ -46,8 +46,8 @@ Whole-kernel P2/P3 replacement is **not** the mechanism, because the
 compiled engines are architecturally incompatible with the runtime
 contract:
 
-- raw `u64` slot buffers vs `Value` enums (Str/Bytes/JSON/Handle/U128
-  and all vectors cannot cross; F64 rides as bits, Bool as 0/1);
+- raw `u64` slot buffers vs `Value` enums (str/bytes/JSON/handle/U128
+  and all vectors cannot cross; f64 rides as bits, bool as 0/1);
 - slot indices vs named wires (scope chains, `lookup`,
   `materialize_wiring_from_outer` assume names);
 - no SharedCell participation, no per-cycle `set_input`, no captures,
@@ -59,7 +59,7 @@ contract:
 **Cone-level JIT inside the interpreter kernel.** At assembly time,
 extract maximal JIT-eligible cones — connected subgraphs whose nodes
 all carry JIT lowerings and whose boundary ports are scalar-representable
-(U64/I64/U32/I32/F64/F32/Bool) — compile each cone to a `JitKernelRaw`,
+(u64/i64/u32/i32/f64/f32/bool) — compile each cone to a `JitKernelRaw`,
 and replace it in the program with **one synthetic cone node**. The cone
 node is an ordinary `PolydatNode`: `eval` marshals boundary `Value`s into
 the cone's u64 slots (types fixed at compile time, so marshalling is a
@@ -161,7 +161,7 @@ parameter, not a per-phase toggle.
 The default flips to `auto` only behind a green **differential
 battery**: every workload in the thematic coverage suite runs
 `force` vs `off` and compares outputs cycle-for-cycle — polydat's
-determinism makes the comparison exact, including F64 (transcendentals
+determinism makes the comparison exact, including f64 (transcendentals
 call the same Rust functions via extern symbols; Cranelift scalar ops
 are IEEE-identical). Predicate-violation workloads assert panic-message
 parity. The battery is a permanent suite, not a one-time check.
@@ -170,7 +170,7 @@ Implemented (Push 2) at two levels:
 
 - **Expression level** — polydat's `function_coverage` suite IS the
   battery: its harness compiles every coverage expression on both
-  engines and asserts every pull bit-identical (F64 by bits, so
+  engines and asserts every pull bit-identical (f64 by bits, so
   engine-identical NaNs count as equal). Any new function test is
   differential by construction. Nondeterministic programs
   (`PolydatProgram::is_deterministic`) skip the cross-kernel

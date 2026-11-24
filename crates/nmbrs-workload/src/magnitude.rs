@@ -116,7 +116,7 @@ mod tests {
     fn plain_numbers_parse_directly() {
         assert_eq!(parse_magnitude("1000000"), Some(1_000_000.0));
         assert_eq!(parse_magnitude("1e3"), Some(1000.0)); // scientific, not exa
-        assert_eq!(parse_magnitude("3.14"), Some(3.14));
+        assert_eq!(parse_magnitude("2.5"), Some(2.5));
     }
 
     #[test]

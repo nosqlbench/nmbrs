@@ -223,7 +223,7 @@ report:
     plot recall_vs_qps_by_strategy:
       label: "Recall vs QPS, by query strategy"
       scale: 2
-      legend: br
+      legend: bottom-right
       # Group by the FULL phase-scope coordinate: the index-build axes
       # (sm,mnc,bw,eh,nbo_v,alf_v — the short for: iter-var labels; the
       # full source_model/… names reach the phase via `set:` and aren't

@@ -27,7 +27,7 @@
 //! - [`inline`] — `nmbrs run op='hello {{cycle}}'` synthesizer:
 //!   builds a one-op `Workload` from a single CLI string.
 //! - [`bindpoints`] — extracts `{name}`, `{{expr}}`, qualified
-//!   refs (`{coord:cycle}`, `{capture:foo}`) from any string.
+//!   refs (`{input:cycle}`, `{capture:foo}`) from any string.
 //! - [`tags`] — `tags=block:main,phase:read` filters during op
 //!   selection.
 //! - [`template`] — `{param}` template substitution with
@@ -40,13 +40,18 @@
 //! ```
 //! use nmbrs_workload::bindpoints::{extract_bind_points, BindPoint, BindQualifier};
 //!
-//! let pts = extract_bind_points("INSERT INTO t VALUES ({id}, {{hash(cycle)}})");
+//! let pts = extract_bind_points("INSERT INTO t VALUES ({id}, {{hash(cycle)}})")
+//!     .expect("well-formed bind points");
 //! assert_eq!(pts.len(), 2);
 //! assert!(matches!(
 //!     &pts[0],
 //!     BindPoint::Reference { name, qualifier: BindQualifier::None, .. } if name == "id",
 //! ));
 //! assert!(matches!(&pts[1], BindPoint::InlineDefinition(expr) if expr == "hash(cycle)"));
+//!
+//! // A `{name:<type>}` assertion names its type by polydat keyword.
+//! assert!(extract_bind_points("VALUES ({id:str})").is_ok());
+//! assert!(extract_bind_points("VALUES ({id:String})").is_err());
 //! ```
 //!
 //! Template substitution at workload-build time:
@@ -74,6 +79,9 @@
 //!   `for_combinations`)
 
 pub mod bindpoints;
+/// The one boolean spelling (`true` / `false`) for params, fields
+/// and env flags.
+pub mod boolean;
 /// SRD-85 bundled-workload catalog (embedded workloads,
 /// tiers, exact-name lookup).
 pub mod catalog;
@@ -91,6 +99,8 @@ pub mod model;
 pub mod op_templates;
 pub mod parse;
 pub mod polydat_matter;
+/// Type names a workload writes, resolved to polydat `PortType`s.
+pub mod port_types;
 pub mod report;
 pub mod report_synth;
 pub mod spectest;

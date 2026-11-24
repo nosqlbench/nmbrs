@@ -908,7 +908,7 @@ mod tests {
 
 inventory::submit! {
     nmbrs_runtime::adapter::AdapterRegistration {
-        names: || &["testkit"],
+        name: "testkit",
         known_params: || &[
             "result-body", "result-load", "result-latency",
             "result-error-rate", "result-error-name", "result-error-message",
@@ -919,7 +919,7 @@ inventory::submit! {
         supported_controls: || &[],
         create: |params| Box::pin(async move {
             Ok(std::sync::Arc::new(ModelAdapter::with_config(ModelConfig {
-                stdout: StdoutConfig::from_params(&params),
+                stdout: StdoutConfig::from_params(&params)?,
                 diagnose: false,
             })) as std::sync::Arc<dyn nmbrs_runtime::adapter::DriverAdapter>)
         }),

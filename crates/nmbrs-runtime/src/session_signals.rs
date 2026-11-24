@@ -422,7 +422,7 @@ pub fn request_shell_stop(cause: StopCause) {
 /// CLEAN termination: it ends a loop ([`StopView::stopped`]) but is NOT a
 /// fault, so it is excluded from [`StopView::abnormal`] (the
 /// failure-determining set). Fiber-pool scale-down
-/// ([`crate::fiber_pool::StopFlag`]) is a per-fiber concern, deliberately
+/// (`crate::fiber_pool::StopFlag`) is a per-fiber concern, deliberately
 /// NOT part of this view.
 #[derive(Clone, Default)]
 pub struct StopView {
@@ -586,7 +586,7 @@ enum SignalAction {
 /// Route one signal by (signo, armed, current ladder level).
 #[cfg(unix)]
 fn dispatch_decision(signo: libc::c_int, armed: bool, level: u8) -> SignalAction {
-    let exit_code = 128 + signo as i32;
+    let exit_code = 128 + signo;
     match signo {
         libc::SIGINT | libc::SIGTERM => {
             let origin = if signo == libc::SIGTERM {
@@ -716,8 +716,13 @@ pub fn spawn_signal_dispatcher() {}
 /// (notably the per-execution isolation test, which requires the
 /// global to be clear). Tests acquire this lock and clear the flag
 /// before asserting.
+///
+/// A `tokio` mutex, because async tests hold it across `.await`:
+/// those take it with `.lock().await`, and sync tests (outside any
+/// runtime) with `blocking_lock()`. It cannot be poisoned, so a
+/// failed test never wedges its siblings.
 #[cfg(test)]
-pub(crate) static STOP_GLOBAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static STOP_GLOBAL_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Test-only: reset the process-global stop flag to unset. Paired
 /// with [`STOP_GLOBAL_TEST_LOCK`] so global-flag tests don't leak
@@ -745,9 +750,7 @@ mod tests {
         // Serialize with the other global-flag test and reset the
         // process-global flag around the assertions so this test
         // neither sees nor leaks a stale stop.
-        let _guard = STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = STOP_GLOBAL_TEST_LOCK.blocking_lock();
         clear_session_stop_for_test();
         assert!(!stop_requested());
         request_stop();
@@ -761,9 +764,7 @@ mod tests {
     /// the CALLER's decision, with its own terminal hygiene).
     #[test]
     fn ladder_advances_one_rung_per_escalation_and_holds_at_cancel() {
-        let _guard = STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = STOP_GLOBAL_TEST_LOCK.blocking_lock();
         clear_session_stop_for_test();
         reset_shutdown_ladder_for_test();
 
@@ -802,9 +803,7 @@ mod tests {
     /// without the cooperative-drain wait.
     #[test]
     fn abort_jumps_straight_to_cancel_rung() {
-        let _guard = STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = STOP_GLOBAL_TEST_LOCK.blocking_lock();
         clear_session_stop_for_test();
         reset_shutdown_ladder_for_test();
 
@@ -831,9 +830,7 @@ mod tests {
     /// NOT resolve for the graceful rung alone.
     #[tokio::test]
     async fn ops_cancelled_resolves_at_cancel_rung_only() {
-        let _guard = STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = STOP_GLOBAL_TEST_LOCK.lock().await;
         clear_session_stop_for_test();
         reset_shutdown_ladder_for_test();
 

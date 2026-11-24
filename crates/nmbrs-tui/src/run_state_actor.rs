@@ -243,8 +243,8 @@ pub enum RunStateCmd {
     /// point each registered `tx` is signalled and the original
     /// caller's blocking `rx.recv()` returns.
     ///
-    /// Used by [`crate::observer::TuiObserver::phase_completed`] /
-    /// [`crate::observer::TuiObserver::phase_failed`] to guarantee
+    /// Used by [`crate::observer::TuiObserver`]'s `phase_completed` /
+    /// `phase_failed` observer callbacks to guarantee
     /// at least one fully rendered frame of the just-completed
     /// phase before the executor moves on. The `tick_rate`
     /// throttle is bypassed for this single redraw.

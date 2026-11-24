@@ -38,14 +38,14 @@
 //!
 //! - Integer-parseable → `u64`
 //! - Float-parseable → `f64`
-//! - `"true"` / `"false"` → `bool`
-//! - Anything else → `String` (with proper quote / escape handling)
+//! - Anything else, `"true"` / `"false"` included → `str` (with
+//!   proper quote / escape handling)
 //!
 //! Native typing matters because descendant-scope synthesis
 //! relies on the parent's manifest port types when emitting
 //! cascade externs (see SRD-18b §"Cascade externs"). A param
 //! presented as `"100"` becomes `u64` in the manifest, not
-//! `String`.
+//! `str`.
 
 use std::collections::HashMap;
 

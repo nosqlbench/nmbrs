@@ -713,14 +713,15 @@ pub fn spawn(
 
     let mut shutdown = crate::session_signals::subscribe_shutdown();
     Ok(tokio::spawn(async move {
-        let mut prev_disks = cats
-            .io
-            .then(|| {
+        let mut prev_disks = if cats.io {
+            {
                 std::fs::read_to_string("/proc/diskstats")
                     .map(|t| parse_diskstats(&t))
                     .unwrap_or_default()
-            })
-            .unwrap_or_default();
+            }
+        } else {
+            Default::default()
+        };
         let mut prev_cpu = if cats.cpu {
             std::fs::read_to_string("/proc/stat")
                 .ok()

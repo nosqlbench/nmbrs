@@ -214,8 +214,8 @@ fn describe_drivers() {
         .unwrap_or(7)
         .max(7);
     println!(
-        "{:name_w$}  {:adapter_w$}  {:8}  {}",
-        "name", "adapter", "origin", "description"
+        "{:name_w$}  {:adapter_w$}  {:8}  description",
+        "name", "adapter", "origin"
     );
     for r in &rows {
         let desc = r.description.lines().next().unwrap_or("");
@@ -634,11 +634,7 @@ fn describe_adapter(name: &str) {
         return;
     };
 
-    let aliases = (reg.names)();
     println!("Adapter: {name}");
-    if aliases.len() > 1 {
-        println!("  Aliases:        {}", aliases.join(", "));
-    }
     // Default-config preference (no params → e.g. stdout's console default).
     println!(
         "  Display:        {:?}",
@@ -796,6 +792,20 @@ fn describe_wiring_functions(verbose: bool) {
         println!();
     }
 
+    println!("  {bold}{cyan}── Overloaded names ──{reset}");
+    println!();
+    for (category, overloads) in registry::overloads_by_category() {
+        println!("  {dim}{}{reset}", category.display_name());
+        for overload in overloads {
+            let name_padded = format!("{:<24}", overload.name);
+            println!(
+                "  {bold}{magenta}{name_padded}{reset} {dim}builds{reset} {}",
+                overload_forms_display(overload)
+            );
+        }
+        println!();
+    }
+
     println!(
         "  {bold}Legend:{reset}  {bold}P{reset}{green}\u{2713}{reset}{green}\u{2713}{reset}{green}\u{2713}{reset} = supported levels  {green}\u{2713}{reset} = yes  {dim}\u{2717}{reset} = no"
     );
@@ -813,6 +823,20 @@ fn describe_wiring_functions(verbose: bool) {
         );
     }
     println!();
+}
+
+/// An overload's forms as `vec_dot_f32(vec_f32, vec_f32) | …`, the
+/// default form first.
+fn overload_forms_display(overload: &registry::Overload) -> String {
+    overload
+        .forms
+        .iter()
+        .map(|form| {
+            let wires: Vec<String> = form.wires.iter().map(|t| t.to_string()).collect();
+            format!("{}({})", form.func, wires.join(", "))
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 /// Render a `FuncSig` as a polydat module-definition signature:
@@ -1172,6 +1196,37 @@ fn describe_wiring_functions_md(path: &str) {
             out.push_str("---\n\n");
         }
     }
+
+    out.push_str("## Overloaded names\n\n");
+    out.push_str(
+        "A call to one of these names builds the form whose wire types agree \
+         with its operands.\n\n",
+    );
+    // `registry::by_category()` names only the typed forms
+    // (`vec_dot_f32`), so the names a program calls (`vec_dot`) are
+    // listed from `overloads_by_category()`.
+    let overload_rows: Vec<Vec<String>> = registry::overloads_by_category()
+        .into_iter()
+        .flat_map(|(category, overloads)| {
+            overloads.into_iter().map(move |o| {
+                vec![
+                    category.display_name().to_string(),
+                    format!("`{}`", o.name),
+                    overload_forms_display(o).replace('|', "\\|"),
+                ]
+            })
+        })
+        .collect();
+    let overload_headers: Vec<String> = ["Category", "Name", "Forms"]
+        .iter()
+        .map(|h| (*h).to_string())
+        .collect();
+    out.push_str(&crate::report::markdown_table(
+        &overload_headers,
+        &overload_rows,
+        overload_headers.len(),
+    ));
+    out.push('\n');
 
     let mut f = std::fs::File::create(path).unwrap_or_else(|e| {
         eprintln!("error: failed to create {path}: {e}");
@@ -1804,8 +1859,9 @@ fn describe_wiring_dag(args: &[String]) {
 }
 
 /// SRD-13d Phase 8 entry point: parse `yaml_source` as a
-/// workload, build its [`ScopeTree`], run
-/// [`ScopeTree::mark_scope_elision`] with a stub
+/// workload, build its [`ScopeTree`](nmbrs_runtime::scope_tree::ScopeTree), run
+/// [`ScopeTree::mark_scope_elision`](nmbrs_runtime::scope_tree::ScopeTree::mark_scope_elision)
+/// with a stub
 /// "materialise everything" predicate, and produce a textual
 /// summary listing each node's logical_name, materialised
 /// bit, and the nearest_materialised ancestor it would bind
@@ -2060,7 +2116,6 @@ fn workloads_spec() -> crate::cli_spec::Command {
             crate::cli_spec::Flag {
                 long: "--all",
                 short: None,
-                aliases: &[],
                 arity: crate::cli_spec::Arity::Bool,
                 value: crate::cli_spec::ValueProvider::None,
                 help: "Include the examples tier in the listing.",
@@ -2069,7 +2124,6 @@ fn workloads_spec() -> crate::cli_spec::Command {
             crate::cli_spec::Flag {
                 long: "--json",
                 short: None,
-                aliases: &[],
                 arity: crate::cli_spec::Arity::Bool,
                 value: crate::cli_spec::ValueProvider::None,
                 help: "Machine-readable listing.",
@@ -2429,7 +2483,7 @@ pub fn render_op_description(workload_path: &str, op_name: &str) -> Result<Strin
     let resolver = WrapperResolver::with_default_order(&registry).map_err(|e| e.to_string())?;
     let plan = resolver
         .resolve(
-            nmbrs_runtime::wrapper_registry::WrapperSubject::Op(*template),
+            nmbrs_runtime::wrapper_registry::WrapperSubject::Op(template),
             &registry,
         )
         .map_err(|e| e.to_string())?;
@@ -2446,7 +2500,7 @@ pub fn render_op_description(workload_path: &str, op_name: &str) -> Result<Strin
     out.push_str("  wrapper stack (innermost -> outermost):\n");
     for (i, reg) in plan.iter_innermost_first().enumerate() {
         let line = (reg.describe_assignment)(nmbrs_runtime::wrapper_registry::WrapperSubject::Op(
-            *template,
+            template,
         ))
         .unwrap_or_else(|| reg.name.as_str().to_string());
         // Prepend the wrapper name to assignments that don't
@@ -2833,6 +2887,28 @@ phases:
         assert!(
             err.contains("never.yaml"),
             "error should embed the file path: {err}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod describe_overloads_tests {
+    //! `describe functions` lists overloaded names from
+    //! `registry::overloads_by_category()`; a registration whose first
+    //! form names no linked function would list under
+    //! `Uncategorised` with nothing to build. Every overload linked
+    //! into nmbrs must resolve.
+    use polydat::dsl::registry;
+
+    #[test]
+    fn every_linked_overload_resolves() {
+        let unlisted: Vec<&str> = registry::unlisted_overloads()
+            .into_iter()
+            .map(|o| o.name)
+            .collect();
+        assert!(
+            unlisted.is_empty(),
+            "overloads whose first form is not registered: {unlisted:?}"
         );
     }
 }

@@ -155,7 +155,7 @@ read; the hot-path consumer picks the faster route.
   statement's typed parameter on the next cycle), use a typed
   accessor; it's both faster and more precise.
 - **Captures whose destination is a Polydat wire.** The wire's
-  declared type decides: `String → String` captures go
+  declared type decides: `str → str` captures go
   through the typed accessor if the adapter exposes one,
   otherwise through `to_json()` and a string render.
 - **Streaming traversal over large results.** Use the

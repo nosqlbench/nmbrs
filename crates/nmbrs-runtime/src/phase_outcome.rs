@@ -417,7 +417,7 @@ pub struct PhaseOutcome {
     /// SRD-82 Part 1 — the two axes ARE the stored canonical (the
     /// storage migration the old `PhaseStatus::to_outcome` doc
     /// promised). Legacy checkpoint records that carried a single
-    /// `status` string still deserialize via [`PhaseOutcomeWire`].
+    /// `status` string still deserialize via `PhaseOutcomeWire`.
     pub disposition: Disposition,
     pub validity: Validity,
     /// Wall-clock duration from `phase_starting` to this

@@ -204,7 +204,7 @@ pub async fn scope<F: std::future::Future>(ctx: Arc<ExecutionContext>, fut: F) -
 }
 
 /// Run `fut` as the body of the phase at `scene_node_id` (SRD-100 P1c): scopes
-/// the task-local [`CURRENT_PHASE`] for the future's duration. `run_phase`
+/// the task-local `CURRENT_PHASE` for the future's duration. `run_phase`
 /// wraps itself with this so its whole body — the activity loop and every
 /// fiber it [`propagate`]s — resolves to this phase's node, and any ambient
 /// emit nests under its depth.
@@ -411,20 +411,14 @@ mod tests {
         assert_eq!(phase, Some(9), "propagate carries the phase node");
     }
 
-    // Holds a std lock across `.await`: the awaited `scope(...)`
-    // futures run inline (task-local scope, no inter-task yield), so
-    // there is no other task that needs the lock — it's held only to
-    // keep the process-global stop flag clear for the whole assertion
-    // window, serialized against `flag_starts_unset_and_responds_to_request`.
-    #[allow(clippy::await_holding_lock)]
+    // Holds the global-flag test lock for the whole assertion window,
+    // serialized against `flag_starts_unset_and_responds_to_request`.
     #[tokio::test]
     async fn per_execution_stop_is_isolated() {
         // `stop_requested()` ORs the never-reset process-global
         // `SESSION_STOP`; serialize with the other global-flag test and
         // clear it so a sibling test's stop can't masquerade as B's.
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::clear_session_stop_for_test();
 
         let a = ExecutionContext::new();

@@ -71,14 +71,13 @@ Plus management subcommands:
 
 | Subcommand | Purpose |
 | --- | --- |
-| `nmbrs report list` | list every named item resolved against `--workload` (or stored in the session db) |
+| `nmbrs report list` | list every named item resolved against `workload=` (or stored in the session db) |
 | `nmbrs report all` | render every named item in declaration order |
 | `nmbrs report figure <N>` | render the Nth figure-numbered item |
 | `nmbrs report show <name>` | print the resolved spec for a named item without rendering |
 
-The existing `nmbrs plot` and `nmbrs table` aliases remain
-(SRD-46 mentions them) but are documented as kind-filtered
-shorthands for `nmbrs report plot|table`. No new aliases.
+There are no top-level `nmbrs plot` / `nmbrs table` commands; the
+kind-filtered forms are `nmbrs report plot|table` (SRD-46). No aliases.
 
 ### 2.1 Component-name positional
 
@@ -174,7 +173,7 @@ inputs, in order:
    (in that order). Metric names, x-axis keys, series keys,
    filter values are sourced from this db's schema and
    sample of recent rows.
-3. **The optional `--workload <path>`.** When passed, name
+3. **The optional `workload=<path>`.** When passed, name
    completion includes already-defined item names (so the
    user can `--replace` an existing one).
 
@@ -192,7 +191,7 @@ inputs, in order:
 | `--xscale` / `--yscale` | closed set: `linear log` |
 | `--metric` (positional after kind name) | metric names from the active db, filtered by kind |
 | `--name` (on `list`/`show`/`figure`/--add) | item names already defined in the workload + items already persisted in the session db |
-| `--workload` | filesystem walk for `*.yaml` / `*.yml` |
+| `workload=` | filesystem walk for `*.yaml` / `*.yml` |
 | `--session` | session names under `logs/` |
 
 Closed sets live in one Rust source-of-truth (likely
@@ -269,7 +268,8 @@ plotter.
 file. The default target is the workload that produced the
 active session — discoverable from the session's
 `checkpoint.json` (`workload_path` field). Override via
-`--workload <path>`.
+`workload=<path>` (the same kv `nmbrs run` takes; `--workload` is
+not a flag).
 
 ### 6.1 Anchor selection
 
@@ -473,7 +473,7 @@ renderable as long as the metrics db is intact.
 The session's checkpoint.json carries the `workload_path`;
 the CLI uses that for `--add` discovery unless overridden.
 When the workload no longer exists at that path, `--add`
-errors and points the user at `--workload`.
+errors and points the user at `workload=`.
 
 ---
 

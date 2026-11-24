@@ -452,16 +452,14 @@ impl ResultDispenser {
     pub fn wrap(
         inner: Arc<dyn OpDispenser>,
         result_spec: Option<&nmbrs_workload::model::ResultSpec>,
-        interface_results: Option<&std::collections::BTreeMap<String, String>>,
+        interface_results: Option<&std::collections::BTreeMap<String, polydat::ast::PortType>>,
     ) -> Arc<dyn OpDispenser> {
         let mut specs: Vec<ResultSlot> = Vec::new();
 
         // SRD-109 Part 3 — a wire filling an `abstract: results:`
         // contract projects at exactly its declared type.
         let target_for = |name: &str| -> Option<polydat::ast::PortType> {
-            interface_results?
-                .get(name)
-                .and_then(|kw| polydat::ast::PortType::from_keyword(kw))
+            interface_results?.get(name).copied()
         };
 
         if let Some(spec) = result_spec {
@@ -894,7 +892,7 @@ mod tests {
         });
         let decl = map_spec(&[("keys", "[*].key")]);
         let mut iface = std::collections::BTreeMap::new();
-        iface.insert("keys".to_string(), "vec_i64".to_string());
+        iface.insert("keys".to_string(), polydat::ast::PortType::VecI64);
 
         let wrapped = ResultDispenser::wrap(inner, Some(&decl), Some(&iface));
         let mut kernel = kernel_with_extern_inputs(&[("keys", "vec_i64")]);
@@ -948,7 +946,7 @@ mod tests {
         });
         let decl = map_spec(&[("keys", "result[*].id")]);
         let mut iface = std::collections::BTreeMap::new();
-        iface.insert("keys".to_string(), "vec_i64".to_string());
+        iface.insert("keys".to_string(), polydat::ast::PortType::VecI64);
         let wrapped = ResultDispenser::wrap(inner, Some(&decl), Some(&iface));
         let mut kernel = kernel_with_extern_inputs(&[("keys", "vec_i64")]);
         let _ = run_with_wires(wrapped, &mut kernel).unwrap();

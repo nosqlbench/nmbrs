@@ -53,7 +53,7 @@ patchwork of fixups" path with one contract-checked construction.
 
 The promise: the bug shape we just chased — `optimize_for: u64`
 declared in an inner kernel because the type wasn't enforced
-against the parent's `Str` output, then `Str("RECALL")`
+against the parent's `str` output, then `Str("RECALL")`
 mis-cast through an inserted `__u64_to_string` adapter at first
 cycle — becomes structurally impossible. The compiler refuses to
 compile a module whose import contract doesn't match the parent it
@@ -90,7 +90,7 @@ the missing contract surface between parent and child kernels:
    broke `const` folding.** `const prebuffered =
    dataset_prebuffer("{dataset}:{profile}")` couldn't fold at
    compile time because the synthesiser emitted `extern dataset:
-   String` (the manifest-cascade path) instead of `const dataset
+   str` (the manifest-cascade path) instead of `const dataset
    := "example"` (the workload-params path). The const binding's
    evaluation classified as `ScopeInit`, ran with `Value::None`,
    produced `Handle("example:None")`, and downstream nodes
@@ -169,7 +169,7 @@ Three properties of this shape that this SRD eliminates:
   kernel imports from its parent is encoded as `extern` lines in
   the synthesiser's output buffer. There is no value the synthesiser
   produces *separately* that says "this kernel binds against a
-  parent that exports {dataset: String, profile: String, k: u64,
+  parent that exports {dataset: str, profile: str, k: u64,
   …}". You can't type-check that against the parent without
   parsing the strings back out.
 - **The parent contract is the ManifestEntry list.** A
@@ -438,17 +438,17 @@ than rules the synthesisers have to remember.
 ### 4.1 Type mismatch across cascade
 
 ```yaml
-# Parent (for_combinations) exports `optimize_for: String`.
+# Parent (for_combinations) exports `optimize_for: str`.
 # Child (op-template) declares `extern optimize_for: u64`.
 ```
 
 Today: silently accepted at synthesis, surfaces at runtime as
-`expected U64, got Str` when an inserted `__u64_to_string`
-adapter sees the actual `Str` value.
+`expected u64, got str` when an inserted `__u64_to_string`
+adapter sees the actual `str` value.
 
 After 13e: `instance_under` returns
 `ContractViolation::TypeMismatch { import: "optimize_for",
-required: u64, parent_export: Str }` at workload-init time.
+required: u64, parent_export: str }` at workload-init time.
 Fails before any cycle runs.
 
 ### 4.2 Mis-routed cross-kernel write

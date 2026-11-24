@@ -43,7 +43,8 @@ use serde_json::Value;
 /// direct references — the grammar graph carries itself.
 #[derive(Clone, Copy)]
 pub enum Form {
-    /// Boolean (elements document accepted 0/1/"on"/"off" sugar).
+    /// Boolean: a YAML bool, or the string `"true"` / `"false"`
+    /// ([`crate::boolean`]).
     Bool,
     /// Unsigned integer (numeric strings accepted where the
     /// element documents it).
@@ -135,10 +136,6 @@ pub struct ElementSpec {
     pub name: &'static str,
     pub forms: &'static [Form],
     pub required: bool,
-    /// Serde-alias spellings that satisfy this element (a
-    /// REQUIRED element is present when its name OR any alias
-    /// key is).
-    pub aliases: &'static [&'static str],
     pub doc: &'static str,
 }
 
@@ -147,7 +144,6 @@ const fn el(name: &'static str, forms: &'static [Form], doc: &'static str) -> El
         name,
         forms,
         required: false,
-        aliases: &[],
         doc,
     }
 }
@@ -352,7 +348,7 @@ pub static PHASE_ELEMENTS: &[ElementSpec] = &[
     el(
         "checkpoint",
         &[
-            Form::Vocab(&["idempotent", "disabled"]),
+            Form::Vocab(&["idempotent", "none"]),
             Form::Node(&CHECKPOINT),
         ],
         "skip-on-resume eligibility (SRD-44/106)",
@@ -401,7 +397,6 @@ pub static PHASE_ELEMENTS: &[ElementSpec] = &[
 pub static OP_MODEL_ELEMENTS: &[ElementSpec] = &[
     el("name", &[Form::Str], "implicit — set by the op's map key"),
     el("description", &[Form::Str], "op description"),
-    el("desc", &[Form::Str], "legacy alias of description"),
     el(
         "bindings",
         &[Form::GkSource, Form::FreeMap],
@@ -491,7 +486,6 @@ pub static OP_MODEL_ELEMENTS: &[ElementSpec] = &[
 pub static OP_ACTIVITY_ELEMENTS: &[ElementSpec] = &[
     el("ratio", &[Form::U64], "op dispatch ratio within the stanza"),
     el("adapter", &[Form::Str], "adapter override for this op"),
-    el("driver", &[Form::Str], "driver alias override"),
     el(
         "space",
         &[Form::Str, Form::ParamRef],
@@ -515,6 +509,11 @@ pub static OP_ACTIVITY_ELEMENTS: &[ElementSpec] = &[
         "legacy top-level shorthand for evaluations.relevancy",
     ),
     el("strict", &[Form::Bool], "strict verification"),
+    el(
+        "retry_advisory",
+        &[Form::Bool],
+        "per-op retry advisory (default true; false opts out)",
+    ),
     el(
         "poll",
         &[Form::Node(&OP_POLL)],
@@ -566,13 +565,16 @@ pub static OP_ACTIVITY_ELEMENTS: &[ElementSpec] = &[
     ),
 ];
 
+/// The op payload keys. `op:` is the payload itself — a map of op
+/// fields, or a scalar as sugar for `op: {stmt: <scalar>}`. `stmt:`
+/// is the statement field written flat beside the op's other keys.
 pub static OP_STMT_ELEMENTS: &[ElementSpec] = &[
-    el("stmt", &[Form::FreeScalar], "canonical statement payload"),
-    el("op", &[Form::FreeScalar], "statement payload alias"),
-    el("ops", &[Form::FreeScalar], "statement payload alias"),
-    el("operations", &[Form::FreeScalar], "statement payload alias"),
-    el("statement", &[Form::FreeScalar], "statement payload alias"),
-    el("statements", &[Form::FreeScalar], "statement payload alias"),
+    el("stmt", &[Form::FreeScalar], "statement payload field"),
+    el(
+        "op",
+        &[Form::FreeMap, Form::FreeScalar],
+        "op payload (map of op fields; scalar = statement sugar)",
+    ),
 ];
 
 pub static POLL_ELEMENTS: &[ElementSpec] = &[
@@ -580,7 +582,6 @@ pub static POLL_ELEMENTS: &[ElementSpec] = &[
         name: "until",
         forms: &[Form::GkExpr],
         required: true,
-        aliases: &[],
         doc: "predicate over captures; re-evaluated per iteration",
     },
     el(
@@ -675,30 +676,18 @@ pub static STOP_WHEN_ELEMENTS: &[ElementSpec] = &[
         name: "when",
         forms: &[Form::GkExpr, Form::ParamRef],
         required: true,
-        aliases: &["condition"],
         doc: "predicate over runtime-state wires; {param} interpolates",
     },
     el(
-        "condition",
-        &[Form::GkExpr, Form::ParamRef],
-        "serde alias of when",
-    ),
-    el(
         "effect",
         &[Form::Vocab(STOP_EFFECTS)],
-        "disposition on fire (alias: action; default fail)",
-    ),
-    el(
-        "action",
-        &[Form::Vocab(STOP_EFFECTS)],
-        "canonical key for effect",
+        "disposition on fire (default fail)",
     ),
     el(
         "each",
         &[Form::StrList, Form::Str],
         "detection scope selector(s)",
     ),
-    el("per", &[Form::StrList, Form::Str], "serde alias of each"),
     el("trigger", &[Form::Str], "firing trigger"),
     el("pulse", &[Form::FreeMap, Form::Str], "firing axis"),
     el(
@@ -713,7 +702,6 @@ pub static METRIC_ELEMENTS: &[ElementSpec] = &[
         name: "value",
         forms: &[Form::GkExpr],
         required: true,
-        aliases: &[],
         doc: "polydat expression over in-scope wires",
     },
     el(
@@ -767,14 +755,12 @@ pub static RELEVANCY_ELEMENTS: &[ElementSpec] = &[
         name: "actual",
         forms: &[Form::Str],
         required: true,
-        aliases: &[],
         doc: "wire carrying retrieved values (bare wire name)",
     },
     ElementSpec {
         name: "expected",
         forms: &[Form::Str],
         required: true,
-        aliases: &[],
         doc: "wire carrying ground truth (bare wire name)",
     },
     el(
@@ -884,16 +870,13 @@ pub static CONTINUE_IF_ELEMENTS: &[ElementSpec] = &[
         name: "when",
         forms: &[Form::GkExpr],
         required: true,
-        aliases: &["condition"],
         doc: "pre-entry predicate (bare wires via for_iteration scope)",
     },
-    el("condition", &[Form::GkExpr], "serde alias of when"),
     el(
         "each",
         &[Form::StrList, Form::Str],
         "evaluation scope selector(s)",
     ),
-    el("per", &[Form::StrList, Form::Str], "serde alias of each"),
 ];
 
 pub static CHECKPOINT_ELEMENTS: &[ElementSpec] = &[
@@ -912,7 +895,6 @@ pub static OPTIMIZE_ELEMENTS: &[ElementSpec] = &[
         name: "objective",
         forms: &[Form::GkExpr],
         required: true,
-        aliases: &[],
         doc: "objective wire expression (string sugar = whole block)",
     },
     el("servo", &[Form::StrList], "servo axis wires"),
@@ -1225,9 +1207,7 @@ fn form_accepts_scalar(form: &Form, v: &Value) -> bool {
     match form {
         Form::Bool => {
             matches!(v, Value::Bool(_))
-                || matches!(v, Value::Number(n) if n.as_u64().is_some_and(|u| u <= 1))
-                || matches!(v, Value::String(s)
-                if matches!(s.as_str(), "true" | "false" | "on" | "off" | "yes" | "no"))
+                || matches!(v, Value::String(s) if crate::boolean::is_bool_word(s))
         }
         Form::U64 => {
             matches!(v, Value::Number(n) if n.as_u64().is_some())
@@ -1397,9 +1377,7 @@ fn validate_node(
     }
     if mode == Mode::Complete {
         for spec in &elements {
-            let satisfied =
-                map.contains_key(spec.name) || spec.aliases.iter().any(|a| map.contains_key(*a));
-            if spec.required && !satisfied {
+            if spec.required && !map.contains_key(spec.name) {
                 out.push(Violation {
                     path: path.to_string(),
                     message: format!(
@@ -1459,12 +1437,12 @@ pub fn discover_at<'v>(
                         list = false;
                     }
                 }
-                Form::ListOf(n) => {
-                    if next.is_none() || matches!(child_value, Some(v) if v.is_array()) {
-                        next = Some(*n);
-                        list = true;
-                        named_map = false;
-                    }
+                Form::ListOf(n)
+                    if (next.is_none() || matches!(child_value, Some(v) if v.is_array())) =>
+                {
+                    next = Some(*n);
+                    list = true;
+                    named_map = false;
                 }
                 _ => {}
             }
@@ -1559,8 +1537,7 @@ mod tests {
     }
 
     /// Stop-condition and continue-if tables are pinned to their
-    /// serde structs the same way (aliases are extra table
-    /// entries by design).
+    /// serde structs the same way.
     #[test]
     fn serde_backed_tables_match_their_structs() {
         let probed = fields_of::<crate::model::StopConditionSpec>()

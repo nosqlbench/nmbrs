@@ -448,7 +448,7 @@ Per-verb wrappers are both semantically wrong and slow. Rejected.
    live control moves the rest. Independent of sampling, the retry
    loop carries a DEFAULT-ON advisory: the first sighting of each
    error class per phase emits one actionable line (shared
-   per-activity gate, capped at 3 classes; `retry_advisory: off`
+   per-activity gate, capped at 3 classes; `retry_advisory: false`
    opts an op out) — a retry storm identifies itself even with
    every sampler off. User-facing walkthrough of the whole stack:
    `docs/guide/retry_visibility_and_throttle.md`; runnable

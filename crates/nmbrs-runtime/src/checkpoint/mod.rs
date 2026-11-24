@@ -33,7 +33,8 @@ pub use writer::CheckpointWriter;
 
 /// Declare every phase node in a freshly-pre-mapped scene tree
 /// to the writer. Called once at session bootstrap, immediately
-/// after [`crate::executor::pre_map_tree`] returns. Each phase
+/// after the pre-map pass of `crate::executor::execute_tree`
+/// (run with `pre_map_only` set) returns. Each phase
 /// gets a `Pending` entry with no hash; the runtime updates the
 /// hash via [`CheckpointWriter::update_phase_hash`] when the
 /// phase compiles.
@@ -68,7 +69,7 @@ pub fn declare_scene_tree_phases(
 /// planner can classify each freshly-pre-mapped phase against
 /// the saved document.
 ///
-/// Each candidate's `phase_hash` is [`compose_phase_hash`] over
+/// Each candidate's `phase_hash` is `compose_phase_hash` over
 /// two pre-map-computable digests (SRD-106 D2 — this is THE
 /// skip-validity anchor, shared verbatim with the executor's
 /// stamped value so saved and fresh compare directly):
@@ -79,7 +80,7 @@ pub fn declare_scene_tree_phases(
 ///   AND the session-level workload-params module. Catches
 ///   upstream binding edits and any param-value change (params
 ///   live as const slots on the params module).
-/// - the **phase-config digest** ([`phase_config_hash`]) — a
+/// - the **phase-config digest** (`phase_config_hash`) — a
 ///   canonical serialization of the phase's full declared
 ///   configuration: ops (statement templates included),
 ///   bindings, cycles, concurrency, rate, stop conditions —

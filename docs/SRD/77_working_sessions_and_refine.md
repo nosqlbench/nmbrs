@@ -188,7 +188,7 @@ respects them:
 | `--session=<name>` | Basic / opportunistic | re-attach | create + run |
 | *(no flag)* | Implicit (verb-dependent default) | per verb | per verb |
 
-Strict mode (`--strict` / `NMBRS_STRICT=1`): the bare
+Strict mode (`--strict` / `NMBRS_STRICT=true`): the bare
 `--session` is rejected. The operator must pick
 `--new-session` or `--resume-session` explicitly. This
 forecloses the "I thought it would resume but it created

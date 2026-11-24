@@ -169,12 +169,13 @@ pub fn compile_bindings(ops: &[ParsedOp]) -> Result<ScopeKernel, String> {
     compile_bindings_with_path(ops, None)
 }
 
-/// Scan op params for bind point references (recursively through JSON values).
+/// Scan op params for bind point references (recursively through
+/// JSON values). Fails on a malformed bind point.
 fn collect_param_bindings(
     params: &HashMap<String, serde_json::Value>,
     exclude: &[String],
     required: &mut Vec<String>,
-) {
+) -> Result<(), String> {
     for (key, value) in params.iter() {
         // `gutter:` templates resolve at RUNTIME — during-forms on the
         // fiber wires, `final:` at phase end with a status-metric
@@ -185,8 +186,10 @@ fn collect_param_bindings(
         if key == "gutter" {
             continue;
         }
-        collect_json_bindings(value, exclude, required);
+        collect_json_bindings(value, exclude, required)
+            .map_err(|e| format!("param '{key}': {e}"))?;
     }
+    Ok(())
 }
 
 /// Public wrapper for `collect_param_bindings`, used by `scope.rs`.
@@ -194,18 +197,18 @@ pub fn collect_param_bindings_into(
     params: &HashMap<String, serde_json::Value>,
     exclude: &[String],
     required: &mut Vec<String>,
-) {
-    collect_param_bindings(params, exclude, required);
+) -> Result<(), String> {
+    collect_param_bindings(params, exclude, required)
 }
 
 fn collect_json_bindings(
     value: &serde_json::Value,
     exclude: &[String],
     required: &mut Vec<String>,
-) {
+) -> Result<(), String> {
     match value {
         serde_json::Value::String(s) => {
-            for name in bindpoints::referenced_bindings(s) {
+            for name in bindpoints::referenced_bindings(s)? {
                 if !required.contains(&name) && !exclude.contains(&name) {
                     required.push(name);
                 }
@@ -213,16 +216,17 @@ fn collect_json_bindings(
         }
         serde_json::Value::Object(map) => {
             for v in map.values() {
-                collect_json_bindings(v, exclude, required);
+                collect_json_bindings(v, exclude, required)?;
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                collect_json_bindings(v, exclude, required);
+                collect_json_bindings(v, exclude, required)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 pub fn compile_bindings_with_path(
@@ -561,7 +565,7 @@ pub fn compile_bindings_with_opts(
         for op in ops {
             for value in op.op.values() {
                 if let Some(s) = value.as_str() {
-                    for name in bindpoints::referenced_bindings(s) {
+                    for name in bindpoints::referenced_bindings(s)? {
                         if !required.contains(&name) {
                             required.push(name);
                         }
@@ -598,7 +602,7 @@ pub fn compile_bindings_with_opts(
     for op in ops {
         for value in op.op.values() {
             if let Some(s) = value.as_str() {
-                for name in bindpoints::referenced_bindings(s) {
+                for name in bindpoints::referenced_bindings(s)? {
                     if !required.contains(&name) {
                         required.push(name);
                     }

@@ -198,7 +198,7 @@ impl OpDispenser for EchoDispenser {
 
 inventory::submit! {
     AdapterRegistration {
-        names: || &["echo"],
+        name: "echo",
         known_params: || &[],
         display_preference: |_params| DisplayPreference::Auto,
         supported_controls: || &[],

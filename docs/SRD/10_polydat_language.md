@@ -291,7 +291,7 @@ Facet-specific projections like `metadata` / `ground_truth` /
 
 ```
 cursor row = vectordata_base("example", "label_00")
-// auto: row.ordinal (U64), row.vector (Bytes), prebuffer init
+// auto: row.ordinal (u64), row.vector (bytes), prebuffer init
 meta := metadata_value_at(row.ordinal, "example:label_00")
 ```
 

@@ -3,8 +3,8 @@
 Every `nmbrs run` is a *session*. The session owns a directory
 on disk where every artifact from the run lands —
 `metrics.db`, `session.log`, `checkpoint.json`, `summary.md`,
-flame graphs, TUI dumps. Other commands (`nmbrs plot`, `nmbrs
-report`, `nmbrs summary`, `nmbrs tui`) read from a session.
+flame graphs, TUI dumps. Other commands (`nmbrs report`,
+`nmbrs replay`, `nmbrs metrics`) read from a session.
 
 This guide walks through the everyday patterns. The
 authoritative spec is **SRD-45**.
@@ -16,12 +16,12 @@ authoritative spec is **SRD-45**.
 Out of the box, `nmbrs run workload=foo.yaml` writes to
 `logs/<scenario>_<timestamp>/`. The shell-friendly
 `logs/latest` symlink always points at the most recent
-session, so `nmbrs plot` / `nmbrs report` work without
+session, so `nmbrs report plot` / `nmbrs report` work without
 arguments:
 
 ```
 $ nmbrs run workload=foo.yaml
-$ nmbrs plot      # reads logs/latest/metrics.db
+$ nmbrs report plot      # reads logs/latest/metrics.db
 $ nmbrs report    # ditto
 ```
 
@@ -42,8 +42,8 @@ $ nmbrs run workload=foo.yaml --session=tuning1
 # writes to logs/tuning1/
 ```
 
-Then `nmbrs plot --db logs/baseline/metrics.db` (or
-`SESSION_DIRECTORY=logs/baseline nmbrs plot`) targets that
+Then `nmbrs report plot --db logs/baseline/metrics.db` (or
+`NMBRS_SESSION_PATH=logs/baseline nmbrs report plot`) targets that
 specific session even after you've started newer ones.
 
 ---
@@ -54,12 +54,12 @@ For longer runs / shared filesystems, point at an explicit
 directory:
 
 ```
-$ nmbrs run workload=foo.yaml --session-dir=/data/runs/2026-q1-baseline
+$ nmbrs run workload=foo.yaml --session-path=/data/runs/2026-q1-baseline
 ```
 
 The basename (`2026-q1-baseline`) becomes the session id.
 `logs/latest` is updated to point absolute-path at the new
-location, so `nmbrs plot` still finds it.
+location, so `nmbrs report plot` still finds it.
 
 ### Templating with the `SESSION` token
 
@@ -68,7 +68,7 @@ per-run directories, put the literal token `SESSION` in the
 path:
 
 ```
-$ export SESSION_DIRECTORY=/data/runs/SESSION_dir
+$ export NMBRS_SESSION_PATH=/data/runs/SESSION_dir
 $ nmbrs run workload=foo.yaml
 # writes to /data/runs/default_20260101_120000_dir/
 
@@ -77,21 +77,21 @@ $ nmbrs run workload=foo.yaml
 ```
 
 The token is replaced with the auto-generated session name at
-write time. `--session-dir` and `SESSION_DIRECTORY` are
+write time. `--session-path` and `NMBRS_SESSION_PATH` are
 equivalent; the env var is just shorthand so a shell can
 share it with sibling subcommands.
 
 ---
 
-## SESSION_DIRECTORY in a subshell
+## NMBRS_SESSION_PATH in a subshell
 
 Set the env var once, every subcommand in that subshell sees
 the same session directory:
 
 ```
-$ export SESSION_DIRECTORY=/data/runs/today
+$ export NMBRS_SESSION_PATH=/data/runs/today
 $ nmbrs run workload=foo.yaml
-$ nmbrs plot                          # reads /data/runs/today/metrics.db
+$ nmbrs report plot                          # reads /data/runs/today/metrics.db
 $ nmbrs report                        # ditto
 $ nmbrs run workload=foo.yaml --resume   # resumes /data/runs/today
 ```
@@ -138,7 +138,7 @@ runtime tells you on exit:
 ```
 This session has resumable phases that didn't complete.
   To continue from where it stopped:
-    nmbrs run <workload> --session-dir /data/runs/today --resume
+    nmbrs run <workload> --session-path /data/runs/today --resume
   To pin the session name for repeatable resumes:
     nmbrs run <workload> --session today (then add --resume next time)
 ```
@@ -173,10 +173,6 @@ days / weeks). Bare integers are seconds.
 
 Env-var equivalents: `NMBRS_SESSION_KEEP`, `NMBRS_SESSION_SHELFLIFE`.
 
-`--sessions-max` / `--sessions-shelflife` are accepted as aliases
-for the two flags above, which is what earlier versions of this
-page documented.
-
 The active session (`logs/latest` and its target) is never
 purged regardless of policy. Symlinks at the parent level
 are skipped.
@@ -191,10 +187,10 @@ Env-var names are derived from the flag: `--foo-bar` → `NMBRS_FOO_BAR`.
 | --- | --- | --- | --- |
 | `--session <name\|k:v,…>` | `NMBRS_SESSION` | auto | You want a memorable session id, or want to set several session settings at once (`--session=name:x,keep:5`). |
 | `--session-name <name>` | `NMBRS_SESSION_NAME` | auto | Only the id needs overriding. |
-| `--session-path <path>` | `NMBRS_SESSION_PATH` | unset | You want full control over the path; use the `SESSION` token for per-run templating. Alias: `--session-dir`. Legacy env `SESSION_DIRECTORY` is still honoured (with a deprecation warning). |
+| `--session-path <path>` | `NMBRS_SESSION_PATH` | unset | You want full control over the path; use the `SESSION` token for per-run templating. |
 | `--session-reuse <mode>` | `NMBRS_SESSION_REUSE` | `error` | A session dir already exists and you've decided what to do with it (`error` / `restart` / `resume`). |
-| `--session-keep <N>` | `NMBRS_SESSION_KEEP` | `10` | Custom retention count (`0` disables). Alias: `--sessions-max`. |
-| `--session-shelflife <dur>` | `NMBRS_SESSION_SHELFLIFE` | `4w` | Custom retention age (`0` disables). Alias: `--sessions-shelflife`. |
+| `--session-keep <N>` | `NMBRS_SESSION_KEEP` | `10` | Custom retention count (`0` disables). |
+| `--session-shelflife <dur>` | `NMBRS_SESSION_SHELFLIFE` | `4w` | Custom retention age (`0` disables). |
 | `--resume[ <id>]` | `NMBRS_RESUME` | unset | Continue a prior session from where it stopped. |
 | `--resume-latest` | — | unset | Continue from `sessions/latest`. |
 

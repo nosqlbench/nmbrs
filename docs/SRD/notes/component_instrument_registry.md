@@ -379,7 +379,7 @@ store.
 
 Considered the up-front variant
 (`ActivityMetrics::new(labels, &mut component)` registers
-inside `new()`) but `Activity::with_params_and_sigdigs`
+inside `new()`) but `Activity::with_resolution`
 (activity.rs:603-638) builds the activity with `metrics:
 Arc::new(ActivityMetrics::with_sigdigs(...))` *before* the
 component exists (`component: None`); the component arrives
@@ -403,5 +403,5 @@ complications"), this is a complication. So:
 
 There IS a transient window — `ActivityMetrics` exists with
 unregistered instruments — but it lives entirely inside
-`Activity::with_params_and_sigdigs` → `attach_component`,
+`Activity::with_resolution` → `attach_component`,
 both runner-internal. No public API observes the half-state.

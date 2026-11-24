@@ -167,23 +167,23 @@ All per-cycle accessors take a handle on the first wire and an
 index on the second:
 
 ```
-vector_at(handle: Handle, index: u64) -> Str
-vector_at_bytes(handle: Handle, index: u64) -> Bytes
-query_vector_at(handle: Handle, index: u64) -> Str
-query_vector_at_bytes(handle: Handle, index: u64) -> Bytes
-neighbor_indices_at(handle: Handle, index: u64) -> Str
-neighbor_distances_at(handle: Handle, index: u64) -> Str
-filtered_neighbor_indices_at(handle: Handle, index: u64) -> Str
-filtered_neighbor_distances_at(handle: Handle, index: u64) -> Str
-metadata_value_at(handle: Handle, index: u64) -> Str
-predicate_value_at(handle: Handle, index: u64) -> Str
-metadata_results_at(handle: Handle, index: u64) -> Str
-metadata_results_len_at(handle: Handle, index: u64) -> U64
+vector_at(handle: handle, index: u64) -> str
+vector_at_bytes(handle: handle, index: u64) -> bytes
+query_vector_at(handle: handle, index: u64) -> str
+query_vector_at_bytes(handle: handle, index: u64) -> bytes
+neighbor_indices_at(handle: handle, index: u64) -> str
+neighbor_distances_at(handle: handle, index: u64) -> str
+filtered_neighbor_indices_at(handle: handle, index: u64) -> str
+filtered_neighbor_distances_at(handle: handle, index: u64) -> str
+metadata_value_at(handle: handle, index: u64) -> str
+predicate_value_at(handle: handle, index: u64) -> str
+metadata_results_at(handle: handle, index: u64) -> str
+metadata_results_len_at(handle: handle, index: u64) -> u64
 ```
 
 Per-cycle eval downcasts the handle (`Arc::downcast_ref`, no
 allocation), reads at `index`, returns the typed value. The
-`Bytes` variants still allocate a `Vec<u8>` per cycle — that's
+`bytes` variants still allocate a `Vec<u8>` per cycle — that's
 the cost of a fresh per-cycle output buffer, and is the
 remaining alloc on the cycle path until SRD 46 (native vector
 binding) eliminates it.
@@ -191,13 +191,13 @@ binding) eliminates it.
 Metadata-only accessors take just the handle:
 
 ```
-vector_count(handle: Handle) -> U64
-vector_dim(handle: Handle) -> U64
-query_count(handle: Handle) -> U64
-neighbor_count(handle: Handle) -> U64
-metadata_results_count(handle: Handle) -> U64
-dataset_distance_function(handle: Handle) -> Str
-dataset_facets(handle: Handle) -> Str
+vector_count(handle: handle) -> u64
+vector_dim(handle: handle) -> u64
+query_count(handle: handle) -> u64
+neighbor_count(handle: handle) -> u64
+metadata_results_count(handle: handle) -> u64
+dataset_distance_function(handle: handle) -> str
+dataset_facets(handle: handle) -> str
 ```
 
 These are *scope-init* per SRD 11 §"Two Evaluation Lifecycles":
@@ -257,20 +257,20 @@ of their own.
 
 For ergonomics, the binding compiler auto-promotes
 string-typed wires into the appropriate handle when a function
-call wires a `Str`-producing source into a `Handle`-typed input
+call wires a `str`-producing source into a `handle`-typed input
 port. The mechanism is the standard wire-type adapter pattern
 (SRD 11 §"Auto-Adapter Insertion") extended to handle types:
 
 1. Each dataset function carries a `default_resolver` hint in
    its `FuncSig`:
    - `Facet("<name>")` — auto-open `dataset_open(<wire>, "<name>")`
-     when fed a `Str` source.
+     when fed a `str` source.
    - `Group` — auto-open `dataset_group_open(<wire>)` when fed
-     a `Str` source.
+     a `str` source.
    - `None` — no auto-promotion; the workload must pass an
      `const`-bound handle explicitly.
 2. When the binding compiler emits a function call, it inspects
-   each `Handle`-typed input port. If the wire is `Str`-producing
+   each `handle`-typed input port. If the wire is `str`-producing
    and `default_resolver` is set, it splices the resolver in
    between.
 3. The synthesized resolver is an ordinary Polydat node — provenance
@@ -329,13 +329,13 @@ All feature-gated behind `vectordata` in polydat.
 |------|-----------|-------------|
 | `dataset_open(source, facet)` | `str, str → handle` | Resolve catalog/cache, open facet reader, return typed facet handle. Scope-init relative to its inputs. |
 | `dataset_group_open(source)` | `str → handle` | Resolve catalog/cache, return a group handle (TestDataGroup) — used by group-level metadata accessors below. Scope-init relative to its inputs. |
-| `dataset_prebuffer(source)` | `str → handle` | Download all facets to local cache (scope-init). Returns a `Handle` carrying the prebuffered group. Bound to a name via `const prebuffered := dataset_prebuffer(...)`; consumers like `query_count(prebuffered)` and `query_vector_at(prebuffered, q)` take the handle as their first wire (see [SRD 11 §"Const Binding Contract"](11_polydat_evaluation.md)). |
+| `dataset_prebuffer(source)` | `str → handle` | Download all facets to local cache (scope-init). Returns a `handle` carrying the prebuffered group. Bound to a name via `const prebuffered := dataset_prebuffer(...)`; consumers like `query_count(prebuffered)` and `query_vector_at(prebuffered, q)` take the handle as their first wire (see [SRD 11 §"Const Binding Contract"](11_polydat_evaluation.md)). |
 
 ### Vector Access
 
 Vector accessors produce **typed** vector values directly — no
 string formatting, no byte serialization, no per-element parsing
-on the cycle hot path. The output flows on a `VecF32` or `VecI32`
+on the cycle hot path. The output flows on a `vec_f32` or `vec_i32`
 wire and is bound natively by adapters that understand those
 types (e.g. CQL `vector<float, N>` columns, see
 SRD 50 §"Native vector binding").
@@ -483,7 +483,7 @@ per-cycle map/lock/string work.
 
 `Value::VecF32(Arc<[f32]>)` / `Value::VecI32(Arc<[i32]>)` are
 the canonical typed-vector carriers — added alongside the
-existing `Handle` carrier for resolved resources. Cloning a
+existing `handle` carrier for resolved resources. Cloning a
 typed-vector `Value` during input-gather is one `Arc::clone`
 (atomic increment, zero allocations).
 
@@ -502,14 +502,14 @@ impl when the element type matches.
 
 Workloads that bind a typed-vector value to a `text` /
 `varchar` column rely on the `Value::to_display_string()`
-fallback, which renders `VecF32` as a JSON-array string
-(`"[0.123,0.456,...]"`). Same for `VecI32`. This preserves the
+fallback, which renders `vec_f32` as a JSON-array string
+(`"[0.123,0.456,...]"`). Same for `vec_i32`. This preserves the
 diagnostic / stdout / `{name}` substitution paths without a
 separate node family.
 
 ### Per-cycle allocation profile
 
-| Path | Old (Bytes round-trip) | New (typed VecF32) |
+| Path | Old (bytes round-trip) | New (typed vec_f32) |
 |------|-----|-----|
 | Reader call | `Vec<f32>` from `VectorReader::get` | same — one `Vec<f32>` (boxed into `Arc<[f32]>`) |
 | Encoding to wire | `Vec<u8>` allocated, per-element `to_le_bytes` loop | none — `Arc<[f32]>` flows directly |
@@ -567,7 +567,7 @@ owner.
 Most catalogued datasets use `f32` (the IEEE binary32 format
 `vectordata` exposes via `VectorReader<f32>`). If a dataset
 ships a `f64` facet, the resolver opens it via the typed
-generic facet path and the accessor produces `VecF64` —
+generic facet path and the accessor produces `vec_f64` —
 add the variant when the first such dataset lands. Today
-every accessor in the registry returns `VecF32`, `VecI32`, or
+every accessor in the registry returns `vec_f32`, `vec_i32`, or
 a string/u64 metadata scalar.

@@ -328,7 +328,7 @@ pub trait SharedResource: Send + Sync + 'static {
     /// MUST NOT block. SRD-35 §"Validity rules" requires
     /// the body to reflect *current* in-flight load — never
     /// historical/peak/lifetime metrics. The pool's guard in
-    /// [`needs_sibling_spawn`] catches the historical-state
+    /// `needs_sibling_spawn` catches the historical-state
     /// failure mode (driver returns `false` at quiescence)
     /// and emits a `Warn` event so operators can spot the
     /// driver bug.
@@ -547,7 +547,7 @@ fn emit_event(level: LogLevel, name: &str, entry: &Entry, extra: &str) {
 /// The pool is `Send + Sync` and intended to be held in an
 /// `Arc` from the session root (executor's `ExecCtx` or
 /// equivalent). Each phase activation calls
-/// [`ResourcePool::attach`] for the adapter names it needs;
+/// [`attach`] for the adapter names it needs;
 /// the returned [`AttachGuard`] holds a clone of the
 /// per-phase `DriverAdapter` shell and detaches on drop.
 pub struct ResourcePool {
@@ -1510,8 +1510,9 @@ where
 /// Walk the freshly-pre-mapped scenario tree and seed the
 /// pool's `pending_uses` counter for every phase that will
 /// attach a pool-shareable adapter. Called once at session
-/// bootstrap, after [`crate::executor::pre_map_tree`] returns
-/// and before the executor begins running any phase.
+/// bootstrap, after the pre-map pass of
+/// `crate::executor::execute_tree` (run with `pre_map_only` set)
+/// returns and before the executor begins running any phase.
 ///
 /// For each phase node:
 ///   1. Determine the adapter name — `phase.adapter` override
@@ -1618,7 +1619,7 @@ impl polydat::ResourceAccessor for PoolAccessorView {
 /// start where the [`ResourcePool`] is created.
 ///
 /// Every kernel tree resolves through the same bridge ([`pool_resources`]),
-/// and the pool it resolves against is swappable ([`ACTIVE_POOL`]), so a
+/// and the pool it resolves against is swappable (`ACTIVE_POOL`), so a
 /// second session in the same host process re-points the bridge at its own
 /// pool rather than stranding on the first session's (now-closed) one.
 /// Idempotent per session.

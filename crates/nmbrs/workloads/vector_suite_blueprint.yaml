@@ -81,6 +81,15 @@
 #                   target; the operator controls cold state.
 #   churn         — upsert+delete daemons under a live recall probe:
 #                   recall under sustained mutation pressure.
+#   recall_audit  — oracle-versus-filtered recall per label: each
+#                   label's queries searched twice, on the label's
+#                   own partition table (ORACLE) and on the default
+#                   table filtered to the label (FILTERED), each
+#                   scored against its own ground truth. Run
+#                   `vectordata/audit` first: when the dataset is
+#                   consistent, a gap between the two paths is the
+#                   target's filtering, not the data. Own namespace
+#                   (vsuite_audit_); not part of traverse.
 #
 # Data contract: a vectordata dataset with base/query/GT facets
 # (filtered_grid additionally needs per-selectivity GT profiles and
@@ -366,6 +375,33 @@ scenarios:
         - cold_probe
         - warm_probe
 
+  # ── Recall audit (SRD-114 §3.3). The default profile loads with
+  # its metadata (the FILTERED target), then per label profile its
+  # own partition (the ORACLE target); both probes walk the label's
+  # matching queries — the default queries whose predicate is the
+  # label's value — so the two recalls are over the same queries.
+  # Own namespace (vsuite_audit_): the oracle tables load
+  # label-local ids, which must never share a table with the
+  # filtered grid's.
+  recall_audit:
+    - connect
+    - for: "profile in {fknn_profile}, table in vsuite_audit_{dataset_tag}_{profile}"
+      phases:
+        - schema
+        - fknn_rampup_data
+        - await_index
+    - for: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - for: "table in vsuite_audit_{dataset_tag}_{profile}"
+          phases:
+            - schema
+            - load_train
+            - await_index
+            - oracle_probe
+        - for: "table in vsuite_audit_{dataset_tag}_{fknn_profile}"
+          phases:
+            - filtered_audit_probe
+
   # ── Churn. Own namespace with its own idempotent load chain
   # (skip-valid on repeat runs within a session): sustained
   # upsert + delete daemons under a live recall probe — recall
@@ -437,7 +473,7 @@ phases:
       create_vector_index:
         abstract:
           needs:
-            similarity_function: String
+            similarity_function: str
       create_metadata_index:
         abstract: {}
 
@@ -487,7 +523,7 @@ phases:
       insert:
         abstract:
           needs:
-            id: String
+            id: str
             train_vector: vec_f32
 
   # Filtered-grid load: same deterministic keyed rows PLUS the
@@ -526,9 +562,9 @@ phases:
       insert:
         abstract:
           needs:
-            id: String
+            id: str
             train_vector: vec_f32
-            meta: String
+            meta: str
 
   # Build/readiness wait. The poll predicate and its governance
   # bound are logical; the implementation delivers the polled
@@ -634,7 +670,81 @@ phases:
         abstract:
           needs:
             query_vector: vec_f32
-            predicate: String
+            predicate: str
+          results:
+            keys: vec_i64
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+              - ndcg
+
+  # Recall audit, ORACLE path: the label profile's matching queries
+  # (rank `m` among the default queries whose predicate is the
+  # label's value) searched unfiltered on the label's own partition
+  # table, scored against the label's ground truth (label-local
+  # ids). A shared-query label profile holds every query, so its
+  # row for the query is the query's default ordinal instead of its
+  # rank — the same rule `vectordata/audit` checks.
+  oracle_probe:
+    concurrency: 1
+    status_metrics: [recall*, ndcg*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const value := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      const query_ordinals := predicate_ordinals_of("{dataset}:{fknn_profile}", value)
+      const matching := vec_len_i32(query_ordinals)
+      const shared_queries := u64_eq(query_count(prebuffered), query_count("{dataset}:{fknn_profile}"))
+      cursor m = until_elapsed(matching, min_query_ms)
+      rank := m % matching
+      row := select_u64(shared_queries, __i64_to_u64(vec_at_i32(query_ordinals, rank)), rank)
+      query_vector := query_vector_at(prebuffered, row)
+      ground_truth := neighbor_indices_at(prebuffered, row)
+    ops:
+      select_ann:
+        abstract:
+          needs:
+            query_vector: vec_f32
+          results:
+            keys: vec_i64
+        evaluations:
+          relevancy:
+            actual: keys
+            expected: ground_truth
+            k: suite_k
+            r: suite_limit
+            functions:
+              - recall
+              - ndcg
+
+  # Recall audit, FILTERED path: the same queries, in the same
+  # order, searched on the default table filtered to the label's
+  # value, scored against the default profile's filtered ground
+  # truth (global ids). `profile` is still the label, so both
+  # paths' series carry the same label.
+  filtered_audit_probe:
+    concurrency: 1
+    status_metrics: [recall*, ndcg*, latency*, cycles*]
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{fknn_profile}")
+      const value := to_i64(str_to_u64(regex_extract("{profile}", "([0-9]+)$")))
+      const query_ordinals := predicate_ordinals_of("{dataset}:{fknn_profile}", value)
+      const matching := vec_len_i32(query_ordinals)
+      cursor m = until_elapsed(matching, min_query_ms)
+      query := __i64_to_u64(vec_at_i32(query_ordinals, m % matching))
+      query_vector := query_vector_at(prebuffered, query)
+      predicate := predicate_value_at(prebuffered, query)
+      ground_truth := filtered_neighbor_indices_at(prebuffered, query)
+    ops:
+      select_ann_filtered:
+        abstract:
+          needs:
+            query_vector: vec_f32
+            predicate: str
           results:
             keys: vec_i64
         evaluations:
@@ -674,7 +784,7 @@ phases:
       ins:
         abstract:
           needs:
-            id: String
+            id: str
             train_vector: vec_f32
 
   # The rated ingest daemon. Bounded by the corpus extent (it
@@ -698,7 +808,7 @@ phases:
       insert:
         abstract:
           needs:
-            id: String
+            id: str
             train_vector: vec_f32
 
   # One stage gate. HOLDS until the ingest daemon's cycle count
@@ -844,7 +954,7 @@ phases:
       upsert:
         abstract:
           needs:
-            id: String
+            id: str
             train_vector: vec_f32
 
   # Churn — paced delete daemon over a rotating low-id window.
@@ -864,7 +974,7 @@ phases:
       delete:
         abstract:
           needs:
-            id: String
+            id: str
 
   # Churn — the foreground probe: recall-under-churn for
   # `{churn_ms}` of whole passes while both daemons run.
@@ -909,7 +1019,7 @@ report:
 
     plot suite_recall_vs_qps:
       label: "Recall vs QPS across probe phases"
-      legend: br
+      legend: bottom-right
       y1: (cycles_total_rate, recall_mean){phase=~".*probe"} by (phase,conc)
       series: phase,conc
 
@@ -932,8 +1042,11 @@ report:
      sustained throughput across the concurrency sweep. The
      concurrency table carries the per-level qps / latency /
      recall lists — recall is measured PER OP at every operating
-     point, never inferred from the serial pass. The filtered and
-     streaming tables populate when those scenarios run; staged
+     point, never inferred from the serial pass. The filtered,
+     recall-audit, and streaming tables populate when those
+     scenarios run; the recall audit sets each label's ORACLE recall
+     (its own partition, unfiltered) beside its FILTERED recall (the
+     default table, filtered) over the same queries; staged
      streaming recall is retrievable-neighbor recall
      (upper-bounded by the inserted fraction).
 
@@ -961,6 +1074,13 @@ report:
       query: ndcg: avg(ndcg_mean{phase="filtered_probe"}) by (profile)
       query: qps: avg(cycles_total_rate{phase="filtered_probe"}) by (profile)
       query: p99_ms: avg(cycles_servicetime_p99{phase="filtered_probe"}) by (profile) / 1000000
+
+    table recall_audit:
+      group_by: profile
+      query: oracle_recall: avg(recall_mean{phase="oracle_probe"}) by (profile)
+      query: filtered_recall: avg(recall_mean{phase="filtered_audit_probe"}) by (profile)
+      query: oracle_ndcg: avg(ndcg_mean{phase="oracle_probe"}) by (profile)
+      query: filtered_ndcg: avg(ndcg_mean{phase="filtered_audit_probe"}) by (profile)
 
     table streaming_stages:
       group_by: stage_frac

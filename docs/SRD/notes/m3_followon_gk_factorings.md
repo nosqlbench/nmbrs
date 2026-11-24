@@ -40,11 +40,11 @@ input *and* an output. M3.2 leverages this — no explicit
 `bind_outer_scope` to chain.
 
 **Bug surfaced during M3.2 work:** explicit `final x := x` works
-for `extern x: u64` but fails for `extern x: String` with
-`type mismatch: cannot connect String output to u64 input`. The
+for `extern x: u64` but fails for `extern x: str` with
+`type mismatch: cannot connect str output to u64 input`. The
 `final` parser appears to default the new output's type to u64
 before resolving the RHS, then mismatches when the RHS resolves
-to a String passthrough. Reproducible via the M3.2 diagnostic
+to a str passthrough. Reproducible via the M3.2 diagnostic
 test (since removed); easy to re-create with three-line GK
 source. The auto-passthrough makes the explicit pattern
 unnecessary for inheritance, so the bug doesn't block M3, but it

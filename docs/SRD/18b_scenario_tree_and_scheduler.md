@@ -718,12 +718,21 @@ Phases:
   pre-evaluated against the parent kernel (with prior clauses'
   first values substituted as text probes for any
   `{prior_var}` references), and the extern is declared with
-  the result's native type (`u64` / `f64` / `bool` / `String`).
+  the result's native type (`u64` / `f64` / `bool` / `str`).
   For dependent clauses, the probe walks the clause sequence
   recursively — clause N uses clause N-1's pre-evaluated first
   value as the substitute. This eliminates the prior
   always-stringify behavior; numeric iteration values stay
   numeric through the kernel's input slot.
+
+  A clause whose probe fails is a synthesis error carrying the
+  clause and polydat's diagnostic (`for_each `k in kay_values`:
+  comprehension source `kay_values` did not resolve …`). The one
+  exception is a clause that reads an outer for_each's iter-var:
+  the parent declares it but values it only per iteration, so the
+  probe is deferred and the extern is declared `str` (the clause
+  text is interpolated per iteration). An empty source, which runs
+  zero iterations, is also declared `str`.
 
 - **M3.3 — Dependent-tuple dispatcher.**
   `executor::dispatch_dependent_tuples` drives a single
@@ -862,9 +871,9 @@ Two implementations cover every iteration kind:
   iteration bindings via counter increment + condition
   evaluation against a fresh kernel per call.
 
-A single `dispatch_comprehension(ctx, canonical, parent,
-comprehension, terminal, depth, sequential_only)` drives each
-iteration. `TerminalAction::Children` descends into nested
+A single `dispatch_comprehension(ctx, steps, terminal, depth,
+kind, phase_terminal_meta, continue_if)` drives each for_each
+iteration; do-loops iterate in order through `run_do_loop`. `TerminalAction::Children` descends into nested
 scenario nodes; `TerminalAction::Phase(name)` runs the phase
 itself (phase-level for_each). Per-branch kernel instancing
 preserved across all kinds — `PolydatKernel::from_program` per

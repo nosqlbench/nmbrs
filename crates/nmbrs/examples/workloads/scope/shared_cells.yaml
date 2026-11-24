@@ -5,7 +5,7 @@
 # What this exercises:
 #
 #   - `shared X := <literal>` declarations across all four
-#     supported scalar types (u64, f64, String, bool).
+#     supported scalar types (u64, f64, str, bool).
 #   - The compiler's slot+passthrough emission (the `shared` cell
 #     becomes a real input slot, visible to op-template
 #     interpolation and binding-RHS references).

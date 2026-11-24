@@ -269,7 +269,7 @@ pub struct PhaseEntry {
     /// `Phase` entries; `None` for `Scope` rows. Source of truth
     /// for the `[N/total]` prefix shown next to phase names and
     /// the `phase X/Y` counter in the TUI header (see
-    /// [`crate::scene_tree::SceneNode::seq`]).
+    /// [`nmbrs_runtime::scene_tree::SceneNode::seq`]).
     pub seq: Option<usize>,
 }
 
@@ -877,28 +877,28 @@ impl RunState {
 
     pub fn op_completed(&mut self, parent: SceneNodeId, name: &str, duration_secs: f64) {
         let session_now = self.elapsed_secs();
-        if let Some(ops) = self.phase_ops.get_mut(&parent) {
-            if let Some(e) = ops.iter_mut().find(|e| e.name == name) {
-                e.status = PhaseStatus::Completed;
-                // Session-clock delta, not the executor's own measure —
-                // see PhaseEntry::session_started. Executor value is the
-                // fallback for a start that was never observed.
-                let _ = duration_secs;
-                e.duration_secs = Some((session_now - e.session_started).max(0.0));
-                e.session_elapsed = Some(session_now);
-            }
+        if let Some(ops) = self.phase_ops.get_mut(&parent)
+            && let Some(e) = ops.iter_mut().find(|e| e.name == name)
+        {
+            e.status = PhaseStatus::Completed;
+            // Session-clock delta, not the executor's own measure —
+            // see PhaseEntry::session_started. Executor value is the
+            // fallback for a start that was never observed.
+            let _ = duration_secs;
+            e.duration_secs = Some((session_now - e.session_started).max(0.0));
+            e.session_elapsed = Some(session_now);
         }
     }
 
     /// An op-level status leaf failed; freezes its elapsed time and session clock.
     pub fn op_failed(&mut self, parent: SceneNodeId, name: &str, error: &str) {
         let session_now = self.elapsed_secs();
-        if let Some(ops) = self.phase_ops.get_mut(&parent) {
-            if let Some(e) = ops.iter_mut().find(|e| e.name == name) {
-                e.duration_secs = Some((session_now - e.session_started).max(0.0));
-                e.status = PhaseStatus::Failed(error.to_string());
-                e.session_elapsed = Some(session_now);
-            }
+        if let Some(ops) = self.phase_ops.get_mut(&parent)
+            && let Some(e) = ops.iter_mut().find(|e| e.name == name)
+        {
+            e.duration_secs = Some((session_now - e.session_started).max(0.0));
+            e.status = PhaseStatus::Failed(error.to_string());
+            e.session_elapsed = Some(session_now);
         }
     }
 

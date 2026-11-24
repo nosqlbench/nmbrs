@@ -121,7 +121,8 @@ Other helpers:
 
 - `bindpoints::extract_bind_points` finds `{name}` references,
   `{{expr}}` inline bindings and qualified references such as
-  `{capture:foo}`.
+  `{capture:foo}`, and refuses a `{name:<type>}` assertion whose
+  type is not one a workload may write.
 - `tags::TagFilter` parses and applies tag selectors like `block:main`.
 
 ## Op templates (`op_templates:` / `uses:`)

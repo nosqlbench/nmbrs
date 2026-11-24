@@ -18,7 +18,7 @@
 //! - `ibm` — IBM Design 5-color colorblind palette.
 //! - `tol_bright`, `tol_high_contrast`, `tol_light`, `tol_muted`
 //!   — Paul Tol's tested-against-CVD sets
-//!   (https://personal.sron.nl/~pault/).
+//!   (<https://personal.sron.nl/~pault/>).
 //! - `wong` — Okabe-Ito 8-color, popularized by Wong's *Nature
 //!   Methods* (2011) editorial.
 
@@ -135,7 +135,7 @@ pub fn resolve(spec: &str) -> Option<Palette> {
     PALETTES.iter().find(|(n, _)| *n == spec).map(|(_, p)| *p)
 }
 
-/// Returns the palette to use given a [`Style`]'s `palette`
+/// Returns the palette to use given a [`Style`](nmbrs_workload::report::Style)'s `palette`
 /// field — falling back through default and emitting a warning
 /// to stderr when the requested palette doesn't exist.
 pub fn resolve_or_default(spec: Option<&str>) -> Palette {

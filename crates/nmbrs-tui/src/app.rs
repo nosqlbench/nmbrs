@@ -714,11 +714,11 @@ impl App {
     }
 
     /// Set the tree LOD directly. Production code changes LOD
-    /// through left/right arrow keybinds via [`Self::adjust_tree_lod`];
+    /// through left/right arrow keybinds via `Self::adjust_tree_lod`;
     /// tests use this helper to render a specific view without
     /// routing a synthetic key event.
     ///
-    /// Accepted labels match [`TreeLod::label`]: `"off"`,
+    /// Accepted labels match `TreeLod::label`: `"off"`,
     /// `"phase"`, `"min"`, `"focus"`, `"def"`, `"max"`. Unknown
     /// labels leave the current LOD unchanged.
     pub fn set_tree_lod_label(&mut self, label: &str) {
@@ -765,7 +765,7 @@ impl App {
     ///
     /// Terminal cleanup is guaranteed across every exit path —
     /// normal return, propagated `?` error, and panic — via a
-    /// [`TerminalGuard`] (Drop-based) and a panic hook installed
+    /// `TerminalGuard` (Drop-based) and a panic hook installed
     /// for the duration of the run. Either mechanism restores raw
     /// mode, leaves the alternate screen, and disables mouse
     /// capture before control returns to the shell.
@@ -1184,13 +1184,11 @@ impl App {
                     self.retarget_tree_scroll(target_opt, tail);
                 }
             }
-            MouseEventKind::ScrollDown => {
-                if self.focused == Some(FocusedPane::Tree) {
-                    let tail = self.tree_tail_offset(tree);
-                    let current = self.tree_scroll.unwrap_or(tail);
-                    let next = (current as i32 - Self::SCROLL_STEP).max(0) as usize;
-                    self.retarget_tree_scroll(Some(next), tail);
-                }
+            MouseEventKind::ScrollDown if self.focused == Some(FocusedPane::Tree) => {
+                let tail = self.tree_tail_offset(tree);
+                let current = self.tree_scroll.unwrap_or(tail);
+                let next = (current as i32 - Self::SCROLL_STEP).max(0) as usize;
+                self.retarget_tree_scroll(Some(next), tail);
             }
             _ => {}
         }

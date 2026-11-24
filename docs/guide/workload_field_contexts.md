@@ -25,7 +25,7 @@ Every workload field falls on two axes:
   key FROM {table}"`).
 - *Typed value* — the field produces a typed `Value` (number,
   bool, vector, json) read straight off the kernel (e.g.
-  `expected: ground_truth` → typed `VecI32`).
+  `expected: ground_truth` → typed `vec_i32`).
 
 A field's *schema* pins which combination applies. The YAML
 itself doesn't carry a marker — the field name does.
@@ -59,7 +59,7 @@ Inside a *GK-expression* or *wire-reference* field:
 | `result:` (string or map sugar) | Polydat source (`count`/`ok`/calls) or path expression | per-statement | `row_count := count`, `keys: rows[*].key` |
 | `metrics.value:` | Polydat expression | typed numeric | `count + 1` |
 | `if:` | Polydat expression | typed bool | `cycle > 0` |
-| `evaluations.relevancy.expected:` | wire reference | typed (VecI32 / VecF32 / Str) | `ground_truth` |
+| `evaluations.relevancy.expected:` | wire reference | typed (vec_i32 / vec_f32 / str) | `ground_truth` |
 | `evaluations.relevancy.actual:` | result-binding wire (SRD-109) or legacy result-body column | wire name / column name | `keys` (projected), `key` (legacy) |
 | `evaluations.relevancy.k:` / `.r:` | literal int OR wire reference (bare or `"{name}"`) | usize | `100`, `k`, or `"{k}"` |
 | `evaluations.relevancy.functions:` | literal list of strings | `Vec<RelevancyFn>` | `[recall]` |

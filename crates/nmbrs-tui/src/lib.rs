@@ -26,7 +26,7 @@
 //!   implementation that observers register so per-tick
 //!   `MetricSet` snapshots flow into `RunState`'s sparkline /
 //!   percentile histories.
-//! - [`widgets`] — small custom widgets where ratatui's
+//! - `widgets` — small custom widgets where ratatui's
 //!   built-ins fall short.
 //!
 //! Lifecycle: `nmbrs` builds a [`run_state_actor::RunStateHandle`]

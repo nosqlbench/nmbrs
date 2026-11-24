@@ -8,8 +8,9 @@
 //! tuple is structural (yaml_path + coords) plus an optional
 //! phase-program hash for sufficiency.
 //!
-//! This module owns the type definitions; the pre-map walker
-//! ([`crate::executor::pre_map_recursive`]) is what populates
+//! This module owns the type definitions; the pre-map pass of
+//! the unified walker (`crate::executor::execute_tree` run with
+//! `pre_map_only` set) is what populates
 //! `yaml_path` per scene-tree node, and the program-canonical-
 //! emit logic lives in [`crate::checkpoint::storage`] alongside
 //! the JSON serialization.

@@ -2,39 +2,40 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! MetricsQL evaluator. AST → query plan → result, against a
-//! pluggable [`DataSource`].
+//! pluggable [`MetricAccess`] service.
 //!
 //! This is the first cut. The shape will fill out incremen-
 //! tally as evaluator paths land:
 //!
-//!   1. Selector evaluation → `DataSource::fetch`
+//!   1. Selector evaluation → `MetricAccess::select_range`
 //!   2. Range vectors (`[5m]` rollups, offset, `@`)
 //!   3. Aggregations (`sum/avg/min/max/count` by/without)
 //!   4. Binary ops with vector matching
 //!   5. Range queries (stepped multi-instant evaluation)
 //!   6. Rollup-consumer functions (`rate`, `*_over_time`)
-//!   7. [`DataSource`] boundary formalised
+//!   7. [`MetricAccess`] boundary formalised
 //!   8. Set ops + filter-mode comparisons
 //!   9. Vector-matching modifiers (`on`/`ignoring`/
 //!      `group_left`/`group_right`)                         ← *here*
 //!
 //! The boundary review at step (7) was informed by the four
-//! call shapes the previous passes exposed against `fetch`:
+//! call shapes the previous passes exposed against the range
+//! fetch (`select_range`):
 //! instant `(T, T)`, windowed `(T-w, T)`, range-query loop of
 //! either, and rollup-function-over-window. All four route
 //! through a single `(matchers, start, end)` signature, and
 //! none of them has yet surfaced a need for streaming or
-//! batched-prefetch — so the trait stays one method wide.
+//! batched-prefetch — so the evaluator needs only the trait's
+//! one required method.
 //! The notable shape change at this step is admitting
 //! backend failures through a typed [`DataSourceError`]
 //! instead of pretending storage can't fail.
 //!
-//! After (2)–(3) light up, the [`DataSource`] trait gets a
-//! second pass to harden the boundary against real call-site
-//! pressure (range queries, label-set materialization,
-//! streaming vs. materialized aggregate inputs). Until then
-//! the shape here is provisional — see
-//! `project_metricsql_eval_boundary.md`.
+//! The boundary itself now lives in `nmbrs-metrics`: the
+//! [`MetricAccess`] trait is owned by its `queryapi` module and
+//! re-exported here, so any further hardening against real
+//! call-site pressure (label-set materialization, streaming
+//! vs. materialized aggregate inputs) happens there.
 
 use crate::ast::{
     AggrModifier, AggrModifierOp, BinaryOp, BinaryOpExpr, DurationExpr, Expr, FuncExpr,
@@ -106,7 +107,7 @@ pub enum EvalError {
     /// malformed duration text, unsupported `@` expression,
     /// etc.
     BadValue(String),
-    /// Failure raised by the [`DataSource`] backend. Wraps
+    /// Failure raised by the [`MetricAccess`] backend. Wraps
     /// the underlying message verbatim so callers can surface
     /// it.
     DataSource(DataSourceError),
@@ -1600,8 +1601,7 @@ fn reduce_rollup(
         RollupFn::TLastOverTime => xs.last().unwrap().timestamp_ms as f64 / 1000.0,
         RollupFn::TLastChangeOverTime => xs
             .windows(2)
-            .filter(|w| w[1].value != w[0].value)
-            .next_back()
+            .rfind(|w| w[1].value != w[0].value)
             .map(|w| w[1].timestamp_ms as f64 / 1000.0)
             .unwrap_or(xs.first().unwrap().timestamp_ms as f64 / 1000.0),
         RollupFn::StddevOverTime => {

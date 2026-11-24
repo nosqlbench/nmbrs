@@ -8,7 +8,7 @@
 //! query, locate a metrics-access service
 //! ([`nmbrs_metrics::queryapi`]), evaluate it through this crate's
 //! engine, and project the result [`Vector`](nmbrs_metrics::queryapi::Vector)
-//! into a polydat `Value` by result-type affinity ([`project`]).
+//! into a polydat `Value` by result-type affinity ([`project()`]).
 //!
 //! They live here (not in `nmbrs-metrics`) because they need the engine
 //! *and* the queryapi *and* polydat together; `nmbrs-metrics` never

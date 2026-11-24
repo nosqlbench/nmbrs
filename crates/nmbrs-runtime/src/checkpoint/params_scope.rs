@@ -118,9 +118,9 @@ mod tests {
 
     #[test]
     fn direct_extern_consumption() {
-        let phase = kernel("extern p1: String\nout := p1\n");
+        let phase = kernel("extern p1: str\nout := p1\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[],
             &[],
             "",
@@ -134,10 +134,10 @@ mod tests {
         // Root rebinds `alias := run_tag`; the phase reads `alias`.
         // The closure must land on run_tag — the aliasing case that
         // defeats textual scanning.
-        let root = kernel("extern run_tag: String\nalias := run_tag\n");
-        let phase = kernel("extern alias: String\nout := alias\n");
+        let root = kernel("extern run_tag: str\nalias := run_tag\n");
+        let phase = kernel("extern alias: str\nout := alias\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[],
             &[root],
             "",
@@ -152,10 +152,10 @@ mod tests {
         // `b` from p2; a phase consuming only `a` must consume
         // only p1 — whole-program over-approximation would pull
         // p2 and reintroduce whole-module invalidation.
-        let root = kernel("extern p1: String\nextern p2: String\na := p1\nb := p2\n");
-        let phase = kernel("extern a: String\nout := a\n");
+        let root = kernel("extern p1: str\nextern p2: str\na := p1\nb := p2\n");
+        let phase = kernel("extern a: str\nout := a\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[],
             &[root],
             "",
@@ -168,7 +168,7 @@ mod tests {
     fn textual_interpolation_site_is_consumed() {
         let phase = kernel("out := 1\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[],
             &[],
             r#"{"ops":{"q":{"stmt":"SELECT * FROM {keyspace}.t"}}}"#,
@@ -179,11 +179,11 @@ mod tests {
 
     #[test]
     fn op_template_externs_seed_the_walk() {
-        let root = kernel("extern p1: String\nfield := p1\n");
+        let root = kernel("extern p1: str\nfield := p1\n");
         let phase = kernel("out := 1\n");
-        let op_template = kernel("extern field: String\nrow := field\n");
+        let op_template = kernel("extern field: str\nrow := field\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[op_template.program().clone()],
             &[root],
             "",
@@ -198,9 +198,9 @@ mod tests {
         // the phase's `section` extern resolves there and never
         // reaches the params module.
         let comprehension = kernel("section := \"b\"\n");
-        let phase = kernel("extern section: String\nout := section\n");
+        let phase = kernel("extern section: str\nout := section\n");
         let got = consumed_params(
-            &phase.program(),
+            phase.program(),
             &[],
             &[comprehension],
             "",
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn coordinates_are_excluded_and_empty_set_is_empty() {
         let phase = kernel("input cycle: u64\nout := cycle\n");
-        let got = consumed_params(&phase.program(), &[], &[], "", &params(&[("p1", "a")]));
+        let got = consumed_params(phase.program(), &[], &[], "", &params(&[("p1", "a")]));
         assert!(got.is_empty(), "got: {got:?}");
     }
 
@@ -228,8 +228,8 @@ mod tests {
     /// unconsumed_param_flip_still_skips_the_prereq`.
     #[test]
     fn bare_compile_extern_reexport_reads_as_owned() {
-        let phase = kernel("extern p1: String\nout := 1\n");
-        let got = consumed_params(&phase.program(), &[], &[], "", &params(&[("p1", "a")]));
+        let phase = kernel("extern p1: str\nout := 1\n");
+        let got = consumed_params(phase.program(), &[], &[], "", &params(&[("p1", "a")]));
         assert_eq!(
             names(&got),
             vec!["p1"],

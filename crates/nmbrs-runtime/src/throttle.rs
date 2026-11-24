@@ -134,8 +134,13 @@ pub fn decide(
                 // Fast reclimb through the proven-safe zone, then
                 // cautious additive probing toward the old wall.
                 let safe = (bad * 0.75).max(floor);
+                // A reclimb target less than one whole step above the
+                // committed value is no move at all on an integral
+                // control (fiber counts round it straight back), so it
+                // falls through to the additive probe: every clean
+                // window advances the offer by at least one.
                 let fast = (current * 1.5).min(safe);
-                if fast > current {
+                if fast >= current + 1.0 {
                     fast
                 } else {
                     current + (bad * 0.02).max(1.0)
@@ -517,6 +522,18 @@ mod tests {
         // the congestion point resets the streak.
         assert_eq!(memory_clear_step(2, false), (0, false));
         assert_eq!(memory_clear_step(0, false), (0, false));
+    }
+
+    /// A reclimb capped less than one step above the committed value
+    /// (safe zone 8.2 over a committed 8) is no move on an integral
+    /// control; the additive probe takes over so the offer never
+    /// wedges (observed live: `8 → 8.2` every window, forever).
+    #[test]
+    fn reclimb_never_wedges_below_one_step() {
+        assert_eq!(
+            decide(0.0, 8.0, 0.05, 0.01, 1.0, 100.0, Some(10.93)),
+            Decision::Up(9.0)
+        );
     }
 
     /// The dead band between `low` and `high` holds — no hunting

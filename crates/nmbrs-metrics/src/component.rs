@@ -63,7 +63,7 @@ pub enum InstrumentRef {
 
 impl InstrumentRef {
     /// Labels recorded on the underlying instrument. The `name=...`
-    /// pair (used by [`split_name_label`]) is preserved here so
+    /// pair (used by [`crate::snapshot::split_name_label`]) is preserved here so
     /// existing snapshots keep their shape.
     pub fn labels(&self) -> &Labels {
         match self {
@@ -314,7 +314,7 @@ impl Component {
     ///
     /// If you find yourself reaching for this on a per-cycle code
     /// path, that's a design bug in the caller — pre-bind the
-    /// `Arc<...>` you got from [`register_instrument`] instead.
+    /// `Arc<...>` you got from [`Self::register_instrument`] instead.
     pub fn find_instrument(&self, family: &str) -> Option<&InstrumentRef> {
         self.instruments
             .iter()
@@ -359,7 +359,7 @@ impl Component {
         out
     }
 
-    /// Phase-end variant of [`capture_delta`] that stamps the
+    /// Phase-end variant of [`Self::capture_delta`] that stamps the
     /// snapshot with **real elapsed wall time** since the
     /// previous capture, rather than a caller-supplied
     /// nominal interval.
@@ -535,8 +535,8 @@ impl Component {
     /// Resolve a typed control by name, walking up the parent
     /// chain. This component's registry is checked first; then
     /// each ancestor in order. An ancestor declaration is only
-    /// honored if its [`BranchScope`] is `Subtree` —
-    /// [`BranchScope::Local`] declarations do not propagate to
+    /// honored if its [`BranchScope`](crate::controls::BranchScope) is `Subtree` —
+    /// [`BranchScope::Local`](crate::controls::BranchScope::Local) declarations do not propagate to
     /// descendants. Returns `None` if no in-scope declaration
     /// matches the `<name, T>` pair.
     ///

@@ -5,7 +5,7 @@
 //!
 //! Owns the op shell's terminal-error handling, promoted out of the fiber
 //! loop's inline block: it routes the ONE terminal outcome of the stack
-//! below it through the op's resolved [`ErrorPolicy`], tallies the
+//! below it through the op's resolved `ErrorPolicy`, tallies the
 //! result-level error counters, captures the error into the phase's
 //! structured buffer, and applies the `stop`/`fail` effects. Every op
 //! dispenser carries its own policy — the op-level `errors:` override or
@@ -76,7 +76,7 @@ inventory::submit! {
 }
 
 /// Wraps the whole op stack with terminal-error routing driven by the
-/// op's resolved [`ErrorPolicy`]. Constructed OUTERMOST — hand-placed
+/// op's resolved `ErrorPolicy`. Constructed OUTERMOST — hand-placed
 /// after the plan cascade, mirroring how the retry wrapper is
 /// hand-placed innermost — so it observes exactly one terminal outcome
 /// per cycle.
@@ -155,24 +155,24 @@ impl ErrorHandlerDispenser {
         // Capture the terminal error into the phase's structured error
         // buffer so the `error_readout` (default phase-end body alongside
         // `phase_outcome`) can render them as one block.
-        if let Ok(mut errs) = self.phase_errors.lock() {
-            if errs.len() < PHASE_ERROR_CAPTURE_CAP {
-                let op_template = self.inner.describe();
-                let op_resolved = self.inner.describe_resolved(wires);
-                errs.push(PhaseErrorDetail {
-                    class: inner_err.error_name.clone(),
-                    message: inner_err.message.clone(),
-                    op_name: Some(self.op_name.clone()),
-                    cycle: Some(cycle),
-                    op_template,
-                    op_resolved,
-                    at_nanos: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos() as u64)
-                        .unwrap_or(0),
-                    retryable: detail.is_retryable(),
-                });
-            }
+        if let Ok(mut errs) = self.phase_errors.lock()
+            && errs.len() < PHASE_ERROR_CAPTURE_CAP
+        {
+            let op_template = self.inner.describe();
+            let op_resolved = self.inner.describe_resolved(wires);
+            errs.push(PhaseErrorDetail {
+                class: inner_err.error_name.clone(),
+                message: inner_err.message.clone(),
+                op_name: Some(self.op_name.clone()),
+                cycle: Some(cycle),
+                op_template,
+                op_resolved,
+                at_nanos: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0),
+                retryable: detail.is_retryable(),
+            });
         }
 
         if detail.should_stop {

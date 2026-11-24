@@ -50,6 +50,6 @@ pub use cascade_emit::emit_workload_param_chain_aware;
 pub use for_each::build_for_each_scope_kernel;
 pub use helpers::{
     collect_leaf_placeholders, format_value_as_final_literal, format_value_as_polydat_literal,
-    format_workload_param_as_polydat_literal, port_type_to_extern_name, scan_one,
-    value_to_param_string, workload_param_type_name,
+    format_workload_param_as_polydat_literal, scan_one, value_to_param_string,
+    workload_param_port_type,
 };

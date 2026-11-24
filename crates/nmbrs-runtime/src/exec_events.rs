@@ -132,7 +132,7 @@ pub fn render_advisory(
          occurrences are absorbed by the tries budget ({tries_budget}) \
          and appear only as att:%/r: chips and attempt_* metrics; \
          sample live specimens via the retry_exemplar_rate control, \
-         or silence this line with retry_advisory: off"
+         or silence this line with retry_advisory: false"
     )
 }
 
@@ -454,7 +454,7 @@ mod tests {
         assert!(line.contains("cycle 42"), "{line}");
         assert!(line.contains("(21)"), "{line}");
         assert!(line.contains("retry_exemplar_rate"), "{line}");
-        assert!(line.contains("retry_advisory: off"), "{line}");
+        assert!(line.contains("retry_advisory: false"), "{line}");
     }
 
     /// The rendered line carries every field an operator needs to

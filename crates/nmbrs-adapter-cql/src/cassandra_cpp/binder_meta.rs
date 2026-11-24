@@ -142,7 +142,7 @@ pub fn cass_to_polydat(t: cass::ValueType, class_name: Option<&str>) -> Mapping 
         // CUSTOM: try to introspect the class name. Cassandra
         // vectors come back as CUSTOM with a Java FQN like
         // `org.apache.cassandra.db.marshal.VectorType(...)`.
-        cass::ValueType::CUSTOM => match class_name.and_then(parse_vector_class_name) {
+        cass::ValueType::CUSTOM => match class_name.and_then(parse_vector_element) {
             Some(VectorElement::Float) => (PortType::VecF32, FusionPolicy::Strict),
             Some(VectorElement::Int) => (PortType::VecI32, FusionPolicy::Strict),
             Some(VectorElement::Double) => (PortType::VecF64, FusionPolicy::Strict),
@@ -209,14 +209,7 @@ pub enum VectorElement {
 /// - `org.apache.cassandra.db.marshal.VectorType(org.apache.cassandra.db.marshal.IntType, 4)`
 ///   → `VectorElement::Int`
 /// - Same shape with any other element type → `VectorElement::Other("XxxType")`
-/// Sibling-module public alias for [`parse_vector_class_name`].
-/// Exposed under a stable name so `make_binder` can dispatch per
-/// element type without depending on internal naming.
 pub fn parse_vector_element(cn: &str) -> Option<VectorElement> {
-    parse_vector_class_name(cn)
-}
-
-fn parse_vector_class_name(cn: &str) -> Option<VectorElement> {
     let open = cn.find(".VectorType(")?;
     let after_open = &cn[open + ".VectorType(".len()..];
     let close = after_open.rfind(')')?;
@@ -245,7 +238,7 @@ mod tests {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.FloatType, 128)";
         assert!(matches!(
-            parse_vector_class_name(cn),
+            parse_vector_element(cn),
             Some(VectorElement::Float)
         ));
     }
@@ -254,10 +247,7 @@ mod tests {
     fn parses_vector_int_class_name() {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.IntType, 4)";
-        assert!(matches!(
-            parse_vector_class_name(cn),
-            Some(VectorElement::Int)
-        ));
+        assert!(matches!(parse_vector_element(cn), Some(VectorElement::Int)));
     }
 
     #[test]
@@ -265,7 +255,7 @@ mod tests {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.LongType, 16)";
         assert!(matches!(
-            parse_vector_class_name(cn),
+            parse_vector_element(cn),
             Some(VectorElement::Long)
         ));
     }
@@ -275,7 +265,7 @@ mod tests {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.DoubleType, 64)";
         assert!(matches!(
-            parse_vector_class_name(cn),
+            parse_vector_element(cn),
             Some(VectorElement::Double)
         ));
     }
@@ -285,7 +275,7 @@ mod tests {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.ShortType, 32)";
         assert!(matches!(
-            parse_vector_class_name(cn),
+            parse_vector_element(cn),
             Some(VectorElement::Short)
         ));
     }
@@ -298,7 +288,7 @@ mod tests {
                  org.apache.cassandra.db.marshal.{name}, 128)"
             );
             assert!(
-                matches!(parse_vector_class_name(&cn), Some(VectorElement::Half)),
+                matches!(parse_vector_element(&cn), Some(VectorElement::Half)),
                 "{name} should parse as Half"
             );
         }
@@ -308,7 +298,7 @@ mod tests {
     fn unknown_vector_element_falls_to_other() {
         let cn = "org.apache.cassandra.db.marshal.VectorType(\
                   org.apache.cassandra.db.marshal.DecimalType, 16)";
-        match parse_vector_class_name(cn) {
+        match parse_vector_element(cn) {
             Some(VectorElement::Other(e)) => assert_eq!(e, "DecimalType"),
             other => panic!("expected Other(DecimalType), got {other:?}"),
         }
@@ -316,8 +306,8 @@ mod tests {
 
     #[test]
     fn non_vector_custom_class_name_returns_none() {
-        assert!(parse_vector_class_name("com.example.OpaqueType").is_none());
-        assert!(parse_vector_class_name("").is_none());
+        assert!(parse_vector_element("com.example.OpaqueType").is_none());
+        assert!(parse_vector_element("").is_none());
     }
 
     /// End-to-end mapping for the observed cluster shape:

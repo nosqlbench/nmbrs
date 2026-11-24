@@ -26,7 +26,7 @@ bindings: |
   simulated_capture := number_to_words(mod(hash(cycle), 100))
 
   // default_or: if the capture hasn't been set, use "anonymous".
-  // With a real capture input (extern username: String), this
+  // With a real capture input (extern username: str), this
   // would return "anonymous" until the first SELECT populates it.
   greeting := default_or(simulated_capture, "anonymous")
 

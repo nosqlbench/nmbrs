@@ -35,7 +35,7 @@ pub enum PhaseRecord {
     },
 }
 
-/// What one execution produced, returned by [`run_executions_concurrent`].
+/// What one execution produced, returned by [`run_workload_headless`].
 #[derive(Clone, Debug)]
 pub struct ExecutionOutcome {
     /// The execution's process-unique id (SRD-77 / §A2).

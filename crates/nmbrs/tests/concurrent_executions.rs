@@ -5,7 +5,7 @@
 //! sharing ONE session**, each with a distinct `exec_id`, and that
 //! their metrics land **separably** in the one shared `metrics.db`.
 //! This is the payoff of the run-path factoring (`SessionHost::setup`
-//! + `run_execution`) + the per-execution `quiesce` flush-to-store:
+//! plus `run_execution`) and the per-execution `quiesce` flush-to-store:
 //! the session (dir / stores / cadence + scheduler) is set up once and
 //! torn down once, while each execution derives its own `Execution`
 //! tier under the shared session component.

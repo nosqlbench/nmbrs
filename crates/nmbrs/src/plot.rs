@@ -108,7 +108,6 @@ fn visualize_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--mode",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "auto | plot | parametric | xy | polar.",
@@ -117,7 +116,6 @@ fn visualize_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--width",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Plot width in characters.",
@@ -126,7 +124,6 @@ fn visualize_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--height",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Plot height in characters.",
@@ -135,7 +132,6 @@ fn visualize_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--no-color",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Disable ANSI color output.",

@@ -193,8 +193,7 @@ fn extract_captures_rooted(
     captures
 }
 
-/// Reduce an addressed JSON sub-tree to a u64 count, mirroring
-/// the polling wrapper's `count_from_json_pointer` semantics:
+/// Reduce an addressed JSON sub-tree to a u64 count:
 /// array → length, object → key count, scalar → 1 (non-empty)
 /// or 0 (false / empty string / zero number), null / missing →
 /// 0. Use cases: `capture: { active_count: "/value:count" }`
@@ -459,7 +458,7 @@ impl OpDispenser for TraversingDispenser {
             // "wait for it to reach zero" poll can never succeed.
             if !self.captures.is_empty() && result.body.is_none() {
                 for (name, value) in captures_for_empty_result(&self.captures) {
-                    publish_capture(&ctx, &name, value);
+                    publish_capture(ctx, &name, value);
                 }
             }
             if !self.captures.is_empty()
@@ -506,7 +505,7 @@ impl OpDispenser for TraversingDispenser {
                     }
                 }
                 for (name, value) in extracted {
-                    publish_capture(&ctx, &name, value);
+                    publish_capture(ctx, &name, value);
                 }
             }
 

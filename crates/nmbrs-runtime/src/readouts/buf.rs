@@ -7,7 +7,7 @@
 //! terminal-mode log path uses (ANSI escape sequences land
 //! inline as text). Later pushes will add a `Vec<Span>`-backed
 //! buffer for the TUI surface; the [`ReadoutBuf`] trait is
-//! the single write surface a [`Readout`](crate::Readout)
+//! the single write surface a [`Readout`](super::Readout)
 //! impl sees regardless of which backing store is in use.
 
 use std::fmt::{self, Write as _};

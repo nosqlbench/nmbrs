@@ -199,35 +199,6 @@ impl WrapperRegistration {
     }
 }
 
-#[cfg(test)]
-mod level_tests {
-    use super::*;
-
-    fn no_trigger(_: WrapperSubject) -> bool {
-        false
-    }
-    fn no_describe(_: WrapperSubject) -> Option<String> {
-        None
-    }
-
-    #[test]
-    fn applies_at_reads_declared_levels() {
-        let reg = WrapperRegistration {
-            name: WrapperName::new("t"),
-            owned_fields: &[],
-            triggers: no_trigger,
-            requires_inner: &[],
-            forbids_outer: &[],
-            mutually_exclusive_with: &[],
-            describe_assignment: no_describe,
-            levels: &[WrapperLevel::Op, WrapperLevel::Phase],
-        };
-        assert!(reg.applies_at(WrapperLevel::Op));
-        assert!(reg.applies_at(WrapperLevel::Phase));
-        assert!(!reg.applies_at(WrapperLevel::Session));
-    }
-}
-
 /// Live view over every registered wrapper. Built once at
 /// startup from the `inventory` collection.
 ///
@@ -278,7 +249,7 @@ impl WrapperRegistry {
 
     /// Look up by name. Returns `None` for unknown names; the
     /// caller surfaces that as a typo diagnostic with a
-    /// closest-match suggestion (see [`closest_match`]).
+    /// closest-match suggestion (see [`Self::closest_match`]).
     pub fn get(&self, name: WrapperName) -> Option<&'static WrapperRegistration> {
         self.entries.iter().copied().find(|r| r.name == name)
     }
@@ -305,7 +276,7 @@ impl WrapperRegistry {
     /// Levenshtein distance. Used for "did you mean … ?"
     /// diagnostics on unknown names.
     pub fn closest_match(&self, query: &str) -> Option<&'static str> {
-        closest_match(query, self.entries.iter().map(|r| r.name.as_str()))
+        crate::suggest::closest_match(query, self.entries.iter().map(|r| r.name.as_str()))
     }
 
     /// SRD-32a Push 2 — find every owned field that's present
@@ -340,65 +311,31 @@ impl WrapperRegistry {
     }
 }
 
-/// Find the closest match in a list of candidate names, using
-/// Levenshtein edit distance. Returns `None` when no candidate
-/// is within distance 3, since beyond that the suggestion is
-/// noise.
-pub fn closest_match<'a>(
-    query: &str,
-    candidates: impl IntoIterator<Item = &'a str>,
-) -> Option<&'a str> {
-    let mut best: Option<(&str, usize)> = None;
-    for c in candidates {
-        let d = levenshtein(query, c);
-        match best {
-            Some((_, prev)) if d >= prev => {}
-            _ => best = Some((c, d)),
-        }
-    }
-    best.filter(|&(_, d)| d <= 3).map(|(s, _)| s)
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let (n, m) = (a.len(), b.len());
-    if n == 0 {
-        return m;
-    }
-    if m == 0 {
-        return n;
-    }
-    let mut prev: Vec<usize> = (0..=m).collect();
-    let mut curr: Vec<usize> = vec![0; m + 1];
-    for i in 1..=n {
-        curr[0] = i;
-        for j in 1..=m {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[m]
-}
-
 #[cfg(test)]
-mod tests {
+mod level_tests {
     use super::*;
 
-    #[test]
-    fn levenshtein_basic() {
-        assert_eq!(levenshtein("", "abc"), 3);
-        assert_eq!(levenshtein("abc", ""), 3);
-        assert_eq!(levenshtein("kitten", "sitting"), 3);
-        assert_eq!(levenshtein("validate", "validatte"), 1);
+    fn no_trigger(_: WrapperSubject) -> bool {
+        false
+    }
+    fn no_describe(_: WrapperSubject) -> Option<String> {
+        None
     }
 
     #[test]
-    fn closest_match_finds_typo() {
-        let names = ["validate", "poll", "delay"];
-        assert_eq!(closest_match("validatte", names), Some("validate"));
-        assert_eq!(closest_match("plll", names), Some("poll"));
-        assert_eq!(closest_match("wildly_different", names), None);
+    fn applies_at_reads_declared_levels() {
+        let reg = WrapperRegistration {
+            name: WrapperName::new("t"),
+            owned_fields: &[],
+            triggers: no_trigger,
+            requires_inner: &[],
+            forbids_outer: &[],
+            mutually_exclusive_with: &[],
+            describe_assignment: no_describe,
+            levels: &[WrapperLevel::Op, WrapperLevel::Phase],
+        };
+        assert!(reg.applies_at(WrapperLevel::Op));
+        assert!(reg.applies_at(WrapperLevel::Phase));
+        assert!(!reg.applies_at(WrapperLevel::Session));
     }
 }

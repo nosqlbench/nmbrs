@@ -131,7 +131,7 @@ phases:
         stmt: "x"
         tries: 3
         retry_backoff: "20ms"
-        retry_advisory: "off"
+        retry_advisory: false
         result-load: 9
         result-overload: 4
 "#;
@@ -217,7 +217,7 @@ fn retry_exemplars_sample_squelch_and_default_off() {
     }
     assert!(
         !advisories.iter().any(|l| l.contains("muted_op")),
-        "retry_advisory: off must silence the advisory:\n{advisories:#?}"
+        "retry_advisory: false must silence the advisory:\n{advisories:#?}"
     );
 
     // Dynamic controls, push-on-set: the op pinned nothing, and the

@@ -17,5 +17,5 @@ nmbrs-workload = { workspace = true }
 tokio = { version = "1", features = ["time", "sync"] }
 serde_json = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-polydat = "0.6.2"
+polydat = "0.10.0"
 inventory = "0.3.24"

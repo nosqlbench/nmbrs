@@ -20,6 +20,20 @@ use crate::adapter::{DriverAdapter, OpDispenser};
 use crate::opseq::{OpSequence, SequencerType};
 use crate::validation;
 
+/// The settings an activity's execution resolves for it, passed to
+/// [`Activity::with_resolution`].
+pub struct ActivityResolution<'a> {
+    /// HDR significant digits every histogram the activity owns is
+    /// built at (`hdr.sigdigs`, SRD 40).
+    pub sigdigs: u8,
+    /// The error policy, shared with the parent scope.
+    pub error_policy: Arc<crate::error_policy::ErrorPolicy>,
+    /// The phase node's kernel; `None` off the executor's phase path.
+    pub phase_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
+    /// Counter-vs-timer detail for the op-outcome instruments (SRD-91).
+    pub metric_detail: &'a MetricDetailConfig,
+}
+
 /// Configuration for an activity.
 pub struct ActivityConfig {
     pub name: String,
@@ -35,9 +49,9 @@ pub struct ActivityConfig {
     pub error_spec: String,
     /// Error-rate circuit breaker: fail the phase early when the
     /// fraction of errored ops exceeds this threshold (e.g. `0.1`
-    /// = 10%). Evaluated only after at least
-    /// [`ERROR_RATE_MIN_OPS`] ops so a small phase can't trip on a
-    /// single error. `None` disables it; a value `>= 1.0` also
+    /// = 10%). Evaluated only after at least 50 ops (the floor in
+    /// `StopConditionDecl::error_rate_guard`) so a small phase can't
+    /// trip on a single error. `None` disables it; a value `>= 1.0` also
     /// effectively disables it (the rate never exceeds 1.0).
     /// Resolved per phase as the workload's `error_rate_max:` field
     /// over the session-wide default. Installed as the default SRD-83
@@ -245,7 +259,7 @@ pub struct ActivityMetrics {
     /// error dispatch (per-attempt, so retries DO count here), keyed
     /// by the handler-classified name for the per-type breakdown. The
     /// per-op error rate uses `result_failure` instead, keeping it in
-    /// [0,1]. SRD-91.
+    /// `[0,1]`. SRD-91.
     pub errors_total: Arc<Counter>,
     pub stanzas_total: Arc<Counter>,
     /// Daemon ops that exited cleanly via stop-signal cancellation
@@ -405,7 +419,8 @@ impl ActivityMetrics {
     }
 
     /// Register every static instrument on `component` and install
-    /// a [`DynamicCapture`] hook for the dynamic surface (per-error-type
+    /// a [`DynamicCapture`](nmbrs_metrics::component::DynamicCapture)
+    /// hook for the dynamic surface (per-error-type
     /// counters and adapter-specific metrics from registered dispensers).
     ///
     /// Called once from [`Activity::attach_component`]. After this
@@ -548,8 +563,9 @@ impl ActivityMetrics {
 
     /// Increment counter for a specific error type. Creates the
     /// counter on first occurrence of each error name. The new
-    /// counter is read by the [`DynamicCapture`] hook on every
-    /// capture tick — registration on `Component` is implicit
+    /// counter is read by the
+    /// [`DynamicCapture`](nmbrs_metrics::component::DynamicCapture)
+    /// hook on every capture tick — registration on `Component` is implicit
     /// through the hook, not a per-name `register_instrument` call.
     /// Top-N error types by count, rendered `name=count` comma-joined —
     /// empty string when no typed errors were recorded. Gives failure
@@ -565,7 +581,7 @@ impl ActivityMetrics {
             .map(|(k, c)| (k.clone(), c.get()))
             .filter(|(_, c)| *c > 0)
             .collect();
-        v.sort_by(|a, b| b.1.cmp(&a.1));
+        v.sort_by_key(|e| std::cmp::Reverse(e.1));
         v.truncate(n);
         v.iter()
             .map(|(k, c)| format!("{k}={c}"))
@@ -590,7 +606,9 @@ impl ActivityMetrics {
     /// timer histograms drained as deltas).
     ///
     /// Used by the legacy per-activity capture thread. For the component
-    /// tree scheduler, use [`capture_delta`] instead.
+    /// tree scheduler, use
+    /// [`capture_delta`](nmbrs_metrics::component::Component::capture_delta)
+    /// instead.
     pub fn capture(&self, interval: std::time::Duration) -> MetricSet {
         use nmbrs_metrics::snapshot::split_name_label;
         let service_snap = self.service_time.snapshot();
@@ -916,7 +934,7 @@ pub struct Activity {
     /// native scope as it sits, not a conjured root. `None` when the
     /// phase has no installed kernel (then no conditions evaluate).
     pub phase_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
-    /// SRD-82 — the phase shell's [`crate::error_policy::ErrorPolicy`]
+    /// SRD-82 — the phase shell's `crate::error_policy::ErrorPolicy`
     /// (op router + aggregate guard), resolved at scope-init from the
     /// parent policy so equal configs share one instance. Built
     /// standalone only on the test/library path ([`Self::with_params`]).
@@ -978,7 +996,7 @@ pub struct Activity {
     /// Set by the runner via [`Self::attach_component`] before
     /// execution; when present, the executor declares the
     /// `concurrency` control on it (SRD 23) and wires the
-    /// [`crate::fiber_pool::ConcurrencyApplier`] so runtime writes
+    /// `crate::fiber_pool::ConcurrencyApplier` so runtime writes
     /// resize the fiber pool.
     pub component: Option<Arc<std::sync::RwLock<nmbrs_metrics::component::Component>>>,
     /// SRD-32a Push 3 — workload-root wrapper-composition
@@ -1009,7 +1027,7 @@ pub struct Activity {
     /// Shared per-phase retry advisory gate (`exec_events`): one
     /// first-sighting advisory per error class per phase, capped —
     /// the default-on signal that the retry loop started absorbing
-    /// errors. Ops opt out with `retry_advisory: off`.
+    /// errors. Ops opt out with `retry_advisory: false`.
     pub advisory_gate: Arc<crate::exec_events::AdvisoryGate>,
     /// Phase memo — a short operator-visible string that the
     /// `memo` wrapper publishes via `before:` / `after:`
@@ -1030,11 +1048,11 @@ pub struct Activity {
     /// The op-declared DURING-execution gutter template (kind +
     /// template), retained for the guaranteed one-final-update at
     /// phase end when no `final:` form is declared.
-    pub gutter_spec: std::sync::Mutex<Option<(crate::wrappers::gutter::GutterKind, String)>>,
+    pub gutter_template: std::sync::Mutex<Option<crate::wrappers::gutter::GutterTemplate>>,
     /// The op-declared `final:` gutter template — evaluated once at
     /// phase end (wires first, status-metric aggregates as fallback)
     /// and rendered as the ✓ outcome detail line's gutter cell.
-    pub gutter_final_spec: std::sync::Mutex<Option<(crate::wrappers::gutter::GutterKind, String)>>,
+    pub gutter_final_template: std::sync::Mutex<Option<crate::wrappers::gutter::GutterTemplate>>,
     /// SRD-75 phase-poll context. When present, the fiber
     /// loop checks the predicate after each source-exhaustion
     /// event; if false and the timeout hasn't elapsed, the
@@ -1175,44 +1193,49 @@ impl Activity {
         // Library / test path: no session root policy, so build a
         // standalone (un-shared) policy from the config. The real
         // execution path resolves the shared instance from the parent
-        // policy and passes it to `with_params_and_sigdigs`.
+        // policy and passes it to `with_resolution`.
         let error_policy =
             crate::error_policy::ErrorPolicy::standalone(crate::error_policy::PolicyConfig::new(
                 config.error_spec.clone(),
                 config.error_rate_max,
             ));
         let metric_detail = metric_detail_from_params(&params);
-        Self::with_params_and_sigdigs(
+        Self::with_resolution(
             config,
             parent_labels,
             op_sequence,
             params,
-            nmbrs_metrics::instruments::histogram::DEFAULT_HDR_SIGDIGS,
-            error_policy,
-            // This shim is the no-phase-kernel path (tests / library use);
-            // the executor's run_phase path passes the phase node's kernel.
-            None,
-            &metric_detail,
+            ActivityResolution {
+                sigdigs: nmbrs_metrics::instruments::histogram::DEFAULT_HDR_SIGDIGS,
+                error_policy,
+                // This shim is the no-phase-kernel path (tests / library use);
+                // the executor's run_phase path passes the phase node's kernel.
+                phase_kernel: None,
+                metric_detail: &metric_detail,
+            },
         )
     }
 
-    /// Build an activity with explicit HDR significant-digits
-    /// precision. Used by the runner after it resolves
-    /// `hdr.sigdigs` from the session root (SRD 40); every
-    /// histogram the activity owns is constructed at this
-    /// precision. Callers that don't resolve from a tree can
-    /// use [`Self::with_params`] which defaults to
-    /// [`nmbrs_metrics::instruments::histogram::DEFAULT_HDR_SIGDIGS`].
-    pub fn with_params_and_sigdigs(
+    /// Build an activity from the settings its execution resolved
+    /// (see [`ActivityResolution`]). Used by the executor after it
+    /// resolves `hdr.sigdigs` from the session root (SRD 40) and the
+    /// phase's shared error policy and kernel. Callers that don't
+    /// resolve from a tree use [`Self::with_params`], which defaults to
+    /// [`nmbrs_metrics::instruments::histogram::DEFAULT_HDR_SIGDIGS`]
+    /// and a standalone policy.
+    pub fn with_resolution(
         config: ActivityConfig,
         parent_labels: &Labels,
         op_sequence: OpSequence,
         params: std::collections::HashMap<String, String>,
-        sigdigs: u8,
-        error_policy: Arc<crate::error_policy::ErrorPolicy>,
-        phase_kernel: Option<Arc<crate::scope_kernel::ScopeKernel>>,
-        metric_detail: &MetricDetailConfig,
+        resolution: ActivityResolution<'_>,
     ) -> Self {
+        let ActivityResolution {
+            sigdigs,
+            error_policy,
+            phase_kernel,
+            metric_detail,
+        } = resolution;
         let labels = parent_labels.clone();
         // SRD-91 — counter-vs-timer detail for the op-outcome instruments,
         // resolved by the caller from the run's effective params (the
@@ -1257,8 +1280,8 @@ impl Activity {
             advisory_gate: Arc::new(crate::exec_events::AdvisoryGate::new()),
             memo: Arc::new(arc_swap::ArcSwap::from_pointee(String::new())),
             gutter: Arc::new(arc_swap::ArcSwapOption::empty()),
-            gutter_spec: std::sync::Mutex::new(None),
-            gutter_final_spec: std::sync::Mutex::new(None),
+            gutter_template: std::sync::Mutex::new(None),
+            gutter_final_template: std::sync::Mutex::new(None),
             phase_poll: None,
         }
     }
@@ -1604,7 +1627,6 @@ impl Activity {
                 .params
                 .get("adapter")
                 .and_then(|v| v.as_str())
-                .or_else(|| template.params.get("driver").and_then(|v| v.as_str()))
                 .unwrap_or(default_adapter);
             let adapter = match adapters.get(adapter_name) {
                 Some(a) => a,
@@ -2081,17 +2103,15 @@ impl Activity {
                             activity.exemplar_config.clone(),
                         )
                     };
-                    // Default-on advisory; `retry_advisory: off` (or
-                    // false) opts this op out of the shared gate.
+                    // Default-on advisory; `retry_advisory: false` opts
+                    // this op out of the shared gate. The value's form is
+                    // checked at load (construction `OP_ACTIVITY_ELEMENTS`),
+                    // so only a boolean reaches here.
                     let advisory_on = template
                         .params
                         .get("retry_advisory")
-                        .map(|v| match v {
-                            serde_json::Value::Bool(b) => *b,
-                            serde_json::Value::String(s) => {
-                                !s.eq_ignore_ascii_case("off") && !s.eq_ignore_ascii_case("false")
-                            }
-                            _ => true,
+                        .map(|v| {
+                            nmbrs_workload::boolean::json_bool("retry_advisory", v) != Ok(false)
                         })
                         .unwrap_or(true);
                     let advisory = advisory_on.then(|| activity.advisory_gate.clone());
@@ -2213,9 +2233,9 @@ impl Activity {
                             crate::wrappers::poll::NAME => {
                                 // Poll config reader: `poll:` is either
                                 // a string (mode only, all-defaults) or
-                                // a map (`{mode, interval_ms, timeout_ms,
-                                // max_rows, min_rows, json_path,
-                                // metric_name, max_error_retries}`). All
+                                // a map (`{mode, until, interval_ms,
+                                // timeout_ms, metric_name,
+                                // max_error_retries}`). All
                                 // poll knobs live UNDER `poll:` — no
                                 // flat `poll_*` prefix keys at op
                                 // level, so the wrapper's namespace
@@ -2256,25 +2276,6 @@ impl Activity {
                                 // checks tolerate transient blips.
                                 let max_error_retries = get_u32("max_error_retries", 0);
                                 let metric_name = get_str("metric_name");
-                                // `min_rows` / `max_rows` — completion
-                                // window: poll considered done when
-                                // row count is in the closed interval
-                                // `[min..=max]`. Defaults `min=0, max=0`
-                                // reproduce `await_empty` (exactly 0 =
-                                // done). For "settled to N rows" cases
-                                // (e.g. SAI's `sai_sstable_count == 1`
-                                // after memtable flush + compaction)
-                                // use `min=1, max=1`.
-                                let min_rows = get_u64("min_rows", 0);
-                                let max_rows = get_u64("max_rows", 0);
-                                // `json_path` — optional JSON Pointer
-                                // (RFC 6901, e.g. `/value`) drilled
-                                // into the body before counting. Lets
-                                // the count check address a nested
-                                // field — load-bearing for envelope
-                                // responses like Jolokia's
-                                // `{value, status, …}`.
-                                let json_path = get_str("json_path");
                                 // `memo` / `progress` — live-status templates
                                 // re-rendered per poll iteration against the
                                 // wires: `memo` publishes the measured values
@@ -2301,25 +2302,23 @@ impl Activity {
                                 // longer can.
                                 let on_done = crate::wrappers::poll::parse_on_done(cfg);
                                 // `until:` — a polydat predicate replacing the
-                                // row-count window. Scope synthesis lowered the
+                                // empty-result check. Scope synthesis lowered the
                                 // expression into this node's kernel; the
                                 // wrapper only needs to know that it exists.
                                 let until = cfg
                                     .and_then(|m| m.get("until"))
                                     .and_then(|v| v.as_str())
                                     .is_some_and(|s| !s.trim().is_empty());
-                                let (each_gutter, _) = crate::wrappers::gutter::parse_specs(
+                                let each_gutter = crate::wrappers::gutter::parse_templates(
                                     template.params.get("gutter"),
-                                );
+                                )
+                                .during;
                                 let (d, _pm) = crate::wrappers::PollingDispenser::wrap_with_status(
                                     current.clone(),
                                     interval,
                                     timeout,
                                     max_error_retries,
                                     metric_name,
-                                    min_rows,
-                                    max_rows,
-                                    json_path.clone(),
                                     each_memo,
                                     Some(activity.memo.clone()),
                                     progress_template,
@@ -2333,7 +2332,7 @@ impl Activity {
                                 );
                                 crate::diag!(
                                     crate::observer::LogLevel::Debug,
-                                    "  op '{}': polling enabled (interval={}ms, timeout={}ms, max_error_retries={}, done_on={}, json_path={:?}, on_done={:?})",
+                                    "  op '{}': polling enabled (interval={}ms, timeout={}ms, max_error_retries={}, done_on={}, on_done={:?})",
                                     template.name,
                                     interval,
                                     timeout,
@@ -2341,9 +2340,8 @@ impl Activity {
                                     if until {
                                         "until-predicate".to_string()
                                     } else {
-                                        format!("rows=[{min_rows}..={max_rows}]")
+                                        "empty-result".to_string()
                                     },
-                                    json_path,
                                     on_done
                                         .iter()
                                         .map(|(k, v)| format!("{k}={v}"))
@@ -2441,6 +2439,18 @@ impl Activity {
                                     }
                                 }
                             }
+                            crate::wrappers::fields::NAME
+                                if let Err(e) = crate::wrappers::fields::check_fields_value(
+                                    &template.params,
+                                ) =>
+                            {
+                                crate::diag!(
+                                    crate::observer::LogLevel::Error,
+                                    "error: op '{}': {e}",
+                                    template.name
+                                );
+                                true
+                            }
                             crate::wrappers::fields::NAME => {
                                 // Capture op_fields so the fields
                                 // wrapper can render the rendered op
@@ -2512,7 +2522,10 @@ impl Activity {
                                     )
                                 };
                                 match wrap_result {
-                                    Ok((d, slots)) => {
+                                    Ok(crate::wrappers::metrics::MetricsWrap {
+                                        dispenser: d,
+                                        slots,
+                                    }) => {
                                         if let Some(slots) = slots {
                                             poll_iteration_gauges.store(Some(slots));
                                         }
@@ -2615,10 +2628,10 @@ impl Activity {
                                 // string shorthand or `{bar}` / `{spark}`
                                 // map), wrap with the activity's shared
                                 // gutter slot.
-                                let (during, fin) = crate::wrappers::gutter::parse_specs(
+                                let gutter = crate::wrappers::gutter::parse_templates(
                                     template.params.get("gutter"),
                                 );
-                                if during.is_none() && fin.is_none() {
+                                if gutter.during.is_none() && gutter.finish.is_none() {
                                     crate::diag!(
                                         crate::observer::LogLevel::Warn,
                                         "op '{}': gutter: requires a layout string, one of \
@@ -2627,19 +2640,18 @@ impl Activity {
                                     );
                                     false
                                 } else {
-                                    if let Some((kind, tmpl)) = &during {
-                                        *activity.gutter_spec.lock().unwrap() =
-                                            Some((*kind, tmpl.clone()));
+                                    if let Some(during) = gutter.during {
+                                        *activity.gutter_template.lock().unwrap() =
+                                            Some(during.clone());
                                         current = crate::wrappers::GutterDispenser::wrap(
                                             current.clone(),
-                                            *kind,
-                                            tmpl.clone(),
+                                            during,
                                             activity.gutter.clone(),
                                         );
                                     }
-                                    if let Some((kind, tmpl)) = &fin {
-                                        *activity.gutter_final_spec.lock().unwrap() =
-                                            Some((*kind, tmpl.clone()));
+                                    if let Some(finish) = gutter.finish {
+                                        *activity.gutter_final_template.lock().unwrap() =
+                                            Some(finish);
                                     }
                                     false
                                 }
@@ -3517,6 +3529,21 @@ impl Activity {
                 .ok()
                 .map(|g| g.clone())
                 .unwrap_or_default();
+            // Row-level cursor progress — only for a DECLARED cursor
+            // (`config.source_factory` present). Plain `cycles:` phases
+            // get a synthesized `range(0, cycles)` factory, so gate on
+            // the config Option, not the resolved factory, to keep them
+            // on the op-denominated `cycles:` chip. Both the final
+            // on_update tick and the ✓ line read it: a batched phase's
+            // ops are not its rows, and the ✓ line on the cycles basis
+            // showed 1% for a load 81% done.
+            let (final_rows_consumed, final_rows_total) = match &activity.config.source_factory {
+                Some(_) => (
+                    activity.source_factory.global_consumed(),
+                    activity.source_factory.global_extent().unwrap_or(0),
+                ),
+                None => (0, 0),
+            };
             let ctx = crate::readout_context::ActivityReadoutContext {
                 phase_name: phase_name_bare,
                 phase_seq: activity.config.phase_seq,
@@ -3530,6 +3557,8 @@ impl Activity {
                 concurrency,
                 elapsed_secs: elapsed,
                 consumed,
+                rows_consumed: final_rows_consumed,
+                rows_total: final_rows_total,
                 status_metric_chips: relevancy_str,
                 depth_indent: crate::scene_tree::running_phase_indent(),
                 use_color: crate::observer::use_color(),
@@ -3558,19 +3587,6 @@ impl Activity {
             {
                 let (final_seq, final_depth) =
                     crate::readout_context::resolve_phase_coord_by_name(&activity.config.name);
-                // Row-level cursor progress — only for a DECLARED cursor
-                // (`config.source_factory` present). Plain `cycles:` phases
-                // get a synthesized `range(0, cycles)` factory, so gate on
-                // the config Option, not the resolved factory, to keep them
-                // on the op-denominated `cycles:` chip.
-                let (final_rows_consumed, final_rows_total) = match &activity.config.source_factory
-                {
-                    Some(_) => (
-                        activity.source_factory.global_consumed(),
-                        activity.source_factory.global_extent().unwrap_or(0),
-                    ),
-                    None => (0, 0),
-                };
                 let final_ctx = crate::readout_context::build_inline_refresh_context(
                     &activity.metrics,
                     &activity.config.name,
@@ -3599,18 +3615,15 @@ impl Activity {
                     activity.config.cli_readout_override.as_deref(),
                 ) {
                     use crate::readouts::ReadoutBinder;
-                    use crate::readouts::ReadoutContext;
                     let mut sink = crate::readouts::StringSink::with_capacity(192);
                     binder.fire(crate::lifecycle::EventType::Update, &final_ctx, &mut sink);
                     let rendered_final = sink.take();
                     crate::readouts::snapshot::capture(
                         activity.config.snapshot_writer.as_ref(),
-                        crate::lifecycle::EventType::Update.slot_name(),
-                        final_ctx.subject_exec_id(),
-                        crate::lifecycle::EventType::Update.subject_kind().as_str(),
-                        &final_ctx.subject_id(),
+                        crate::lifecycle::EventType::Update,
+                        &final_ctx,
                         "binder",
-                        crate::readouts::snapshot::lod_str(crate::readouts::Lod::Labeled),
+                        crate::readouts::Lod::Labeled,
                         &rendered_final,
                     );
                 }
@@ -3629,16 +3642,15 @@ impl Activity {
             // degenerate end-of-phase context.
             {
                 let fin = activity
-                    .gutter_final_spec
+                    .gutter_final_template
                     .lock()
                     .ok()
                     .and_then(|g| g.clone());
-                if let Some((kind, tmpl)) = fin {
-                    if let Some(final_spec) =
-                        evaluate_final_gutter(&activity, op_builder.source_kernel(), kind, &tmpl)
-                    {
-                        activity.gutter.store(Some(Arc::new(final_spec)));
-                    }
+                if let Some(declared) = fin
+                    && let Some(final_spec) =
+                        evaluate_final_gutter(&activity, op_builder.source_kernel(), &declared)
+                {
+                    activity.gutter.store(Some(Arc::new(final_spec)));
                 }
             }
 
@@ -3699,17 +3711,12 @@ impl Activity {
             // "what the operator saw at completion" — replay
             // returns it byte-for-byte.
             if !rendered.is_empty() {
-                use crate::readouts::ReadoutContext;
                 crate::readouts::snapshot::capture(
                     activity.config.snapshot_writer.as_ref(),
-                    crate::lifecycle::EventType::PhaseEnd.slot_name(),
-                    ctx.subject_exec_id(),
-                    crate::lifecycle::EventType::PhaseEnd
-                        .subject_kind()
-                        .as_str(),
-                    &ctx.subject_id(),
+                    crate::lifecycle::EventType::PhaseEnd,
+                    &ctx,
                     "binder",
-                    crate::readouts::snapshot::lod_str(crate::readouts::Lod::Labeled),
+                    crate::readouts::Lod::Labeled,
                     &rendered,
                 );
             }
@@ -4276,17 +4283,15 @@ async fn executor_task(
                     // every declared metric selector resolves.)
                     let satisfied = requires_ok && {
                         let wires = fiber.main_wires();
-                        match crate::wrappers::condition::holds(
+                        // An unresolved predicate (`None`) is a wiring
+                        // fault, not a false predicate. Keep waiting rather
+                        // than silently declaring the phase done; the
+                        // timeout below reports it with the predicate named.
+                        crate::wrappers::condition::holds(
                             &wires,
                             crate::wrappers::condition::UNTIL_BINDING,
-                        ) {
-                            Some(v) => v,
-                            // Unresolved is a wiring fault, not a false
-                            // predicate. Keep waiting rather than silently
-                            // declaring the phase done; the timeout below
-                            // reports it with the predicate named.
-                            None => false,
-                        }
+                        )
+                        .unwrap_or(false)
                     };
                     if satisfied {
                         // SRD-75 metric_name emission is wired
@@ -4882,10 +4887,10 @@ pub fn terminal_cols() -> Option<usize> {
 fn evaluate_final_gutter(
     activity: &Activity,
     source_kernel: &Arc<crate::scope_kernel::ScopeKernel>,
-    kind: crate::wrappers::gutter::GutterKind,
-    template: &str,
+    declared: &crate::wrappers::gutter::GutterTemplate,
 ) -> Option<crate::wrappers::gutter::GutterSpec> {
     use crate::wrappers::gutter::{GutterKind, GutterSpec};
+    let (kind, template) = (declared.kind, declared.template.as_str());
     // Wires pass: a fork of the phase scope (its cells shared) gives
     // template names their live end-of-phase values.
     let rendered = {
@@ -5226,9 +5231,7 @@ mod tests {
         // cancel rung in force (the raced in-flight cancel would
         // kill attempt 3). Serialize with them, same discipline as
         // every global-flag test.
-        let _signals = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _signals = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         let config = ActivityConfig {
             name: "retrytest".into(),
             cycles: 1,

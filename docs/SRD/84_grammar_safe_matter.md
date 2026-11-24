@@ -47,7 +47,7 @@ then re-parses them at compile. Three problems:
    you must render text and hope it parses.
 3. **Missing operators.** Predicates need boolean composition; polydat
    has bitwise `&`/`|` but no logical `&&`/`||`, and comparisons yield
-   `U64` 1/0 (truthiness), not `Bool`.
+   `u64` 1/0 (truthiness), not `bool`.
 
 ---
 
@@ -57,10 +57,10 @@ then re-parses them at compile. Three problems:
 > Pratt precedence renumbered so `||` < `&&` < comparison;
 > `BinOpKind::And`/`Or`; lowering desugars `a && b` → `u64_and(a != 0,
 > b != 0)` (and `||` → `u64_or`) reusing existing nodes — eager, with
-> truthiness normalisation; `infer_expr_type` → `U64`; pprint `&&`/`||`.
+> truthiness normalisation; `infer_expr_type` → `u64`; pprint `&&`/`||`.
 > Tests: polydat precedence/truthiness unit test + an nmbrs-runtime
 > stop-condition end-to-end test; 1353 polydat tests green.
-> **Found (separate, latent) bug:** `infer_expr_type` returns `U64` for
+> **Found (separate, latent) bug:** `infer_expr_type` returns `u64` for
 > *every* name in `input_names`, so an `f64` extern in a comparison
 > (e.g. `error_rate > 0.1`) mis-widens (the comparison lowering tries to
 > `ToF64` an already-f64 value). This blocks mixed-type predicates like
@@ -82,14 +82,14 @@ Add logical-and and logical-or to the grammar:
 - **AST:** `BinOpKind::And`, `BinOpKind::Or`.
 - **Evaluation — eager for now:** `&&` / `||` evaluate **both**
   operands (consistent with the eager pull model and the `if` node) and
-  combine their truthiness → `U64` 1/0. **Short-circuit is deferred** to
+  combine their truthiness → `u64` 1/0. **Short-circuit is deferred** to
   a later optimization scope: skipping the right operand when the left
   determines the result needs a conditional-pull capability the eager
   engine lacks. It is a performance/safety optimization, **not** required
   for the correctness of the boolean result, so it is explicitly out of
   scope here — `&&`/`||` land as eager truthiness combinators.
 - **Result/operands:** consistent with comparisons, the result is
-  truthy/falsy (`U64` 1/0 — Part 1b / Part 3), and operands are taken
+  truthy/falsy (`u64` 1/0 — Part 1b / Part 3), and operands are taken
   for their truthiness.
 
 ## Part 1b — `<expr> as <type>` type-coercion cast (SRD-10 / SRD-79)
@@ -111,7 +111,7 @@ Add a uniform cast operator to the grammar: **`<expr> as <polydat_type>`**
 `<type>`, it is a no-op; otherwise polydat inserts the type-fusion
 adapter it knows is valid (the [SRD-79](79_type_driven_name_resolution.md)
 type-fusion / polyfill layer: `u64_to_f64` widening, `parse_u64`, the
-`as_*` extractors from `Json`, …), or errors if no valid fusion exists.
+`as_*` extractors from `json`, …), or errors if no valid fusion exists.
 **Idempotent and alignment-only** — it never forces an invalid
 conversion; it only fills in a fusion when the types aren't already
 aligned.
@@ -129,13 +129,13 @@ and `as` true to "alignment-only, no surprises." (Implemented + tested
 
 - **Grammar (SRD-10):** an `as` cast, with `<polydat_type>` drawn from
   the primitive + vector type set (`u64`, `f64`, `bool`, `str`,
-  `VecF32`, …). Lowest-binding postfix on the expression.
+  `vec_f32`, …). Lowest-binding postfix on the expression.
 - **The matter carries an implied return type.** The cast is a
   *syntactic extension to the matter that represents the whole
   expression* — the attached expression declares its return type, and
   polydat fuses to it only if needed.
 - This is what guarantees, e.g., a stop-condition predicate stub a
-  `U64` truthiness return regardless of the predicate's natural type:
+  `u64` truthiness return regardless of the predicate's natural type:
   `(<predicate>) as u64`.
 
 **Block return-type rule (Rust-like).** A polydat grammar block's
@@ -193,7 +193,7 @@ string-matched), and polydat-compiled:
    axioms), compiled once into a sub-context, and is **callable** many
    times — `eval()` returns the `Wire`-qualified value the bound stub
    carried (`ExprStub::returning::<T>`), or `is_true()` evaluates its
-   natural truthiness (`U64 != 0`, the default boolean sense when no type
+   natural truthiness (`u64 != 0`, the default boolean sense when no type
    fusion is given). `bind(parent, output, GraphMatter)` →
    `set(name, value)` inputs → `eval`/`is_true`. This is the shape a
    stop-condition predicate is (bound to the phase kernel, injected with
@@ -228,11 +228,11 @@ attach it to a kernel as an output binding — no source string:
   same, with polydat filling in the fusion only when the expression's
   natural type isn't already `T`.
 - **Truthy/falsy default:** for predicate use, a stub resolves to a
-  truthiness (`U64` 1/0); when its value is `None` / indeterminate it
+  truthiness (`u64` 1/0); when its value is `None` / indeterminate it
   **defaults to a configured truthy or falsy** — a stop-condition
   predicate that can't resolve defaults to *falsy* ("don't stop"), the
   safe default. This formalises the truthiness already present
-  (comparisons yield `U64` 1/0) into an explicit contract.
+  (comparisons yield `u64` 1/0) into an explicit contract.
 - This is what SRD-83 predicates use: the parsed `when:` becomes a
   native stub over the runtime-state wires, attached to the phase scope
   kernel's grammar-safe matter — not a re-synthesized `volatile
@@ -272,7 +272,7 @@ wire injection (SRD-83 step 1) is unchanged.
   reserved for user-authored workload text parsed at the boundary. A
   synthesizer that string-concatenates polydat is a regression.
 - **Predicates are truthy/falsy.** A predicate resolves to a
-  truthiness (`U64` 1/0); an indeterminate value takes the stub's
+  truthiness (`u64` 1/0); an indeterminate value takes the stub's
   declared truthy/falsy default, never an error.
 - **`&&` / `||` are eager truthiness combinators.** Both operands
   evaluate; short-circuit (skipping the right operand) is a deferred

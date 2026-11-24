@@ -14,9 +14,9 @@
 //!   raw         — values only, custom separator
 //!
 //! Options:
-//!   filename=<path>    — output file (default: stdout)
-//!   format=<name>      — output format (default: stmt)
-//!   separator=<str>    — field separator for raw/csv formats
+//!   `filename=<path>`  — output file (default: stdout)
+//!   `format=<name>`    — output format (default: stmt)
+//!   `separator=<str>`  — field separator for raw/csv formats
 //!   header=true        — emit header row (csv/tsv formats)
 //!   fields=a,b,c       — only include named fields
 //!
@@ -47,7 +47,7 @@ use nmbrs_workload::model::ParsedOp;
 /// Selected per op via the `stdout:` op-template parameter.
 /// Adapter-wide configuration (filename, format, etc.) is
 /// independent — `Terminal` routes to whatever
-/// [`OutputTarget`] the adapter was constructed with;
+/// `OutputTarget` the adapter was constructed with;
 /// `EventLog` and `Silent` bypass it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StdoutChannel {
@@ -63,21 +63,31 @@ pub enum StdoutChannel {
 }
 
 impl StdoutChannel {
-    /// Parse a channel name. Accepted: `terminal` (default),
-    /// `eventlog`, `silent`. Returns `Err` on any other value so
-    /// the caller can fold the error into the workload diagnostic
+    /// Parse a channel name: exactly one of [`CHANNEL_NAMES`].
+    /// Returns `Err` on any other value, naming the closest channel,
+    /// so the caller can fold the error into the workload diagnostic
     /// chain — silent acceptance would let typos disable output.
     pub fn parse(s: &str) -> Result<Self, String> {
-        match s.trim().to_lowercase().as_str() {
-            "terminal" | "stdout" | "default" => Ok(Self::Terminal),
-            "eventlog" | "log" | "diag" => Ok(Self::EventLog),
-            "silent" | "drop" | "discard" | "none" => Ok(Self::Silent),
-            other => Err(format!(
-                "unknown stdout channel '{other}'. Available: terminal, eventlog, silent"
-            )),
+        match s {
+            "terminal" => Ok(Self::Terminal),
+            "eventlog" => Ok(Self::EventLog),
+            "silent" => Ok(Self::Silent),
+            other => {
+                let hint =
+                    nmbrs_runtime::suggest::closest_match(other, CHANNEL_NAMES.iter().copied())
+                        .map(|c| format!(" Did you mean '{c}'?"))
+                        .unwrap_or_default();
+                Err(format!(
+                    "unknown stdout channel '{other}'.{hint} Available: {}",
+                    CHANNEL_NAMES.join(", ")
+                ))
+            }
         }
     }
 }
+
+/// The channel names [`StdoutChannel::parse`] accepts.
+pub const CHANNEL_NAMES: &[&str] = &["terminal", "eventlog", "silent"];
 
 /// Output target for the stdout adapter.
 enum OutputTarget {
@@ -136,28 +146,34 @@ impl Default for StdoutConfig {
 }
 
 impl StdoutConfig {
-    /// Construct a config from CLI/workload params.
-    pub fn from_params(params: &std::collections::HashMap<String, String>) -> Self {
-        let format = params
-            .get("format")
-            .map(|s| StdoutFormat::parse(s).unwrap_or(StdoutFormat::Assignments))
-            .unwrap_or(StdoutFormat::Statement);
-        Self {
+    /// Construct a config from CLI/workload params. An unknown
+    /// `format=` is an error, never a silent fallback.
+    pub fn from_params(params: &std::collections::HashMap<String, String>) -> Result<Self, String> {
+        let format = match params.get("format") {
+            Some(s) => StdoutFormat::parse(s)?,
+            None => StdoutFormat::Statement,
+        };
+        Ok(Self {
             filename: params.get("filename").cloned().unwrap_or("stdout".into()),
             newline: true,
             format,
             fields_filter: Vec::new(),
             separator: params.get("separator").cloned().unwrap_or(",".into()),
-            header: params
-                .get("header")
-                .map(|s| s == "true" || s == "1" || s == "yes")
-                .unwrap_or(false),
-            color: params
-                .get("color")
-                .map(|s| s == "true" || s == "1" || s == "yes")
-                .unwrap_or(false),
-        }
+            header: bool_param(params, "header")?,
+            color: bool_param(params, "color")?,
+        })
     }
+}
+
+/// A boolean adapter param: absent is `false`; otherwise it must be
+/// `true` or `false` ([`nmbrs_workload::boolean::parse_bool`]).
+fn bool_param(
+    params: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> Result<bool, String> {
+    params
+        .get(key)
+        .map_or(Ok(false), |v| nmbrs_workload::boolean::parse_bool(key, v))
 }
 
 /// How to render the resolved op fields.
@@ -946,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_parse_accepts_documented_aliases() {
+    fn channel_parse_accepts_one_spelling_per_channel() {
         assert_eq!(
             StdoutChannel::parse("terminal").unwrap(),
             StdoutChannel::Terminal
@@ -959,22 +975,40 @@ mod tests {
             StdoutChannel::parse("silent").unwrap(),
             StdoutChannel::Silent
         );
-        // Aliases — lets workloads reach for the natural word.
-        assert_eq!(
-            StdoutChannel::parse("LOG").unwrap(),
-            StdoutChannel::EventLog
-        );
-        assert_eq!(
-            StdoutChannel::parse(" Drop ").unwrap(),
-            StdoutChannel::Silent
-        );
-        assert_eq!(
-            StdoutChannel::parse("default").unwrap(),
-            StdoutChannel::Terminal
-        );
-        // Typo is rejected, not silently treated as terminal.
-        assert!(StdoutChannel::parse("eventlogg").is_err());
+        // Other words and other cases are rejected, never mapped.
+        for other in [
+            "log", "diag", "drop", "discard", "none", "default", "stdout", "LOG",
+        ] {
+            assert!(StdoutChannel::parse(other).is_err(), "{other}");
+        }
+        // A typo is rejected, naming the channel it is closest to.
+        let err = StdoutChannel::parse("eventlogg").unwrap_err();
+        assert!(err.contains("Did you mean 'eventlog'?"), "{err}");
         assert!(StdoutChannel::parse("").is_err());
+    }
+
+    #[test]
+    fn unknown_format_is_an_error_not_a_fallback() {
+        let params: std::collections::HashMap<String, String> =
+            [("format".to_string(), "jsno".to_string())].into();
+        assert!(StdoutConfig::from_params(&params).is_err());
+    }
+
+    #[test]
+    fn non_boolean_header_or_color_is_an_error_not_false() {
+        let cfg = |k: &str, v: &str| {
+            let params: std::collections::HashMap<String, String> =
+                [(k.to_string(), v.to_string())].into();
+            StdoutConfig::from_params(&params)
+        };
+        assert!(cfg("header", "true").unwrap().header);
+        assert!(!cfg("header", "false").unwrap().header);
+        assert!(cfg("color", "true").unwrap().color);
+        let err = cfg("header", "on").err().expect("on is not a boolean");
+        assert!(err.contains("header=true or header=false"), "{err}");
+        assert!(cfg("color", "ture").is_err());
+        assert!(cfg("header", "1").is_err());
+        assert!(cfg("color", "yes").is_err());
     }
 
     #[tokio::test]
@@ -1247,7 +1281,7 @@ mod tests {
 
 inventory::submit! {
     nmbrs_runtime::adapter::AdapterRegistration {
-        names: || &["stdout"],
+        name: "stdout",
         known_params: || &["filename", "format", "separator", "header", "color", "fields"],
         display_preference: |params| {
             // Writing op output to the console conflicts with the TUI
@@ -1266,12 +1300,7 @@ inventory::submit! {
         },
         supported_controls: || &[],
         create: |params| Box::pin(async move {
-            // Reject an unknown `format=` rather than silently falling
-            // back to the default (`feedback_never_ignore_silently`).
-            if let Some(f) = params.get("format") {
-                StdoutFormat::parse(f)?;
-            }
-            Ok(std::sync::Arc::new(StdoutAdapter::with_config(StdoutConfig::from_params(&params)))
+            Ok(std::sync::Arc::new(StdoutAdapter::with_config(StdoutConfig::from_params(&params)?))
                 as std::sync::Arc<dyn nmbrs_runtime::adapter::DriverAdapter>)
         }),
     }

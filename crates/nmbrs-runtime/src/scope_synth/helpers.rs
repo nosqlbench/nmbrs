@@ -25,20 +25,23 @@ use std::collections::HashSet;
 
 use polydat::ast::{PortType, Value};
 
-/// Pick the Polydat port type for a workload-param string value.
+/// The `extern` type a scope declares for a workload-param string
+/// value: the type of the literal the workload params kernel emits for
+/// it (`crate::params::render_workload_params_source`), which is
+/// the parent every such extern reads through. The two must agree, or
+/// the binding is refused at construction.
 ///
-/// Numeric values widen to `u64` / `f64`; `true`/`false` →
-/// `bool`; everything else → `String`.
-pub fn workload_param_type_name(value: &str) -> &'static str {
+/// Numeric values are `u64` / `f64`; everything else, `true` and
+/// `false` included, is a string literal there and so `str` here.
+/// The type prints as its keyword where the declaration is written.
+pub fn workload_param_port_type(value: &str) -> PortType {
     let trimmed = value.trim();
     if trimmed.parse::<u64>().is_ok() {
-        "u64"
+        PortType::U64
     } else if trimmed.parse::<f64>().is_ok() {
-        "f64"
-    } else if trimmed == "true" || trimmed == "false" {
-        "bool"
+        PortType::F64
     } else {
-        "String"
+        PortType::Str
     }
 }
 
@@ -129,15 +132,6 @@ pub fn value_to_param_string(v: &Value) -> Option<String> {
     }
 }
 
-/// Map a Polydat [`PortType`] to the extern declaration's type
-/// keyword. Thin wrapper over [`PortType::to_keyword`] — the
-/// canonical str↔PortType table on the enum itself — so every
-/// synthesized `extern <name>: <keyword>` round-trips byte-cleanly
-/// back through the DSL parser.
-pub fn port_type_to_extern_name(t: PortType) -> &'static str {
-    t.to_keyword()
-}
-
 /// Collect every leaf `{name}` placeholder from a list of clause
 /// spec texts.
 ///
@@ -203,12 +197,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workload_param_type_name_classifies_basic_scalars() {
-        assert_eq!(workload_param_type_name("42"), "u64");
-        assert_eq!(workload_param_type_name("3.14"), "f64");
-        assert_eq!(workload_param_type_name("true"), "bool");
-        assert_eq!(workload_param_type_name("false"), "bool");
-        assert_eq!(workload_param_type_name("hello"), "String");
+    fn workload_param_port_type_classifies_basic_scalars() {
+        assert_eq!(workload_param_port_type("42"), PortType::U64);
+        assert_eq!(workload_param_port_type("3.14"), PortType::F64);
+        assert_eq!(workload_param_port_type("true"), PortType::Str);
+        assert_eq!(workload_param_port_type("false"), PortType::Str);
+        assert_eq!(workload_param_port_type("hello"), PortType::Str);
+    }
+
+    /// Every class of param value is declared with the type the
+    /// params kernel actually gives it, so a descendant's extern
+    /// always binds (regression: `enable_hierarchy: "false"` was
+    /// declared `bool` over a `str` parent and refused every run).
+    #[test]
+    fn workload_param_port_type_matches_the_params_kernel() {
+        let params: std::collections::HashMap<String, String> = [
+            ("count", "100"),
+            ("ratio", "0.95"),
+            ("flag_t", "true"),
+            ("flag_f", "false"),
+            ("name", "example"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let kernel = crate::params::build_workload_params_kernel(&params).unwrap();
+        for (name, value) in &params {
+            let produced = kernel
+                .lookup(name)
+                .unwrap_or_else(|| panic!("{name} must resolve"))
+                .port_type();
+            assert_eq!(
+                workload_param_port_type(value),
+                produced,
+                "{name} = {value}"
+            );
+        }
     }
 
     #[test]

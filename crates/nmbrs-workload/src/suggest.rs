@@ -18,7 +18,7 @@
 //! slash-qualified partial (`examples/controls/phase_poll`) still matches
 //! by full-reference prefix, so both habits work.
 //!
-//! The local walk descends [`MAX_DEPTH`] directory levels below the start
+//! The local walk descends [`MAX_DEPTH`](crate::suggest::MAX_DEPTH) directory levels below the start
 //! directory (the operator's cwd); the bundled catalog is a flat namespace
 //! with no depth bound. SRD-85 makes the catalog the discovery surface, so
 //! a suggestion drawn from it is always runnable by the name shown.

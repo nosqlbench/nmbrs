@@ -14,7 +14,7 @@
 //!
 //! - Probe pre-evaluation of clause spec expressions to detect
 //!   each iter-var's native type (so the emitted extern uses
-//!   the right `u64` / `f64` / `Str` / `Bool` / `Ext`).
+//!   the right `u64` / `f64` / `str` / `bool` / `ext`).
 //! - Cross-clause placeholder discovery — earlier iter-vars'
 //!   probe values may substitute into later clauses' spec
 //!   expressions, surfacing additional names the cascade
@@ -97,12 +97,33 @@ pub fn build_for_each_scope_kernel(
             continue;
         }
         let spec_text = spec_exprs.get(idx).map(String::as_str).unwrap_or("");
-        let values = pre_evaluate_clause(spec_text, parent_kernel, workload_params, &probes)
-            .unwrap_or_default();
+        // A clause that fails to probe is an error with its own
+        // diagnostic — unless it reads a name the parent declares
+        // but can't value yet (an outer for_each's iter-var), which
+        // only gets a value per iteration. See
+        // [`probe_waits_on_outer_iteration`].
+        let values = match pre_evaluate_clause(spec_text, parent_kernel, workload_params, &probes) {
+            Ok(values) => values,
+            Err(_)
+                if probe_waits_on_outer_iteration(
+                    spec_text,
+                    parent_kernel,
+                    workload_params,
+                    &probes,
+                ) =>
+            {
+                Vec::new()
+            }
+            Err(e) => return Err(format!("{context}: for_each `{var} in {spec_text}`: {e}")),
+        };
+        // No probe value — an empty source (zero iterations) or one
+        // that waits on an outer iteration — declares `str`: the
+        // clause's text is interpolated per iteration, so its
+        // values arrive as strings.
         let detected_type = values
             .first()
-            .map(polydat::iteration::comprehension::value_to_polydat_type_name)
-            .unwrap_or("String");
+            .map(polydat::ast::Value::port_type)
+            .unwrap_or(polydat::ast::PortType::Str);
         source.push_str(&format!("extern {var}: {detected_type}\n"));
         emitted.insert(var.clone());
 
@@ -186,4 +207,87 @@ pub fn build_for_each_scope_kernel(
             .inherited(inherited_names),
     )
     .map_err(|e| format!("{context}: for_each scope synthesis: {e}"))
+}
+
+/// Whether a clause that failed to probe is waiting on an outer
+/// iteration rather than wrong: it references (as a `{name}`
+/// placeholder or as a bare-identifier source) a name the parent
+/// kernel declares but has no value for at synthesis, and that no
+/// earlier clause probe or workload param supplies. That is an
+/// outer for_each's iter-var: its value is installed per
+/// iteration, so the clause can only be evaluated then.
+///
+/// Any other failure — a malformed spec, a name nothing declares —
+/// is not deferred, and the caller reports it.
+fn probe_waits_on_outer_iteration(
+    spec_text: &str,
+    parent_kernel: &ScopeKernel,
+    workload_params: &std::collections::HashMap<String, String>,
+    probes: &std::collections::HashMap<String, String>,
+) -> bool {
+    let mut names = collect_leaf_placeholders(&[spec_text.to_string()]);
+    let bare = spec_text.trim();
+    if !bare.is_empty() && bare.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        names.insert(bare.to_string());
+    }
+    let kernel = parent_kernel.kernel();
+    names.iter().any(|name| {
+        !probes.contains_key(name)
+            && !workload_params.contains_key(name)
+            && parent_kernel.lookup(name).is_none()
+            && (kernel.input_port_type(name).is_some() || kernel.output_type(name).is_some())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_for_each_scope_kernel;
+    use crate::scope_kernel::ScopeKernel;
+    use polydat::ast::PortType;
+    use std::collections::HashMap;
+
+    fn synth(parent: &ScopeKernel, var: &str, spec: &str) -> Result<ScopeKernel, String> {
+        build_for_each_scope_kernel(
+            &[(var.to_string(), spec.to_string())],
+            &[],
+            parent,
+            &HashMap::new(),
+            Vec::new(),
+            None,
+            false,
+            "test_for_each",
+            None,
+        )
+    }
+
+    /// A source nothing declares fails at synthesis with the clause
+    /// and polydat's own diagnostic, instead of typing the iter-var
+    /// as a string and failing later on a type mismatch.
+    #[test]
+    fn unresolvable_clause_fails_with_its_own_diagnostic() {
+        let parent = ScopeKernel::compile("\n").unwrap();
+        for (spec, why) in [
+            ("nope_values", "did not resolve"),
+            ("pre_{nobody}", "unresolved placeholder"),
+        ] {
+            let err = synth(&parent, "k", spec).expect_err("must fail at synthesis");
+            assert!(
+                err.contains(&format!("for_each `k in {spec}`")) && err.contains(why),
+                "{spec}: {err}"
+            );
+        }
+    }
+
+    /// A clause reading an outer for_each's iter-var — declared by
+    /// the parent, valued only per iteration — is deferred, and its
+    /// iter-var is declared `str`.
+    #[test]
+    fn clause_on_an_outer_iter_var_waits_for_the_iteration() {
+        let parent = ScopeKernel::compile("extern outer: str\n").unwrap();
+        let kernel = synth(&parent, "inner", "pre_{outer}").expect("deferred, not an error");
+        assert_eq!(
+            kernel.kernel().input_port_type("inner"),
+            Some(PortType::Str)
+        );
+    }
 }

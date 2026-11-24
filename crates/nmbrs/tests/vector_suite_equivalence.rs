@@ -43,6 +43,7 @@ const SUITE_SCENARIOS: &[&str] = &[
     "streaming",
     "cold_warm",
     "churn",
+    "recall_audit",
 ];
 
 fn repo_root() -> PathBuf {
@@ -114,10 +115,10 @@ fn collect_phases(v: &Value, out: &mut BTreeSet<String>) {
     match v {
         Value::Array(items) => items.iter().for_each(|i| collect_phases(i, out)),
         Value::Object(m) => {
-            if let Some(Value::String(name)) = m.get("Phase") {
-                if m.len() == 1 {
-                    out.insert(name.clone());
-                }
+            if let Some(Value::String(name)) = m.get("Phase")
+                && m.len() == 1
+            {
+                out.insert(name.clone());
             }
             m.values().for_each(|v| collect_phases(v, out));
         }

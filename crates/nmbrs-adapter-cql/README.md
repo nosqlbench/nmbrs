@@ -66,7 +66,18 @@ how the op is executed:
 | `prepared` or `stmt` | Prepared once per op template, with the values bound on each cycle. |
 
 Bind points (`{name}`) in a prepared statement become `?` markers. The bound
-values are checked against the column types the cluster reports.
+values are checked against the column types the cluster reports. Integer,
+float and boolean columns take only values that convert exactly, and anything
+else fails the op with a `bind_error`:
+
+| Column | Accepts |
+|--------|---------|
+| `tinyint`, `smallint`, `int`, `bigint`, `counter` | An integer, a whole-number float, or a base-10 integer string, in range for the column. For `bigint`, a u64 is read as the i64 it stores. |
+| `float`, `double` | A number, or a string that parses as one. A finite value too large for `float` is an error. |
+| `boolean` | A bool, or the string `true` or `false`. Numbers are not booleans. |
+
+A value that doesn't fit is never truncated, wrapped, or replaced with 0 or
+`false`.
 
 These optional fields change how a statement runs:
 

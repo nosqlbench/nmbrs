@@ -32,6 +32,8 @@ use std::fmt::Write as _;
 
 use openapiv3::OpenAPI;
 
+use nmbrs_workload::port_types::PortType;
+
 use crate::spec::{ApiOperation, FieldInfo, ParamInfo};
 
 /// The default target when the spec names no server.
@@ -166,7 +168,7 @@ fn render_template(out: &mut String, op: &ApiOperation) {
 /// The wires an operation needs, name → polydat type: its path
 /// parameters, its required query parameters, and its body's required
 /// fields.
-fn needs_of(op: &ApiOperation) -> BTreeMap<String, &'static str> {
+fn needs_of(op: &ApiOperation) -> BTreeMap<String, PortType> {
     let mut needs = BTreeMap::new();
     for p in op
         .path_params
@@ -184,7 +186,7 @@ fn needs_of(op: &ApiOperation) -> BTreeMap<String, &'static str> {
 }
 
 /// The optional query parameters and body fields, name → polydat type.
-fn optional_of(op: &ApiOperation) -> Vec<(String, &'static str)> {
+fn optional_of(op: &ApiOperation) -> Vec<(String, PortType)> {
     let params = op
         .query_params
         .iter()
@@ -276,12 +278,12 @@ pub fn wire_name(name: &str) -> String {
 }
 
 /// The polydat type a spec type is supplied as.
-fn polydat_type(schema_type: &str) -> &'static str {
+fn polydat_type(schema_type: &str) -> PortType {
     match schema_type {
-        "integer" => "u64",
-        "number" => "f64",
-        "boolean" => "bool",
-        _ => "String",
+        "integer" => PortType::U64,
+        "number" => PortType::F64,
+        "boolean" => PortType::Bool,
+        _ => PortType::Str,
     }
 }
 

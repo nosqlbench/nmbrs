@@ -58,13 +58,7 @@ fn objective_to_f64(v: &Value) -> f64 {
     match v {
         Value::F64(f) => *f,
         Value::U64(u) => *u as f64,
-        Value::Bool(b) => {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        }
+        Value::Bool(b) if *b => 1.0,
         _ => 0.0,
     }
 }

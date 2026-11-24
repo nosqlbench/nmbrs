@@ -500,8 +500,8 @@ impl CheckpointWriter {
         Some(format!(
             "This session has resumable phases that didn't complete.\n  \
              To continue from where it stopped:\n    \
-             nmbrs run <workload> --session-dir {} (already set if you exported \
-             SESSION_DIRECTORY) --resume\n  \
+             nmbrs run <workload> --session-path {} (already set if you exported \
+             NMBRS_SESSION_PATH) --resume\n  \
              To pin the session name for repeatable resumes:\n    \
              nmbrs run <workload> --session {} (then add --resume next time)",
             self.path
@@ -607,6 +607,9 @@ fn acquire_flock(checkpoint_path: &std::path::Path) -> Option<LockHandle> {
         .read(true)
         .write(true)
         .create(true)
+        // A lock file is held, never rewritten: opening it must not
+        // clobber what another holder wrote.
+        .truncate(false)
         .open(&lock_path)
     {
         Ok(f) => f,

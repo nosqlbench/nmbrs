@@ -26,7 +26,10 @@ use crate::wrapper_registry::{WrapperName, WrapperRegistration, WrapperSubject};
 /// SRD-32a wrapper name.
 pub const NAME: WrapperName = WrapperName::new("fields");
 
-/// Trigger: op carries `fields: true` (bool, or string "true").
+/// Trigger: op carries `fields:` with any value but `false`. A
+/// value that isn't a boolean triggers too, so the wrap step
+/// ([`check_fields_value`]) rejects it instead of it quietly reading
+/// as off.
 fn triggers(s: WrapperSubject) -> bool {
     let Some(template) = s.op() else {
         return false;
@@ -34,11 +37,17 @@ fn triggers(s: WrapperSubject) -> bool {
     template
         .params
         .get("fields")
-        .map(|v| {
-            v.as_bool()
-                .unwrap_or_else(|| v.as_str().map(|s| s == "true").unwrap_or(false))
-        })
-        .unwrap_or(false)
+        .is_some_and(|v| nmbrs_workload::boolean::json_bool("fields", v) != Ok(false))
+}
+
+/// The op's `fields:` value must be `true` / `false`
+/// ([`nmbrs_workload::boolean`]); absent is fine.
+pub fn check_fields_value(
+    params: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<(), String> {
+    params.get("fields").map_or(Ok(()), |v| {
+        nmbrs_workload::boolean::json_bool("fields", v).map(|_| ())
+    })
 }
 
 fn describe_assignment(_: WrapperSubject) -> Option<String> {

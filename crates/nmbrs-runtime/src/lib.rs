@@ -12,25 +12,26 @@
 //! `nb-*` library and is depended on by `nmbrs` (and by every
 //! persona binary). External consumers shouldn't usually need to
 //! reach into it directly; the public-facing path is `nmbrs run`
-//! or [`runner::Runner`].
+//! or [`runner::run`].
 //!
 //! ## Pieces
 //!
 //! - [`adapter::DriverAdapter`] — the trait every workload
 //!   backend implements. CQL, HTTP, stdout, testkit, plotter, and
 //!   user-supplied adapters all register via the inventory
-//!   pattern in [`adapters`].
+//!   pattern in `adapters`.
 //! - [`activity::Activity`] — one running concurrency unit. Owns
 //!   the cycle source, the op sequencer, the fiber pool, the
 //!   error router, and the metrics scope. Multiple activities
 //!   can run concurrently within one phase.
-//! - [`runner::Runner`] — orchestrates the whole session: parse
+//! - [`runner::run`] / [`runner::run_with_observer`] — orchestrate
+//!   the whole session: parse
 //!   workload, build component tree, route metrics, walk the
 //!   scenario tree, supervise activities.
 //! - [`scope_tree`] / [`scene_tree`] — the canonical scenario-
 //!   tree shape and the runtime presentation surface (SRD 18b).
-//! - [`scheduler`] — `schedule=` CLI param parses to a
-//!   [`scheduler::ScheduleSpec`]; the [`scheduler::TreeScheduler`]
+//! - `scheduler` — `schedule=` CLI param parses to a
+//!   `scheduler::ScheduleSpec`; the `scheduler::TreeScheduler`
 //!   walks the tree and forks concurrent siblings via
 //!   `tokio::JoinSet` + `Semaphore` based on per-level limits.
 //! - [`observer::RunObserver`] — lifecycle callbacks (phase
@@ -76,6 +77,8 @@ pub(crate) mod child_source;
 pub mod concurrent;
 pub mod control_catalog;
 pub(crate) mod daemon_pool;
+/// Boolean `NMBRS_DEBUG_*` developer switches.
+pub mod debug_env;
 pub(crate) mod describe;
 pub(crate) mod error_policy;
 pub mod exec_events;
@@ -135,6 +138,7 @@ pub mod scope_tree;
 pub mod session;
 pub mod session_signals;
 pub(crate) mod stop_conditions;
+pub mod suggest;
 pub mod synthesis;
 pub mod sysmon;
 pub mod throttle;

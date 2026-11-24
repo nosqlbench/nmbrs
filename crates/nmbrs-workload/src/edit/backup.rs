@@ -169,7 +169,7 @@ pub fn commit_temp(paths: &BackupPaths) -> io::Result<()> {
 ///   workload — that's a no-op semantically (the bak now
 ///   matches the workload, same as it would after a clean
 ///   commit on the same content). To preserve the
-///   "<workload>.bak holds the pre-edit content" invariant
+///   "`<workload>.bak` holds the pre-edit content" invariant
 ///   strictly, we restore the previous `.bak` from
 ///   `.bak.prev` (which was the prior pre-edit content
 ///   before the rotate).
@@ -179,7 +179,7 @@ pub fn commit_temp(paths: &BackupPaths) -> io::Result<()> {
 ///   `.bak.prev` as the recovery point.
 ///
 /// In short: roll back the bak↔bak.prev swap so the
-/// invariant "<workload>.bak == content prior to the most
+/// invariant "`<workload>.bak` == content prior to the most
 /// recent successful edit" holds.
 pub fn rollback(paths: &BackupPaths) -> io::Result<()> {
     // If the temp file exists from an aborted write, drop it.

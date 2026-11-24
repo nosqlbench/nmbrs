@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::scope_synth::{
-    collect_leaf_placeholders, value_to_param_string, workload_param_type_name,
+    collect_leaf_placeholders, value_to_param_string, workload_param_port_type,
 };
 use nmbrs_workload::model::{BindingsDef, ParsedOp};
 use polydat::kernel::interp::collect_string_interp_refs;
@@ -235,26 +235,24 @@ impl BindingScope {
     /// before the leaf kernel executes, so we no longer
     /// text-substitute literal values into the Polydat source. The
     /// type is inferred from the current iteration's value:
-    /// numeric strings get `u64`/`f64`, anything else is `String`.
+    /// numeric strings get `u64`/`f64`, anything else is `str`.
     pub fn add_iteration_var(&mut self, name: &str, value: &str) {
-        let type_name = if value.parse::<u64>().is_ok() {
-            "u64"
+        let port_type = if value.parse::<u64>().is_ok() {
+            polydat::ast::PortType::U64
         } else if value.parse::<f64>().is_ok() {
-            "f64"
+            polydat::ast::PortType::F64
         } else {
-            "String"
+            polydat::ast::PortType::Str
         };
-        self.externs.push(ExternDecl {
-            name: name.to_string(),
-            type_name: type_name.to_string(),
-        });
+        self.add_extern(name, port_type);
     }
 
-    /// Add an auto-extern declaration from the outer scope manifest.
-    pub fn add_extern(&mut self, name: &str, type_name: &str) {
+    /// Add an auto-extern declaration at `port_type`, written into
+    /// the scope's source as the type's keyword.
+    pub fn add_extern(&mut self, name: &str, port_type: polydat::ast::PortType) {
         self.externs.push(ExternDecl {
             name: name.to_string(),
-            type_name: type_name.to_string(),
+            type_name: port_type.to_keyword().to_string(),
         });
     }
 
@@ -1181,10 +1179,7 @@ pub fn build_phase_scope_kernel(
         ..Default::default()
     };
 
-    if std::env::var("NMBRS_DEBUG_SCOPE_SYNTH")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
+    if debug_scope_synth_enabled() {
         eprintln!(
             "=== SCOPE SYNTH [{context}] inherited={inherited_names:?} ===\n{source}\n=== END ==="
         );
@@ -1306,7 +1301,7 @@ pub(crate) fn scan_idents_in_polydat_source(src: &str) -> HashSet<String> {
     // strings/comments. Lets us skip the type token in declarations
     // like `extern x: u64`, `input cycle: u64`, `input (a: u64, b: f64)`,
     // and module signatures `foo(p: u64) -> (q: f64)`. A type name
-    // (`u64`/`f64`/`Str`/etc.) is not a wire reference.
+    // (`u64`/`f64`/`str`/etc.) is not a wire reference.
     let mut suppress_next_ident = false;
     while let Some(c) = chars.next() {
         if in_line_comment {
@@ -1557,15 +1552,9 @@ pub fn build_op_template_scope_kernel(
     // so a relevancy/metric reference to the same name doesn't
     // try to pull it from the parent.
     if let Some(iface) = op.abstract_interface.as_ref() {
-        for (rname, kw) in &iface.results {
-            if polydat::ast::PortType::from_keyword(kw).is_none() {
-                return Err(format!(
-                    "{context}: interface results wire '{rname}' declares \
-                     unknown type '{kw}'"
-                ));
-            }
+        for (rname, port_type) in &iface.results {
             if !emitted.contains(rname) {
-                source.push_str(&format!("extern {rname}: {kw}\n"));
+                source.push_str(&format!("extern {rname}: {port_type}\n"));
                 emitted.insert(rname.clone());
             }
         }
@@ -1581,7 +1570,9 @@ pub fn build_op_template_scope_kernel(
     // surface resolves them through the local read API.
     for value in op.op.values() {
         if let Some(s) = value.as_str() {
-            for n in nmbrs_workload::bindpoints::referenced_bindings(s) {
+            for n in nmbrs_workload::bindpoints::referenced_bindings(s)
+                .map_err(|e| format!("{context}: {e}"))?
+            {
                 if !body_locally_declared.contains(&n) && !referenced.iter().any(|r| r == &n) {
                     referenced.push(n);
                 }
@@ -1988,10 +1979,7 @@ pub fn build_op_template_scope_kernel(
     }
     let result_source: Option<String> = Some(result_source).filter(|s| !s.trim().is_empty());
 
-    if std::env::var("NMBRS_DEBUG_SCOPE_SYNTH")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
+    if debug_scope_synth_enabled() {
         eprintln!(
             "=== OP SYNTH [{context}] inherited={inherited_names:?} parent_has_xval_input={:?} parent_manifest_has_xval={} ===\n{source}\n=== END ===",
             parent_kernel.program().find_input("xval"),
@@ -2051,59 +2039,41 @@ fn verify_op_interface(
     // materialize (declared cast, binding reference), its type
     // must match the interface.
     for (name, declared) in &iface.yields {
-        let Some(expected) = polydat::ast::PortType::from_keyword(declared) else {
-            return Err(format!(
-                "{context}: interface yield '{name}' declares unknown \
-                 type '{declared}'"
-            ));
-        };
         if let Some(actual) = type_of(name)
-            && actual != expected
+            && actual != *declared
         {
             return Err(format!(
                 "{context}: interface yield '{name}' declares type \
                  {declared}, but the compiled op template carries \
-                 {actual:?}"
+                 {actual}"
             ));
         }
     }
     for (name, declared) in &iface.needs {
-        let Some(expected) = polydat::ast::PortType::from_keyword(declared) else {
-            return Err(format!(
-                "{context}: interface need '{name}' declares unknown \
-                 type '{declared}'"
-            ));
-        };
         if let Some(actual) = type_of(name)
-            && actual != expected
+            && actual != *declared
         {
             return Err(format!(
                 "{context}: interface need '{name}' declares type \
                  {declared}, but the compiled op template carries \
-                 {actual:?}"
+                 {actual}"
             ));
         }
     }
     // Results (SRD-109 Part 3): the projection wire's slot is
     // DECLARED from the interface type at op-template build (see
     // the result-binding declaration pass), so the check here is
-    // keyword validity plus agreement when the slot materialized —
-    // a mismatch means something else (a binding, a cast) claimed
-    // the name at a different type.
+    // agreement when the slot materialized — a mismatch means
+    // something else (a binding, a cast) claimed the name at a
+    // different type.
     for (name, declared) in &iface.results {
-        let Some(expected) = polydat::ast::PortType::from_keyword(declared) else {
-            return Err(format!(
-                "{context}: interface results wire '{name}' declares \
-                 unknown type '{declared}'"
-            ));
-        };
         if let Some(actual) = type_of(name)
-            && actual != expected
+            && actual != *declared
         {
             return Err(format!(
                 "{context}: interface results wire '{name}' declares \
                  type {declared}, but the compiled op template carries \
-                 {actual:?}"
+                 {actual}"
             ));
         }
     }
@@ -2121,9 +2091,8 @@ fn verify_op_interface(
 /// names and lets diagnostic surfaces filter them out by prefix.
 /// The `until:` expression from an op's `poll:` map, if it declared one.
 ///
-/// Returns `None` for the row-count form (`mode` / `min_rows` / `max_rows`),
-/// which stays supported — a workload that counts rows keeps working and a
-/// workload that states a condition gets the condition.
+/// Returns `None` for the `mode: await_empty` form, which waits for an
+/// empty result.
 fn template_poll_until(op: &nmbrs_workload::model::ParsedOp) -> Option<String> {
     op.params
         .get("poll")?
@@ -2344,7 +2313,7 @@ pub fn build_scope(
     for op in ops {
         for value in op.op.values() {
             if let Some(s) = value.as_str() {
-                for name in nmbrs_workload::bindpoints::referenced_bindings(s) {
+                for name in nmbrs_workload::bindpoints::referenced_bindings(s)? {
                     referenced.insert(name);
                 }
             }
@@ -2408,7 +2377,7 @@ pub fn build_scope(
         // wire (e.g. `parse_count_param` on relevancy `k:`)
         // would panic with "unknown output variate".
         let mut param_refs: Vec<String> = Vec::new();
-        crate::bindings::collect_param_bindings_into(&op.params, &[], &mut param_refs);
+        crate::bindings::collect_param_bindings_into(&op.params, &[], &mut param_refs)?;
         for name in param_refs {
             referenced.insert(name);
         }
@@ -2637,8 +2606,7 @@ pub fn build_scope(
             && !extern_names.contains(&entry.name)
             && !is_iter_var
         {
-            let type_name = entry.port_type.to_keyword();
-            scope.add_extern(&entry.name, type_name);
+            scope.add_extern(&entry.name, entry.port_type);
         }
     }
 
@@ -2684,7 +2652,8 @@ pub fn build_scope(
         // both wire refs and bare identifiers — including GK
         // function names like `mod`, `hash`, `range` that
         // appear in binding RHS as call heads. Filter those out
-        // via the registry lookup; only true wire references
+        // via `lookup`, which also answers for an overloaded
+        // name such as `vec_dot`; only true wire references
         // should surface as unresolved.
         let mut unresolved: Vec<&String> = referenced
             .iter()
@@ -2757,8 +2726,7 @@ pub fn build_scope(
             // error.
             continue;
         }
-        let type_name = workload_param_type_name(value);
-        scope.add_extern(name, type_name);
+        scope.add_extern(name, workload_param_port_type(value));
         // Mark as required so DCE keeps the auto-passthrough
         // output. Descendant scopes auto-extern the param via
         // the workload-root manifest; if the workload-root's
@@ -2786,8 +2754,8 @@ pub fn build_scope(
     // since it mutates op fields, not the scope.)
     let mut inline_idx = 0usize;
     let mut expr_to_name: HashMap<String, String> = HashMap::new();
-    let mut collect = |s: &str| {
-        for bp in nmbrs_workload::bindpoints::extract_bind_points(s) {
+    let mut collect = |s: &str| -> Result<(), String> {
+        for bp in nmbrs_workload::bindpoints::extract_bind_points(s)? {
             if let nmbrs_workload::bindpoints::BindPoint::InlineDefinition(ref expr) = bp
                 && !expr_to_name.contains_key(expr)
             {
@@ -2796,22 +2764,23 @@ pub fn build_scope(
                 expr_to_name.insert(expr.clone(), name);
             }
         }
+        Ok(())
     };
     for op in ops {
         for value in op.op.values() {
             if let Some(s) = value.as_str() {
-                collect(s);
+                collect(s)?;
             }
         }
         // Inline expressions in `if:` and `delay:` count too —
         // those get hoisted out of `op.op` by the parser into
         // dedicated fields on `ParsedOp`.
         if let Some(s) = &op.condition {
-            collect(s);
+            collect(s)?;
         }
         if let Some(spec) = &op.delay {
             for name in spec.names() {
-                collect(name);
+                collect(name)?;
             }
         }
     }
@@ -2823,7 +2792,7 @@ pub fn build_scope(
     for op in ops {
         for value in op.op.values() {
             if let Some(s) = value.as_str() {
-                for name in nmbrs_workload::bindpoints::referenced_bindings(s) {
+                for name in nmbrs_workload::bindpoints::referenced_bindings(s)? {
                     if !exclude.contains(&name) {
                         scope.add_required_output(&name);
                     }
@@ -2845,11 +2814,11 @@ pub fn build_scope(
         // binding and let DCE drop the synthesised
         // `__expr_N`. Walk through `extract_bind_points` so
         // every form resolves to the right output name.
-        let mut collect_required = |s: &str| {
+        let mut collect_required = |s: &str| -> Result<(), String> {
             let trimmed = s.trim();
             // Bracketed forms: `{{expr}}`, `{:=expr:=}`,
             // `{name}`, `{expr-with-operators}`.
-            let bps = nmbrs_workload::bindpoints::extract_bind_points(trimmed);
+            let bps = nmbrs_workload::bindpoints::extract_bind_points(trimmed)?;
             if !bps.is_empty() {
                 for bp in bps {
                     match bp {
@@ -2867,19 +2836,20 @@ pub fn build_scope(
                         }
                     }
                 }
-                return;
+                return Ok(());
             }
             // Bare-identifier form (no braces) — legacy.
             if !trimmed.is_empty() && !exclude.contains(&trimmed.to_string()) {
                 scope.add_required_output(trimmed);
             }
+            Ok(())
         };
         if let Some(ref cond) = op.condition {
-            collect_required(cond);
+            collect_required(cond)?;
         }
         if let Some(ref delay_spec) = op.delay {
             for name in delay_spec.names() {
-                collect_required(name);
+                collect_required(name)?;
             }
         }
         // SRD-40b §6: synthetic-metric `value:` references must
@@ -2918,7 +2888,7 @@ pub fn build_scope(
             &op.params,
             exclude,
             &mut scope.required_outputs,
-        );
+        )?;
     }
 
     // Config refs (from cycles={expr})
@@ -2953,9 +2923,9 @@ pub fn build_scope(
 /// INTO ks.{table} ...`) must be substituted away before that
 /// conversion runs, since CQL doesn't permit `?` for table
 /// names.
-/// SRD-68 Push 5c — validate-only walk. Same semantic as
-/// [`resolve_placeholders_via_kernel`] but DOES NOT mutate the op
-/// strings. Walks every `{name}` placeholder in the ops' op fields
+/// SRD-68 Push 5c — validate-only walk. Covers the same
+/// placeholders as the substitution described above but DOES NOT
+/// mutate the op strings. Walks every `{name}` placeholder in the ops' op fields
 /// and op-level params, accumulating diagnostics for unresolved
 /// references; returns `Result<(), String>` describing any
 /// unresolved bindpoints.
@@ -2983,7 +2953,7 @@ pub fn validate_placeholders_via_kernel(
 ) -> Result<(), String> {
     let mut per_cycle_names = collect_phase_binding_lhs_names(ops);
     let nothing_excluded = HashSet::new();
-    for name in collect_op_placeholder_names(ops) {
+    for name in collect_op_placeholder_names(ops)? {
         if !per_cycle_names.contains(&name)
             && enclosing.iter().any(|program| {
                 !program
@@ -3144,27 +3114,32 @@ pub fn resolve_placeholders_in_op_params(
 /// set to distinguish "per-cycle wire — leave for the dispenser"
 /// from "typo or missing cascade — error."
 /// Every `{name}` placeholder the ops' fields and params reference.
-fn collect_op_placeholder_names(ops: &[ParsedOp]) -> Vec<String> {
-    fn walk(value: &serde_json::Value, out: &mut Vec<String>) {
+/// Fails on a malformed bind point.
+fn collect_op_placeholder_names(ops: &[ParsedOp]) -> Result<Vec<String>, String> {
+    fn walk(value: &serde_json::Value, out: &mut Vec<String>) -> Result<(), String> {
         match value {
             serde_json::Value::String(s) => {
-                for name in nmbrs_workload::bindpoints::referenced_bindings(s) {
+                for name in nmbrs_workload::bindpoints::referenced_bindings(s)? {
                     if !out.contains(&name) {
                         out.push(name);
                     }
                 }
+                Ok(())
             }
-            serde_json::Value::Array(items) => items.iter().for_each(|v| walk(v, out)),
-            serde_json::Value::Object(map) => map.values().for_each(|v| walk(v, out)),
-            _ => {}
+            serde_json::Value::Array(items) => items.iter().try_for_each(|v| walk(v, out)),
+            serde_json::Value::Object(map) => map.values().try_for_each(|v| walk(v, out)),
+            _ => Ok(()),
         }
     }
     let mut out = Vec::new();
     for op in ops {
-        op.op.values().for_each(|v| walk(v, &mut out));
-        op.params.values().for_each(|v| walk(v, &mut out));
+        op.op
+            .values()
+            .chain(op.params.values())
+            .try_for_each(|v| walk(v, &mut out))
+            .map_err(|e| format!("op '{}': {e}", op.name))?;
     }
-    out
+    Ok(out)
 }
 
 fn collect_phase_binding_lhs_names(ops: &[ParsedOp]) -> Vec<String> {
@@ -3650,8 +3625,8 @@ fn resolve_placeholders_in_string(
 /// use named binding references (`{__expr_N}`).
 ///
 /// Returns the expression-to-name map for the caller to know what
-/// was rewritten.
-pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> HashMap<String, String> {
+/// was rewritten. Fails on a malformed bind point, naming the op.
+pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> Result<HashMap<String, String>, String> {
     // SRD-13d: each op template is its own Polydat scope. Inline
     // `{{<expr>}}` rewrites are Polydat matter that belongs to the
     // op-template scope, not to the shared phase scope. So each
@@ -3676,30 +3651,35 @@ pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> HashMap<String, String> {
     let mut inline_idx = 0usize;
     let mut per_op_expr_to_name: Vec<HashMap<String, String>> =
         (0..ops.len()).map(|_| HashMap::new()).collect();
-    let collect_from = |s: &str, idx: &mut usize, op_map: &mut HashMap<String, String>| {
-        for bp in nmbrs_workload::bindpoints::extract_bind_points(s) {
-            if let nmbrs_workload::bindpoints::BindPoint::InlineDefinition(ref expr) = bp {
-                op_map.entry(expr.clone()).or_insert_with(|| {
-                    let n = format!("__expr_{idx}");
-                    *idx += 1;
-                    n
-                });
+    let collect_from =
+        |s: &str, idx: &mut usize, op_map: &mut HashMap<String, String>| -> Result<(), String> {
+            for bp in nmbrs_workload::bindpoints::extract_bind_points(s)? {
+                if let nmbrs_workload::bindpoints::BindPoint::InlineDefinition(ref expr) = bp {
+                    op_map.entry(expr.clone()).or_insert_with(|| {
+                        let n = format!("__expr_{idx}");
+                        *idx += 1;
+                        n
+                    });
+                }
             }
-        }
-    };
+            Ok(())
+        };
     for (op_index, op) in ops.iter().enumerate() {
         let op_map = &mut per_op_expr_to_name[op_index];
         for value in op.op.values() {
             if let Some(s) = value.as_str() {
-                collect_from(s, &mut inline_idx, op_map);
+                collect_from(s, &mut inline_idx, op_map)
+                    .map_err(|e| format!("op '{}': {e}", op.name))?;
             }
         }
         if let Some(s) = &op.condition {
-            collect_from(s, &mut inline_idx, op_map);
+            collect_from(s, &mut inline_idx, op_map)
+                .map_err(|e| format!("op '{}': {e}", op.name))?;
         }
         if let Some(spec) = &op.delay {
             for name in spec.names() {
-                collect_from(name, &mut inline_idx, op_map);
+                collect_from(name, &mut inline_idx, op_map)
+                    .map_err(|e| format!("op '{}': {e}", op.name))?;
             }
         }
     }
@@ -3731,7 +3711,7 @@ pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> HashMap<String, String> {
     // op-template scope owns its own Polydat matter, including
     // synth bindings from inline expressions.
     if expr_to_name.is_empty() {
-        return expr_to_name;
+        return Ok(expr_to_name);
     }
     use nmbrs_workload::model::BindingsDef;
     for (op_index, op) in ops.iter_mut().enumerate() {
@@ -3806,7 +3786,14 @@ pub fn rewrite_inline_exprs(ops: &mut [ParsedOp]) -> HashMap<String, String> {
         }
     }
 
-    expr_to_name
+    Ok(expr_to_name)
+}
+
+/// Cached `NMBRS_DEBUG_SCOPE_SYNTH=true` switch (one read, one
+/// warning on a non-boolean value).
+fn debug_scope_synth_enabled() -> bool {
+    static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FLAG.get_or_init(|| crate::debug_env::debug_flag("NMBRS_DEBUG_SCOPE_SYNTH"))
 }
 
 #[cfg(test)]
@@ -3933,9 +3920,9 @@ mod tests {
         // <Type>` so the runtime can populate them per iteration
         // without recompiling (SRD 18b §"Iteration variables as
         // scope outputs"). Type is inferred from the value;
-        // "vec_default" doesn't parse numerically → String.
+        // "vec_default" doesn't parse numerically → str.
         assert!(
-            emitted.contains("extern table: String"),
+            emitted.contains("extern table: str"),
             "expected extern table declaration in:\n{emitted}"
         );
         assert!(
@@ -4037,7 +4024,7 @@ mod tests {
         // bug — false-shadow detection — is unchanged regardless
         // of how the iter var materialises.
         assert!(
-            emitted.contains("extern table: String"),
+            emitted.contains("extern table: str"),
             "missing extern table in:\n{emitted}"
         );
         assert!(emitted.contains("profiles :="), "missing profiles");
@@ -4273,8 +4260,8 @@ mod tests {
         let parent_src = r#"
 extern k: u64
 extern limit: u64
-extern optimize_for: String
-extern table: String
+extern optimize_for: str
+extern table: str
 "#;
         let parent = crate::bindings::compile_scope_kernel(
             parent_src,
@@ -4386,11 +4373,11 @@ extern table: String
         let parent_src = r#"
 extern k: u64
 extern limit: u64
-extern optimize_for: String
-extern table: String
-extern dataset: String
-extern profile: String
-extern keyspace: String
+extern optimize_for: str
+extern table: str
+extern dataset: str
+extern profile: str
+extern keyspace: str
 "#;
         let parent = crate::bindings::compile_scope_kernel(
             parent_src,
@@ -4723,6 +4710,42 @@ extern keyspace: String
             err.contains("Visible names"),
             "error should list visible names: {err}"
         );
+    }
+
+    #[test]
+    fn overloaded_call_head_is_not_an_unresolved_wire() {
+        // `vec_norm` is an overloaded name: the registry lists only its
+        // typed forms (`vec_norm_f32`, `vec_norm_f64`), so a check that
+        // asks the registry for the bare name alone would report the
+        // call head as an unresolved wire.
+        let parent = crate::scope_kernel::ScopeKernel::compile("input cycle: u64\n")
+            .expect("compile parent");
+        let manifest: Vec<crate::runner::ManifestEntry> =
+            polydat::kernel::extract_manifest(parent.program())
+                .into_iter()
+                .map(|e| crate::runner::ManifestEntry {
+                    name: e.name,
+                    port_type: e.port_type,
+                    modifier: e.modifier,
+                })
+                .collect();
+        let ops = vec![make_polydat_op(
+            "step",
+            "x={n}",
+            "input cycle: u64\nv := str_to_vec_f32(\"[3.0, 4.0]\")\nn := vec_norm(v)",
+        )];
+        if let Err(err) = build_scope(
+            &ops,
+            &HashMap::new(),
+            &manifest,
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            &[],
+            Some(&parent),
+        ) {
+            panic!("an overloaded call head must resolve as a function: {err}");
+        }
     }
 
     #[test]
@@ -5131,7 +5154,7 @@ extern keyspace: String
     fn build_phase_scope_kernel_cascades_partition_iter_var_as_extern_ext() {
         // SRD-71: when a for-each scope iterates a PartitionList
         // and binds an iter-var `p`, descendant phases must see
-        // `p` as `extern p: Ext` — NOT cast to String / u64 by
+        // `p` as `extern p: ext` — NOT cast to str / u64 by
         // the cascade. The phase body's `over p` clause then
         // resolves `p` as a partition-typed wire.
         //

@@ -71,7 +71,7 @@ phases:
             query_vector: vec_f32
             suite_k: u64
           yields:             # wires the implementation MUST deliver
-            key: String       # relevancy scoring reads `key`
+            key: str          # relevancy scoring reads `key`
 ```
 
 An implementation workload names its blueprint and provides
@@ -148,7 +148,11 @@ phases:
 | everything else (wire resolution, adapter fields) | synthesis, unchanged | normal GK compile; SRD-30 unknown-field rejection |
 
 The interface types use the polydat DSL type vocabulary (`u64`,
-`f64`, `String`, `vec_f32`, …). Load-time checks are *named*
+`f64`, `str`, `vec_f32`, …): each is a polydat type keyword,
+resolved to its port type when the workload is parsed. A name
+that is not a keyword is refused there, and a spelling polydat
+retired (`String`, `Str`, `Json`, `Ext`) is refused with the
+keyword to write. Load-time checks are *named*
 and *early*; the synthesis check is the *proof*, in the same
 place it has always been.
 

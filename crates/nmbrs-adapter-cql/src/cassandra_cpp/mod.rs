@@ -74,7 +74,7 @@ fn apply_log_level_once(params: &HashMap<String, String>) -> Result<(), String> 
     Ok(())
 }
 
-use crate::common::{CqlConfig, CqlConsistency, STMT_FIELD_NAMES};
+use crate::common::{CqlConfig, CqlConsistency, STMT_FIELD_NAMES, bind_scalar};
 use nmbrs_runtime::adapter::{
     AdapterError, DriverAdapter, ExecutionError, OpDispenser, OpResult, ResultBody,
 };
@@ -350,7 +350,13 @@ unsafe impl Sync for CqlAdapter {}
 /// resolve); depth-tracking finds the true matching `}`;
 /// inline-expression `{{...}}` and qualifier-prefixed
 /// `{bind:name}` shapes pass through unchanged.
-fn resolve_structural_and_mark_remaining<F>(template: &str, mut lookup: F) -> (String, Vec<String>)
+///
+/// Fails on a bind point whose `:<type>` suffix names a type that
+/// cannot be asserted (`split_lvalue_spec`).
+fn resolve_structural_and_mark_remaining<F>(
+    template: &str,
+    mut lookup: F,
+) -> Result<(String, Vec<String>), String>
 where
     F: FnMut(&str) -> Option<polydat::ast::Value>,
 {
@@ -375,9 +381,7 @@ where
                 j += 1;
             }
             let end = (j + 2).min(n);
-            for k in start..end {
-                out.push(chars[k]);
-            }
+            out.extend(&chars[start..end]);
             i = end;
             continue;
         }
@@ -432,7 +436,7 @@ where
         // (also wrong — the cluster would reject it). The bare
         // name carries through; the spec is recovered separately
         // at binder-construction time via `extract_bind_points`.
-        let (body_bare, _spec) = nmbrs_workload::bindpoints::split_lvalue_spec(body);
+        let (body_bare, _spec) = nmbrs_workload::bindpoints::split_lvalue_spec(body)?;
         // Qualifier-prefixed (`{bind:name}`, etc.) and non-bare
         // identifiers pass through verbatim — same discipline as
         // `nmbrs_runtime::wires::substitute_via_wires`.
@@ -478,11 +482,10 @@ where
                 // quoted-form-first heuristic.
                 let next_after = chars.get(after).copied();
                 let last_emitted = out.chars().last();
-                let strip_quotes = match (last_emitted, next_after) {
-                    (Some('\''), Some('\'')) => true,
-                    (Some('"'), Some('"')) => true,
-                    _ => false,
-                };
+                let strip_quotes = matches!(
+                    (last_emitted, next_after),
+                    (Some('\''), Some('\'')) | (Some('"'), Some('"'))
+                );
                 if strip_quotes {
                     out.pop();
                     out.push('?');
@@ -496,7 +499,7 @@ where
         }
         i = after;
     }
-    (out, bind_names)
+    Ok((out, bind_names))
 }
 
 /// generous bound so a hand-rolled `BATCH` with thousands
@@ -522,6 +525,22 @@ fn flatten_one_line(s: &str) -> String {
     } else {
         joined
     }
+}
+
+/// Whether the cluster has a keyspace named exactly `name`, read from
+/// `system_schema.keyspaces` on a session bound to no keyspace.
+async fn keyspace_exists(session: &cass::Session, name: &str) -> Result<bool, String> {
+    let mut stmt = session
+        .statement("SELECT keyspace_name FROM system_schema.keyspaces WHERE keyspace_name = ?");
+    stmt.bind_string(0, name).map_err(|e| e.to_string())?;
+    let result = stmt.execute().await.map_err(|e| e.to_string())?;
+    Ok(result.first_row().is_some())
+}
+
+/// `USE "<name>"`, quoting the name as given (embedded `"` doubled), so
+/// the session binds the keyspace `keyspace_exists` found by exact name.
+fn use_keyspace_statement(name: &str) -> String {
+    format!("USE \"{}\"", name.replace('"', "\"\""))
 }
 
 /// Wrap a connect-error string with actionable resource-exhaustion
@@ -667,44 +686,41 @@ impl CqlAdapter {
         // total.
         let consistency = to_cass_consistency(config.consistency);
 
-        // Try to connect to the specified keyspace. If it doesn't exist,
-        // fall back to connecting without a keyspace (needed for DDL phases
-        // that create the keyspace).
-        let session = if config.keyspace.is_empty() {
-            cluster
-                .connect()
+        // Connect without a keyspace, then bind the configured one only
+        // when the cluster has it. A keyspace that does not exist yet is
+        // the normal state before a schema phase creates it; asking the
+        // driver to connect into it makes every pool connection fail and
+        // the C driver log an ERROR to stderr for an expected condition.
+        // Looking it up first decides from the schema, not from matching
+        // an error message.
+        let session = cluster
+            .connect()
+            .await
+            .map_err(|e| enrich_connect_error("connect", e.to_string()))?;
+        if !config.keyspace.is_empty() {
+            if keyspace_exists(&session, &config.keyspace)
                 .await
-                .map_err(|e| enrich_connect_error("connect", e.to_string()))?
-        } else {
-            match cluster.connect_keyspace(&config.keyspace).await {
-                Ok(s) => s,
-                Err(e) => {
-                    let msg = e.to_string();
-                    // Only fall back for keyspace-not-found errors.
-                    // Auth failures, network errors, etc. should propagate.
-                    if msg.contains("Keyspace")
-                        || msg.contains("keyspace")
-                        || msg.contains("not found")
-                    {
-                        nmbrs_runtime::observer::log(
-                            nmbrs_runtime::observer::LogLevel::Warn,
-                            &format!(
-                                "cql/cassandra-cpp: keyspace '{}' not found, connecting without keyspace",
-                                config.keyspace
-                            ),
-                        );
-                        cluster.connect().await.map_err(|e| {
-                            enrich_connect_error("connect (no keyspace)", e.to_string())
-                        })?
-                    } else {
-                        return Err(enrich_connect_error(
+                .map_err(|e| enrich_connect_error("look up the keyspace", e))?
+            {
+                session
+                    .execute(use_keyspace_statement(&config.keyspace))
+                    .await
+                    .map_err(|e| {
+                        enrich_connect_error(
                             &format!("connect to keyspace '{}'", config.keyspace),
-                            msg,
-                        ));
-                    }
-                }
+                            e.to_string(),
+                        )
+                    })?;
+            } else {
+                nmbrs_runtime::observer::log(
+                    nmbrs_runtime::observer::LogLevel::Info,
+                    &format!(
+                        "cql/cassandra-cpp: keyspace '{}' does not exist yet; the session starts without one",
+                        config.keyspace
+                    ),
+                );
             }
-        };
+        }
 
         // Initial trace rate is the workload-param value (0.0
         // when absent / off). Stored as f64-bits in the Atomic
@@ -911,7 +927,7 @@ impl DriverAdapter for CqlAdapter {
                 resolve_structural_and_mark_remaining(&stmt_text, |name| {
                     use nmbrs_runtime::adapter::Lookup as _;
                     nmbrs_runtime::adapter::KernelLookup::new(&*parent_for_lookup).lookup(name)
-                });
+                })?;
             // Workload-author lvalue assertions per per-cycle bind
             // point: a `{name:*}` or `{name:<polydat-type>}` suffix
             // in the original statement text overrides the cluster-
@@ -924,7 +940,7 @@ impl DriverAdapter for CqlAdapter {
             // / {table}) drop out of both lists symmetrically.
             let lvalue_specs: Vec<Option<nmbrs_workload::bindpoints::LvalueSpec>> = {
                 use nmbrs_workload::bindpoints::{BindPoint, extract_bind_points};
-                extract_bind_points(&stmt_text)
+                extract_bind_points(&stmt_text)?
                     .into_iter()
                     .filter_map(|bp| match bp {
                         BindPoint::Reference {
@@ -1102,7 +1118,6 @@ impl DriverAdapter for CqlAdapter {
                         // See the scylla driver's `map_op` for the
                         // matching surface; the diagnostics here mirror
                         // those exactly.
-                        let mut slot_build_err: Option<String> = None;
                         let slots: Vec<polydat::binder::BinderSlot> = (0..bind_names.len())
                         .map(|i| {
                             use nmbrs_workload::bindpoints::LvalueSpec;
@@ -1131,28 +1146,12 @@ impl DriverAdapter for CqlAdapter {
                                         // the syntax IS the announcement.
                                         (cluster_lvalue, true)
                                     }
-                                    Some(LvalueSpec::Explicit(type_name)) => {
-                                        match polydat::ast::PortType::from_workload_name(type_name) {
-                                            Some(pt) => {
-                                                // Workload author asserted a
-                                                // specific polydat type via
-                                                // `:<type>`. Quiet — the source
-                                                // text is the record.
-                                                (pt, false)
-                                            }
-                                            None => {
-                                                slot_build_err = Some(format!(
-                                                    "cassandra-cpp op '{op}' field 'prepared' slot [{i}] \
-                                                     wire `{name}`: unknown polydat type name \
-                                                     `{type_name}` in lvalue spec `:{type_name}`. \
-                                                     Accepted names: u64, f64, u32, i32, i64, f32, \
-                                                     bool, str, bytes, json, vec_f32, vec_i32, \
-                                                     vec_f64, vec_i64, vec_f16, vec_i16.",
-                                                    op = template.name,
-                                                ));
-                                                (cluster_lvalue, false)
-                                            }
-                                        }
+                                    Some(LvalueSpec::Explicit(asserted)) => {
+                                        // Workload author asserted a
+                                        // specific polydat type via
+                                        // `:<type>`. Quiet — the source
+                                        // text is the record.
+                                        (*asserted, false)
                                     }
                                     None => {
                                         // Fallback policy is the only path
@@ -1186,9 +1185,6 @@ impl DriverAdapter for CqlAdapter {
                             }
                         })
                         .collect();
-                        if let Some(msg) = slot_build_err {
-                            return Err(msg);
-                        }
                         if !slots.is_empty() {
                             let binder = polydat::binder::Binder::Positional {
                                 field: "prepared".to_string(),
@@ -1279,7 +1275,8 @@ impl DriverAdapter for CqlAdapter {
     /// goes away.
     ///
     /// This override fires from
-    /// [`nmbrs_runtime::resource_pool::SharedAdapterResource::close`]
+    /// [`nmbrs_runtime::resource_pool::SharedAdapterResource`]'s
+    /// [`close`](nmbrs_runtime::resource_pool::SharedResource::close)
     /// when the pool determines a shared CQL adapter has no
     /// remaining users.
     fn shutdown<'a>(
@@ -1460,11 +1457,7 @@ impl OpDispenser for CqlRawDispenser {
                 self.modifiers.apply(&mut stmt);
                 if trace_this {
                     let _ = stmt.set_tracing(true);
-                    self.session
-                        .get()
-                        .execute_with_tracing(&stmt)
-                        .await
-                        .map(|(r, tid)| (r, tid))
+                    self.session.get().execute_with_tracing(&stmt).await
                 } else {
                     stmt.execute().await.map(|r| (r, None))
                 }
@@ -1698,11 +1691,7 @@ impl OpDispenser for CqlPreparedDispenser {
             // cassandra-cpp surface that pairs result with
             // `cass_future_tracing_id`.
             let exec_outcome = if trace_this {
-                self.session
-                    .get()
-                    .execute_with_tracing(&stmt)
-                    .await
-                    .map(|(r, tid)| (r, tid))
+                self.session.get().execute_with_tracing(&stmt).await
             } else {
                 stmt.execute().await.map(|r| (r, None))
             };
@@ -1711,30 +1700,28 @@ impl OpDispenser for CqlPreparedDispenser {
 
             let exec_result = match exec_outcome {
                 Ok((result, trace_id)) => {
-                    if trace_this {
-                        if let Some(log) = self.trace_log.get().await {
-                            let binds = self
-                                .bind_names
-                                .iter()
-                                .map(|name| match wires.get(name) {
-                                    Some(v) => tracing::format_bind_value(name, &v),
-                                    None => format!("{name}=<missing>"),
-                                })
-                                .collect();
-                            log.submit(TraceRecord {
-                                cycle,
-                                started_at,
-                                query: self.stmt_text.clone(),
-                                binds,
-                                latency_nanos,
-                                ok: true,
-                                error_name: None,
-                                trace_id: trace_id.map(|u| {
-                                    let std_uuid: uuid::Uuid = u.into();
-                                    std_uuid.to_string()
-                                }),
-                            });
-                        }
+                    if trace_this && let Some(log) = self.trace_log.get().await {
+                        let binds = self
+                            .bind_names
+                            .iter()
+                            .map(|name| match wires.get(name) {
+                                Some(v) => tracing::format_bind_value(name, &v),
+                                None => format!("{name}=<missing>"),
+                            })
+                            .collect();
+                        log.submit(TraceRecord {
+                            cycle,
+                            started_at,
+                            query: self.stmt_text.clone(),
+                            binds,
+                            latency_nanos,
+                            ok: true,
+                            error_name: None,
+                            trace_id: trace_id.map(|u| {
+                                let std_uuid: uuid::Uuid = u.into();
+                                std_uuid.to_string()
+                            }),
+                        });
                     }
                     Ok(result)
                 }
@@ -2753,61 +2740,39 @@ fn make_binder(cql_type: cass::ValueType, class_name: Option<&str>) -> BinderFn 
                 Ok(())
             })
         }
-        // 32-bit integer types
-        cass::ValueType::INT | cass::ValueType::SMALL_INT | cass::ValueType::TINY_INT => {
-            Box::new(|stmt, idx, value| {
-                let n = match value {
-                    polydat::ast::Value::U64(v) => *v as i32,
-                    polydat::ast::Value::F64(v) => *v as i32,
-                    polydat::ast::Value::Str(s) => s.parse::<i32>().unwrap_or(0),
-                    _ => 0,
-                };
-                stmt.bind_int32(idx, n)?;
-                Ok(())
-            })
-        }
-        // 64-bit integer types
-        cass::ValueType::BIGINT | cass::ValueType::COUNTER => Box::new(|stmt, idx, value| {
-            let n = match value {
-                polydat::ast::Value::U64(v) => *v as i64,
-                polydat::ast::Value::F64(v) => *v as i64,
-                polydat::ast::Value::Str(s) => s.parse::<i64>().unwrap_or(0),
-                _ => 0,
-            };
-            stmt.bind_int64(idx, n)?;
+        // Integer, float and boolean columns convert through the
+        // shared strict chokepoint: an exact value or a bind error,
+        // never a truncated or zeroed one.
+        cass::ValueType::TINY_INT => Box::new(|stmt, idx, value| {
+            stmt.bind_int8(idx, bind_scalar::bind_int(value, "tinyint")?)?;
             Ok(())
         }),
-        // Float
+        cass::ValueType::SMALL_INT => Box::new(|stmt, idx, value| {
+            stmt.bind_int16(idx, bind_scalar::bind_int(value, "smallint")?)?;
+            Ok(())
+        }),
+        cass::ValueType::INT => Box::new(|stmt, idx, value| {
+            stmt.bind_int32(idx, bind_scalar::bind_int(value, "int")?)?;
+            Ok(())
+        }),
+        cass::ValueType::BIGINT => Box::new(|stmt, idx, value| {
+            stmt.bind_int64(idx, bind_scalar::bind_int(value, "bigint")?)?;
+            Ok(())
+        }),
+        cass::ValueType::COUNTER => Box::new(|stmt, idx, value| {
+            stmt.bind_int64(idx, bind_scalar::bind_int(value, "counter")?)?;
+            Ok(())
+        }),
         cass::ValueType::FLOAT => Box::new(|stmt, idx, value| {
-            let f = match value {
-                polydat::ast::Value::F64(v) => *v as f32,
-                polydat::ast::Value::U64(v) => *v as f32,
-                polydat::ast::Value::Str(s) => s.parse::<f32>().unwrap_or(0.0),
-                _ => 0.0,
-            };
-            stmt.bind_float(idx, f)?;
+            stmt.bind_float(idx, bind_scalar::bind_f32(value)?)?;
             Ok(())
         }),
-        // Double
         cass::ValueType::DOUBLE => Box::new(|stmt, idx, value| {
-            let f = match value {
-                polydat::ast::Value::F64(v) => *v,
-                polydat::ast::Value::U64(v) => *v as f64,
-                polydat::ast::Value::Str(s) => s.parse::<f64>().unwrap_or(0.0),
-                _ => 0.0,
-            };
-            stmt.bind_double(idx, f)?;
+            stmt.bind_double(idx, bind_scalar::bind_f64(value)?)?;
             Ok(())
         }),
-        // Boolean
         cass::ValueType::BOOLEAN => Box::new(|stmt, idx, value| {
-            let b = match value {
-                polydat::ast::Value::Bool(v) => *v,
-                polydat::ast::Value::U64(v) => *v != 0,
-                polydat::ast::Value::Str(s) => &**s == "true" || &**s == "1",
-                _ => false,
-            };
-            stmt.bind_bool(idx, b)?;
+            stmt.bind_bool(idx, bind_scalar::bind_bool(value)?)?;
             Ok(())
         }),
         // CUSTOM type — predominantly CQL vectors. The element type
@@ -2817,24 +2782,12 @@ fn make_binder(cql_type: cass::ValueType, class_name: Option<&str>) -> BinderFn 
         cass::ValueType::CUSTOM => {
             let element = class_name.and_then(binder_meta::parse_vector_element);
             match element {
-                Some(binder_meta::VectorElement::Float) => {
-                    Box::new(|stmt, idx, value| bind_vector_float(stmt, idx, value))
-                }
-                Some(binder_meta::VectorElement::Int) => {
-                    Box::new(|stmt, idx, value| bind_vector_int(stmt, idx, value))
-                }
-                Some(binder_meta::VectorElement::Double) => {
-                    Box::new(|stmt, idx, value| bind_vector_double(stmt, idx, value))
-                }
-                Some(binder_meta::VectorElement::Long) => {
-                    Box::new(|stmt, idx, value| bind_vector_long(stmt, idx, value))
-                }
-                Some(binder_meta::VectorElement::Short) => {
-                    Box::new(|stmt, idx, value| bind_vector_short(stmt, idx, value))
-                }
-                Some(binder_meta::VectorElement::Half) => {
-                    Box::new(|stmt, idx, value| bind_vector_half(stmt, idx, value))
-                }
+                Some(binder_meta::VectorElement::Float) => Box::new(bind_vector_float),
+                Some(binder_meta::VectorElement::Int) => Box::new(bind_vector_int),
+                Some(binder_meta::VectorElement::Double) => Box::new(bind_vector_double),
+                Some(binder_meta::VectorElement::Long) => Box::new(bind_vector_long),
+                Some(binder_meta::VectorElement::Short) => Box::new(bind_vector_short),
+                Some(binder_meta::VectorElement::Half) => Box::new(bind_vector_half),
                 // Unknown / Other / no class name — keep the legacy
                 // Bytes-or-string round-trip behaviour. Logs from
                 // map_op already WARN about the missing typed

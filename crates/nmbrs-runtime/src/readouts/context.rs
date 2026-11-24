@@ -5,7 +5,7 @@
 //! from. See SRD-63 §2.
 //!
 //! Subject-kind validation is keyed off the firing
-//! [`EventType`](crate::lifecycle::EventType) (via
+//! [`EventType`] (via
 //! [`EventType::subject_kind`](crate::lifecycle::EventType::subject_kind)) —
 //! one source of truth, no parallel `ctx.subject_kind()`
 //! that could drift. Builtins declare which kinds they
@@ -56,7 +56,7 @@ pub enum LifecycleState {
 /// registry; per-event contexts (the `SessionSummaryContext`
 /// in nmbrs-tui, the per-phase contexts in
 /// `crate::readout_context`) populate the slots that apply
-/// to their [`SubjectKind`].
+/// to their [`SubjectKind`](crate::lifecycle::SubjectKind).
 ///
 /// Method additions over the pushes have default impls
 /// where reasonable so existing context impls don't have

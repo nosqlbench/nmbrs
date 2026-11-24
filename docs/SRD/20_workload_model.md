@@ -195,10 +195,15 @@ When the parser normalizes an op object, fields are routed:
 | Destination | Fields |
 |-------------|--------|
 | `op` (adapter payload) | All fields not in reserved/activity lists |
-| `params` (activity config) | `ratio`, `driver`, `verify`, `relevancy`, `strict`, `space`, `instrument`, `labels` |
+| `params` (activity config) | `ratio`, `adapter`, `verify`, `relevancy`, `strict`, `space`, `instrument`, `labels` |
 | `tags` | `tags` field contents |
 | `bindings` | `bindings` field contents |
-| Reserved (consumed by parser) | `name`, `description`, `desc` |
+| Reserved (consumed by parser) | `name`, `description` |
+| Rejected, naming the key to write | `ops`, `operations` (→ `op`); `statement`, `statements` (→ `stmt`); `desc` (→ `description`); `driver` (→ `adapter`) |
+
+The payload is `op:` — a map of op fields, or a statement string as
+sugar for `op: {stmt: <string>}` — or the op's own non-reserved keys
+written flat (`stmt:` beside `ratio:` and the rest).
 
 This routing means `relevancy:` on an op goes to `params` (for
 the validation wrapper), while `prepared:` goes to `op` (for the
@@ -208,7 +213,7 @@ CQL adapter).
 
 | nosqlbench field | nmbrs | Status |
 |---|---|---|
-| `driver` / `space` | `params` | Implemented |
+| `driver` / `space` | `adapter` / `space` in `params` | Implemented (`driver` is spelled `adapter`) |
 | `ratio` | `params` | Implemented |
 | `labels` | `params` | **Needs implementation** — per-op metric labels for dashboard breakdown |
 | `instrument` | `params` | Routed but not acted on — per-op metrics enable/disable |

@@ -131,7 +131,7 @@ one-phase-run (`bool`) need `→ Outcome` adapters.
    as the phase/scenario outermost, must be preserved (B4).
 4. **`interval` needs a bound.** Unbounded repeat = runs until session stop; the wrapper must
    pair `interval` with `repeat`/`duration`/`until`, and honour the cooperative stop view
-   (`session_signals::StopView`) so Ctrl-C / `action: abort` interrupt the sleep cleanly.
+   (`session_signals::StopView`) so Ctrl-C / `effect: abort` interrupt the sleep cleanly.
 
 ## Acceptance (the motivating case)
 

@@ -103,7 +103,7 @@ fn print_command(cmd: &Command, full_path: &[&str]) {
     if !cmd.flags.is_empty() {
         eprintln!("FLAGS:");
         // Compute label width across all flags so help columns
-        // align. Label = `--long [aliases…] <value>?`.
+        // align. Label = `--long[, -s] <value>?`.
         let labels: Vec<String> = cmd.flags.iter().map(flag_label).collect();
         let lw = labels.iter().map(|s| s.len()).max().unwrap_or(0);
         for (f, label) in cmd.flags.iter().zip(labels.iter()) {
@@ -117,9 +117,6 @@ fn flag_label(f: &Flag) -> String {
     let mut s = f.long.to_string();
     if let Some(short) = f.short {
         s.push_str(&format!(", {short}"));
-    }
-    if !f.aliases.is_empty() {
-        s.push_str(&format!(" ({})", f.aliases.join(", ")));
     }
     if matches!(f.arity, Arity::Value) {
         s.push_str(" <value>");

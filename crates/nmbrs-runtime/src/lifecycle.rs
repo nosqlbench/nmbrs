@@ -1,11 +1,13 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! Lifecycle event vocabulary — the kind-tag [`EventType`]
-//! plus its [`SubjectKind`].
+//! Lifecycle event vocabulary — the kind-tag
+//! [`EventType`](crate::lifecycle::EventType)
+//! plus its [`SubjectKind`](crate::lifecycle::SubjectKind).
 //!
-//! [`EventType`] names the lifecycle slot that triggered a
-//! render (`on_phase_end`, `on_update`, …); [`SubjectKind`]
+//! [`EventType`](crate::lifecycle::EventType) names the lifecycle
+//! slot that triggered a render (`on_phase_end`, `on_update`, …);
+//! [`SubjectKind`](crate::lifecycle::SubjectKind)
 //! names what kind of subject the firing context represents
 //! (session / phase / iteration / scope). Together they are
 //! the shared lifecycle vocabulary used by the readout binder
@@ -19,7 +21,8 @@
 //!   delaminated; nothing fires twice for the same
 //!   subject under one slot.
 //! - **Refresh events** — fire repeatedly while the
-//!   subject is in flight. Currently only [`EventType::Update`].
+//!   subject is in flight. Currently only
+//!   [`EventType::Update`](crate::lifecycle::EventType::Update).
 //!
 //! Push 2 wires `Update` and `PhaseEnd` through the activity
 //! pipeline; the remaining variants are reachable from Push 3

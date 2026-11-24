@@ -177,6 +177,30 @@ phases:
         result:
           keys: "[*].key"
 
+  # Recall audit: the ORACLE path searches the label's own
+  # partition table unfiltered; the FILTERED path searches the
+  # default table with the label's predicate.
+  oracle_probe:
+    ops:
+      select_ann:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+
+  filtered_audit_probe:
+    ops:
+      select_ann_filtered:
+        prepared: |
+          SELECT key FROM {keyspace}.{table}
+          WHERE metadata = {predicate:*}
+          ORDER BY value
+          ANN OF {query_vector} LIMIT {suite_limit}
+        result:
+          keys: "[*].key"
+
   fill_until_refusal:
     ops:
       ins:

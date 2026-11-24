@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 nmbrs-runtime = { workspace = true }
 nmbrs-workload = { workspace = true }
-polydat = "0.6.2"
+polydat = "0.10.0"
 # Portable terminal-size + is-tty detection (Unix ioctl + Windows
 # console API behind one API), consistent with the rest of the
 # terminal stack and the shadow-terminal test harness.

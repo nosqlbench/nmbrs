@@ -119,10 +119,10 @@ fn metric(label_pattern: Const<&str>, stat: Const<&str>) -> f64 {
 /// Signature: `metric_window(label_pattern: const str, stat: const str) ->
 /// f64`. Counter stats read the per-window INCREASE (`cycles`/`errors`, and
 /// `rate` = increase ÷ interval); latency quantiles (`p50`/`p99`/`mean`)
-/// read the merged window DISTRIBUTION. Contrast [`metric`], which reads
+/// read the merged window DISTRIBUTION. Contrast `metric`, which reads
 /// session-lifetime running totals.
 ///
-/// Intrinsically `Nondeterministic` — see [`metric`].
+/// Intrinsically `Nondeterministic` — see `metric`.
 #[polydat::polydat_node(
     category = Context,
     purity = Nondeterministic("reads the latest framed cadence window; value changes over the run"),

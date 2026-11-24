@@ -33,7 +33,7 @@ op_templates:
     description: "Add a pet"
     abstract:
       needs:
-        name: String
+        name: str
         owner_id: u64
     method: POST
     uri: "{base_url}/pets"
@@ -54,7 +54,7 @@ op_templates:
       api_tag: "pets"
 
   # GET /pets
-  # optional, not templated: tag (String)
+  # optional, not templated: tag (str)
   listPets:
     description: "List pets, a page at a time"
     abstract:

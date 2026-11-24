@@ -619,7 +619,7 @@ pub fn stop_daemon() -> Result<(), String> {
 
 /// `nmbrs web` — daemon command. raw_args=true: the flag set
 /// is mostly fine for the walker but the handler currently
-/// expects argv[0] == "web" (it's invoked via `daemon::web_command(&args)`
+/// expects `argv[0] == "web"` (it's invoked via `daemon::web_command(&args)`
 /// not `&args[1..]`), so route raw to keep the contract.
 pub fn spec() -> crate::cli_spec::Command {
     use crate::cli_spec::{
@@ -641,7 +641,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--bind",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::Custom(crate::completion::bind_addr_provider),
                 help: "Bind address (e.g. 127.0.0.1).",
@@ -650,7 +649,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--port",
                 short: None,
-                aliases: &[],
                 arity: Arity::Value,
                 value: ValueProvider::None,
                 help: "Listen port.",
@@ -659,7 +657,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--daemon",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Detach as a background daemon.",
@@ -668,7 +665,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--stop",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Stop a running daemon.",
@@ -677,7 +673,6 @@ pub fn spec() -> crate::cli_spec::Command {
             Flag {
                 long: "--restart",
                 short: None,
-                aliases: &[],
                 arity: Arity::Bool,
                 value: ValueProvider::None,
                 help: "Restart a running daemon.",

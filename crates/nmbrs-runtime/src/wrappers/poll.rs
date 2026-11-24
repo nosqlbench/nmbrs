@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Polling / await wrapper. Re-executes the inner op until its
-//! row count (optionally projected through a JSON-Pointer path)
-//! falls into the configured `[min_rows, max_rows]` window, or
-//! the timeout fires. Used for waiting on backend state to
-//! settle: SAI index build, compactions, etc.
+//! completion condition holds, or the timeout fires. The condition
+//! is the op's `until:` predicate when it declares one; otherwise
+//! `mode: await_empty`, an empty result. Used for waiting on backend
+//! state to settle: SAI index build, compactions, etc. A condition
+//! over part of a response is a capture plus `until:`.
 
 use std::sync::Arc;
 
@@ -65,9 +66,9 @@ inventory::submit! {
         name: NAME,
         owned_fields: &[
             // `poll:` is the single discriminant for the poll
-            // wrapper; every knob (interval_ms, timeout_ms,
-            // min_rows, max_rows, json_path, metric_name,
-            // max_error_retries) lives under it as a map. The
+            // wrapper; every knob (mode, until, interval_ms,
+            // timeout_ms, metric_name, max_error_retries) lives
+            // under it as a map. The
             // flat `poll_*`-prefix surface was retired.
             "poll",
         ],
@@ -120,28 +121,6 @@ pub struct PollingDispenser {
     stop: crate::session_signals::StopView,
     /// Named metric for the poll elapsed time (e.g., "index_build_time").
     metric_name: Option<String>,
-    /// Threshold for "done": the poll is considered satisfied
-    /// when the inner op's row-count is in `[min_rows, max_rows]`.
-    /// Default `max_rows=0, min_rows=0` reproduces the historical
-    /// `await_empty` semantics (zero rows = done). Use
-    /// `min_rows=1, max_rows=1` for "settled to a single row"
-    /// cases such as SAI's `sai_sstable_count == 1` after
-    /// memtable flush + compaction (without the lower bound the
-    /// poll would exit too early at count=0, before the
-    /// memtable has flushed).
-    min_rows: u64,
-    max_rows: u64,
-    /// Optional JSON-Pointer path (RFC 6901, e.g. `/value`) that
-    /// drills into the result body before computing the count
-    /// for the `[min_rows, max_rows]` check. Use this when the
-    /// op's body wraps the meaningful payload in an envelope —
-    /// notably Jolokia, whose every response is
-    /// `{request, value, status, timestamp}` and the actual
-    /// answer lives under `.value`. When the addressed sub-tree
-    /// is an array, count is its length; a number maps directly
-    /// to count; an object or null maps to 1 / 0. Default `None`
-    /// uses `body.element_count()` as-is.
-    json_path: Option<String>,
     /// `poll.memo` — optional template re-rendered after EVERY poll
     /// iteration (against the wires, so this iteration's captures are
     /// visible) and published to the activity memo. Without it, a
@@ -171,7 +150,7 @@ pub struct PollingDispenser {
     /// (`await_empty` over an hours-long compaction) keeps a live
     /// cell instead of one publish at op end. The final-form/`final:`
     /// semantics are untouched (the activity epilogue owns those).
-    each_gutter: Option<(crate::wrappers::gutter::GutterKind, String)>,
+    each_gutter: Option<crate::wrappers::gutter::GutterTemplate>,
     /// The activity's shared gutter slot; `None` in bare tests.
     gutter_state: Option<Arc<arc_swap::ArcSwapOption<crate::wrappers::gutter::GutterSpec>>>,
     /// The op's compiled `metrics:` GAUGE slots, re-published per
@@ -246,7 +225,7 @@ impl PollingDispenser {
     /// `max_error_retries`: cap on consecutive retryable inner errors
     /// (default 0 = strict).
     // reason: cohesive wrapper constructor — each argument is a distinct poll
-    // policy knob (interval, timeout, retry cap, metric name, row bounds);
+    // policy knob (interval, timeout, retry cap, metric name);
     // bundling them into a struct would only relocate the same fields.
     #[allow(clippy::too_many_arguments)]
     pub fn wrap(
@@ -255,9 +234,6 @@ impl PollingDispenser {
         timeout_ms: u64,
         max_error_retries: u32,
         metric_name: Option<String>,
-        min_rows: u64,
-        max_rows: u64,
-        json_path: Option<String>,
     ) -> (Arc<dyn OpDispenser>, Arc<PollingMetrics>) {
         Self::wrap_with_status(
             inner,
@@ -265,9 +241,6 @@ impl PollingDispenser {
             timeout_ms,
             max_error_retries,
             metric_name,
-            min_rows,
-            max_rows,
-            json_path,
             None,
             None,
             None,
@@ -295,14 +268,11 @@ impl PollingDispenser {
         timeout_ms: u64,
         max_error_retries: u32,
         metric_name: Option<String>,
-        min_rows: u64,
-        max_rows: u64,
-        json_path: Option<String>,
         each_memo: Option<String>,
         memo_state: Option<Arc<arc_swap::ArcSwap<String>>>,
         progress_template: Option<String>,
         activity_metrics: Option<Arc<crate::activity::ActivityMetrics>>,
-        each_gutter: Option<(crate::wrappers::gutter::GutterKind, String)>,
+        each_gutter: Option<crate::wrappers::gutter::GutterTemplate>,
         gutter_state: Option<Arc<arc_swap::ArcSwapOption<crate::wrappers::gutter::GutterSpec>>>,
         iteration_gauges: Option<
             Arc<arc_swap::ArcSwapOption<Vec<crate::wrappers::metrics::MetricSlot>>>,
@@ -318,9 +288,6 @@ impl PollingDispenser {
             timeout: std::time::Duration::from_millis(timeout_ms),
             max_error_retries,
             metric_name,
-            min_rows,
-            max_rows,
-            json_path,
             each_memo,
             memo_state,
             progress_template,
@@ -377,9 +344,9 @@ impl PollingDispenser {
             // Default (no template / render failure): keep the memo the
             // operator already sees and append the measurement to it.
             let text = rendered.unwrap_or_else(|| if self.until {
-                // A declared `until:` REPLACED the row-count window, so quoting
-                // that window here would describe a gate that is not in effect —
-                // and worse, "measured 0 row(s) [target 0..=0]" reads as ALREADY
+                // A declared `until:` REPLACED the empty-result check, so quoting
+                // that check here would describe a gate that is not in effect —
+                // and worse, "measured 0 row(s) [awaiting empty]" reads as ALREADY
                 // SATISFIED while the poll keeps waiting, which is the most
                 // confusing thing a status line can say. Report the condition
                 // that is actually holding it, and the observation feeding it.
@@ -388,22 +355,21 @@ impl PollingDispenser {
                      {row_count} row(s) observed · poll {polls}, {elapsed_secs:.0}s")
             } else {
                 format!(
-                    "{base_memo} — measured {row_count} row(s) [target {}..={}] · poll {polls}, {elapsed_secs:.0}s",
-                    self.min_rows, self.max_rows)
+                    "{base_memo} — measured {row_count} row(s) [awaiting empty] · poll {polls}, {elapsed_secs:.0}s")
             });
             memo.store(Arc::new(text));
         }
         // Gauges first: the gutter/memo templates may read metricsql
         // over the very series these samples feed.
-        if let Some(handle) = &self.iteration_gauges {
-            if let Some(slots) = handle.load_full() {
-                crate::wrappers::metrics::publish_gauges_lenient(&slots, wires);
-            }
+        if let Some(handle) = &self.iteration_gauges
+            && let Some(slots) = handle.load_full()
+        {
+            crate::wrappers::metrics::publish_gauges_lenient(&slots, wires);
         }
-        if let (Some(state), Some((kind, template))) = (&self.gutter_state, &self.each_gutter) {
-            if let Some(spec) = crate::wrappers::gutter::render_spec(*kind, template, wires) {
-                state.store(Some(Arc::new(spec)));
-            }
+        if let (Some(state), Some(declared)) = (&self.gutter_state, &self.each_gutter)
+            && let Some(spec) = crate::wrappers::gutter::render_spec(declared, wires)
+        {
+            state.store(Some(Arc::new(spec)));
         }
         if let (Some(metrics), Some(t)) =
             (&self.activity_metrics, self.progress_template.as_deref())
@@ -539,26 +505,9 @@ impl OpDispenser for PollingDispenser {
                 };
                 polls += 1;
 
-                // Check condition: row count in [min_rows, max_rows] = done.
-                // Default `min_rows=0, max_rows=0` reproduces the legacy
-                // `await_empty` (exactly 0 = done) semantics.
-                //
-                // When `json_path` is set, the count comes from the
-                // addressed sub-tree of the body's JSON projection
-                // — array length, raw number, or 1 (object) / 0
-                // (null/missing). This is the Jolokia-poll path:
-                // `getCompactions` returns `{value: [...], status: 200, ...}`
-                // and we want the length of `.value`, not 1 (the
-                // envelope object).
-                let row_count = match (&result.body, self.json_path.as_deref()) {
-                    (Some(body), Some(path)) => {
-                        let json = body.to_json();
-                        count_from_json_pointer(&json, path)
-                    }
-                    (Some(body), None) => body.element_count(),
-                    (None, _) => 0,
-                };
-                // A declared `until:` REPLACES the row-count window: the
+                // `mode: await_empty` — an empty result is done.
+                let row_count = result.body.as_ref().map_or(0, |body| body.element_count());
+                // A declared `until:` REPLACES the empty-result check: the
                 // workload stated the completion condition, so counting rows
                 // would be second-guessing it. An unresolved predicate is a
                 // wiring fault, not a false one — failing loudly beats
@@ -601,7 +550,7 @@ impl OpDispenser for PollingDispenser {
                         }
                     }
                 } else {
-                    row_count >= self.min_rows && row_count <= self.max_rows
+                    row_count == 0
                 };
 
                 self.metrics
@@ -618,9 +567,7 @@ impl OpDispenser for PollingDispenser {
                     let indent = crate::scene_tree::running_phase_indent();
                     crate::diag!(
                         crate::observer::LogLevel::Debug,
-                        "{indent}awaiting: {row_count} row(s), need [{}..={}] ({:.0}s elapsed)",
-                        self.min_rows,
-                        self.max_rows,
+                        "{indent}awaiting: {row_count} row(s), need 0 ({:.0}s elapsed)",
                         start.elapsed().as_secs_f64()
                     );
                     // Live status: this iteration's captures are on the
@@ -797,44 +744,6 @@ pub(crate) fn duration_value_for_metric_name(name: &str, elapsed_secs: f64) -> f
     }
 }
 
-/// Drill into a JSON tree via JSON-Pointer path (RFC 6901, e.g.
-/// `/value`, `/value/results/0`) and reduce the addressed
-/// sub-tree to a u64 count for the polling threshold:
-///
-/// - Array → `len()` (use case: "list of running jobs is empty").
-/// - Number → the integer value (use case: a numeric counter
-///   like `Compaction.PendingTasks.Value` reaches zero).
-/// - Object → 1 (the addressed payload exists; for "wait until
-///   *something* is present" patterns).
-/// - Null / missing path → 0 (treat as "nothing there").
-///
-/// An empty path string addresses the root, matching
-/// `serde_json::Value::pointer("")`'s contract.
-pub(crate) fn count_from_json_pointer(json: &serde_json::Value, path: &str) -> u64 {
-    let Some(v) = json.pointer(path) else {
-        return 0;
-    };
-    match v {
-        serde_json::Value::Array(a) => a.len() as u64,
-        serde_json::Value::Number(n) => n
-            .as_u64()
-            .or_else(|| n.as_i64().map(|i| i.max(0) as u64))
-            .or_else(|| n.as_f64().map(|f| f.max(0.0) as u64))
-            .unwrap_or(0),
-        serde_json::Value::Object(_) => 1,
-        serde_json::Value::Bool(b) => {
-            if *b {
-                1
-            } else {
-                0
-            }
-        }
-        serde_json::Value::String(s) if s.is_empty() => 0,
-        serde_json::Value::String(_) => 1,
-        serde_json::Value::Null => 0,
-    }
-}
-
 /// Read `poll.on_done:` — the wire values a terminating poll writes before
 /// its final publish. Values may be numbers or strings; strings are kept
 /// verbatim so they can be wire expressions (`"total"`) rather than only
@@ -872,7 +781,7 @@ pub(crate) fn parse_on_done(
 /// contains an em-dash keeps it.
 fn strip_measurement_suffix(memo: &str) -> &str {
     match memo.find(" — measured ") {
-        Some(i) if memo[i..].contains(" row(s) [target ") => &memo[..i],
+        Some(i) if memo[i..].contains(" row(s) [awaiting empty] ") => &memo[..i],
         _ => memo,
     }
 }
@@ -966,9 +875,6 @@ mod status_publish_tests {
             timeout: std::time::Duration::from_millis(10),
             max_error_retries: 0,
             metric_name: None,
-            min_rows: 0,
-            max_rows: 0,
-            json_path: None,
             each_memo: each_memo.map(String::from),
             memo_state: Some(memo.clone()),
             progress_template: progress.map(String::from),
@@ -1015,9 +921,7 @@ mod status_publish_tests {
     fn run_to_done(d: &PollingDispenser, wires: &dyn crate::wires::WireSource) {
         // The poll abandons on a session stop, and the stop flag is
         // process-global: hold it clear against sibling tests that set it.
-        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::session_signals::STOP_GLOBAL_TEST_LOCK.blocking_lock();
         crate::session_signals::clear_session_stop_for_test();
         let fields = crate::adapter::ResolvedFields::new(Vec::new(), Vec::new());
         let pulls = crate::fixture::ResolvedPulls::empty();
@@ -1166,9 +1070,9 @@ mod status_publish_tests {
         let gutter_state: Arc<arc_swap::ArcSwapOption<crate::wrappers::gutter::GutterSpec>> =
             Arc::new(arc_swap::ArcSwapOption::empty());
         let mut d = dispenser_with_status(None, None, &memo, &metrics);
-        d.each_gutter = Some((
+        d.each_gutter = Some(crate::wrappers::gutter::GutterTemplate::new(
             crate::wrappers::gutter::GutterKind::Text,
-            "ratio {completion_ratio}".into(),
+            "ratio {completion_ratio}",
         ));
         d.gutter_state = Some(gutter_state.clone());
 
@@ -1192,9 +1096,9 @@ mod status_publish_tests {
         );
 
         // A failed substitution must leave the last good value.
-        d.each_gutter = Some((
+        d.each_gutter = Some(crate::wrappers::gutter::GutterTemplate::new(
             crate::wrappers::gutter::GutterKind::Spark,
-            "{no_such_wire}".into(),
+            "{no_such_wire}",
         ));
         d.publish_iteration_status(&RatioWire(0.9), "waiting", 1, 3, 15.0);
         assert_eq!(
@@ -1209,25 +1113,25 @@ mod status_publish_tests {
 
 #[cfg(test)]
 mod poll_wire_tests {
-    /// With a declared `until:`, the memo must NOT quote the row-count window.
-    /// "measured 0 row(s) [target 0..=0]" reads as satisfied while the poll is
+    /// With a declared `until:`, the memo must NOT quote the empty-result check.
+    /// "measured 0 row(s) [awaiting empty]" reads as satisfied while the poll is
     /// still waiting — the single most misleading thing a status line can say,
     /// and exactly what an operator saw during a 1m28s drain.
     #[test]
-    fn until_memo_does_not_quote_the_unused_row_window() {
+    fn until_memo_does_not_quote_the_unused_empty_check() {
         let src =
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/wrappers/poll.rs"))
                 .expect("read own source");
         let until_arm = src
             .find("waiting on `until:` (not yet satisfied)")
             .expect("the until: memo arm must exist");
-        let window_arm = src
-            .find("measured {row_count} row(s) [target")
-            .expect("the row-window memo arm must exist");
+        let empty_arm = src
+            .find("measured {row_count} row(s) [awaiting empty] ·")
+            .expect("the empty-result memo arm must exist");
         assert!(
-            until_arm < window_arm,
+            until_arm < empty_arm,
             "the until: arm must be the FIRST branch, so a declared condition \
-             never falls through to the row-window text"
+             never falls through to the empty-result text"
         );
         // And the two must be distinct branches of one `if self.until`.
         assert!(

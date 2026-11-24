@@ -104,7 +104,7 @@ impl OpDispenser for FixedBodyDispenser {
 fn make_gt_program() -> Arc<PolydatProgram> {
     let kernel = compile_polydat_interpreter(
         "input cycle: u64\n\
-         extern ground_truth: Str = \"\"\n",
+         extern ground_truth: str =\"\"\n",
     )
     .expect("compile_polydat_interpreter extern declaration");
     kernel.into_program()
@@ -190,7 +190,7 @@ fn pulls_with_gt_string(
 fn kernel_with_gt_string(gt_csv: &str) -> polydat::kernel::PolydatKernel {
     let mut k = compile_polydat_interpreter(
         "input cycle: u64\n\
-         extern ground_truth: Str = \"\"\n",
+         extern ground_truth: str =\"\"\n",
     )
     .expect("compile_polydat_interpreter extern declaration");
     k.set_inputs(&[0]);

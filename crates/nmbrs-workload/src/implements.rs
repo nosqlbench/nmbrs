@@ -472,10 +472,10 @@ phases:
       search:
         abstract:
           needs:
-            query_vector: String
+            query_vector: str
             suite_k: u64
           yields:
-            key: String
+            key: str
 "#;
 
     const IMPL_OK: &str = r#"
@@ -487,6 +487,29 @@ phases:
         stmt: "SEARCH {query_vector} LIMIT {suite_k}"
         captures: "[key]"
 "#;
+
+    /// An interface type is a polydat type keyword, resolved when
+    /// the workload is parsed; a name that is not one is refused
+    /// there, naming the interface entry.
+    #[test]
+    fn interface_types_are_polydat_keywords() {
+        let parsed = parse(BLUEPRINT);
+        let iface = parsed.phases["probe"].ops[0]
+            .abstract_interface
+            .as_ref()
+            .expect("search is an abstract slot");
+        assert_eq!(iface.needs["query_vector"], polydat::ast::PortType::Str);
+        assert_eq!(iface.needs["suite_k"], polydat::ast::PortType::U64);
+        assert_eq!(iface.yields["key"], polydat::ast::PortType::Str);
+
+        let yaml = BLUEPRINT.replace("key: str", "key: strr");
+        let err = crate::parse::parse_workload(&yaml, &HashMap::new())
+            .expect_err("an interface type that is not a keyword must be refused");
+        assert!(
+            err.contains("`abstract.yields.key:` `strr` is not a type keyword"),
+            "{err}"
+        );
+    }
 
     #[test]
     fn binds_and_marks_the_slot() {
@@ -640,7 +663,7 @@ phases:
         stmt: "BLUEPRINT SIDE"
         abstract:
           yields:
-            key: String
+            key: str
 "#,
         );
         let err = bind_implementation(

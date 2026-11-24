@@ -50,22 +50,13 @@ error_chain! {
             display("Batch's session {:?} != {:?}", &batch_session, &statement_session)
         }
 
-        /// Cassandra error result with extended information.
-        CassErrorResult(
-            code: CassErrorCode,
-            msg: String,
-            consistency: Consistency,
-            actual: i32,
-            required: i32,
-            num_failures: i32,
-            data_present: bool,
-            write_type: WriteType,
-            keyspace: Option<String>,
-            table: Option<String>,
-            function: Option<(String, Vec<String>)>
-        ) {
+        /// Cassandra error result with extended information. The details
+        /// are boxed so every `Error` stays small: they are only built
+        /// for a failed request, but an unboxed payload made every
+        /// `Result<_, Error>` in the driver carry their full size.
+        CassErrorResult(details: Box<CassErrorDetails>) {
             description("Cassandra detailed error")
-            display("Cassandra detailed error {:?}: {}", &code, &msg)
+            display("Cassandra detailed error {:?}: {}", &details.code, &details.message)
         }
 
         /// Unsupported type encountered.
@@ -75,6 +66,35 @@ error_chain! {
         }
 
     }
+}
+
+/// The extended information the driver reports with a failed request
+/// (`cass_future_get_error_result`), carried by
+/// [`ErrorKind::CassErrorResult`].
+#[derive(Debug, Clone)]
+pub struct CassErrorDetails {
+    /// The failure code.
+    pub code: CassErrorCode,
+    /// The driver's message.
+    pub message: String,
+    /// The consistency level of the failed request.
+    pub consistency: Consistency,
+    /// Responses received (`cass_error_result_responses_received`).
+    pub actual: i32,
+    /// Responses required (`cass_error_result_responses_required`).
+    pub required: i32,
+    /// Replicas that failed.
+    pub num_failures: i32,
+    /// Whether the replica that answered had the data.
+    pub data_present: bool,
+    /// The write type of a failed write.
+    pub write_type: WriteType,
+    /// The keyspace named by the failure, if any.
+    pub keyspace: Option<String>,
+    /// The table named by the failure, if any.
+    pub table: Option<String>,
+    /// The function and its argument types named by the failure, if any.
+    pub function: Option<(String, Vec<String>)>,
 }
 
 /// Extension trait for `CassError_`.
@@ -153,7 +173,7 @@ pub(crate) unsafe fn build_error_result(
             (function, args)
         });
         cass_error_result_free(e);
-        ErrorKind::CassErrorResult(
+        ErrorKind::CassErrorResult(Box::new(CassErrorDetails {
             code,
             message,
             consistency,
@@ -164,8 +184,8 @@ pub(crate) unsafe fn build_error_result(
             write_type,
             keyspace,
             table,
-            function_call,
-        )
+            function: function_call,
+        }))
         .into()
     }
 }

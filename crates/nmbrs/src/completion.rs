@@ -229,7 +229,7 @@ pub static RUN_KV_PARAMS: &[crate::cli_spec::KvParam] = &[
     },
     crate::cli_spec::KvParam {
         key: "profiler_callgraph=",
-        provider: bool_values,
+        provider: static_profiler_callgraph,
     },
     crate::cli_spec::KvParam {
         key: "schedule=",
@@ -364,10 +364,6 @@ pub static RUN_KV_PARAMS: &[crate::cli_spec::KvParam] = &[
         key: "per-instance-metrics=",
         provider: bool_values,
     },
-    // Bare `session=<path|name>`, the sibling of `--session`. Accepted by
-    // `resolve_session_dir` for every command, run included, so it must be a
-    // known param here or a run that honours it also warns that it is unknown.
-    SESSION_KV_PARAM,
     // The runner reads a bare `report-openmetrics-to=<url>` beside the
     // `--report-openmetrics-to` flag spelling, so it is a known param too.
     crate::cli_spec::KvParam {
@@ -457,8 +453,8 @@ pub(crate) fn session_name_provider(partial: &str, _ctx: &[&str]) -> Vec<String>
 /// `phase_outcomes` table (SRD-76). Best-effort, same
 /// convention as [`execution_id_provider`].
 pub(crate) fn phase_name_db_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
-    // Resolve the db from the command line — `--db`, the `--session*` family,
-    // or a bare `session=` — instead of assuming the latest session. Hardcoding
+    // Resolve the db from the command line — `--db` or the `--session*`
+    // family — instead of assuming the latest session. Hardcoding
     // `latest_metrics_db()` offered values from a DIFFERENT session than the one
     // being targeted: with `--session=<dir>` naming a session holding only
     // exec 77, completion still offered `0 1` from `sessions/latest`. Values that
@@ -505,8 +501,8 @@ pub(crate) fn phase_name_db_provider(partial: &str, ctx: &[&str]) -> Vec<String>
 /// range-vector window.
 pub(crate) fn metrics_range_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     let mut out: Vec<String> = vec!["all".to_string()];
-    // Resolve the db from the command line — `--db`, the `--session*` family,
-    // or a bare `session=` — instead of assuming the latest session. Hardcoding
+    // Resolve the db from the command line — `--db` or the `--session*`
+    // family — instead of assuming the latest session. Hardcoding
     // `latest_metrics_db()` offered values from a DIFFERENT session than the one
     // being targeted: with `--session=<dir>` naming a session holding only
     // exec 77, completion still offered `0 1` from `sessions/latest`. Values that
@@ -603,34 +599,6 @@ pub(crate) fn describe_workloads_arg_provider(partial: &str, ctx: &[&str]) -> Ve
     if "examples".starts_with(partial) {
         out.push("examples".to_string());
     }
-    out.sort();
-    out
-}
-
-/// Directory-only completion (e.g. `nmbrs diag query-labels
-/// <dbdir>`). Walks one level from the partial's parent.
-pub(crate) fn dirs_provider(partial: &str, _ctx: &[&str]) -> Vec<String> {
-    let (dir, name_prefix) = match partial.rfind('/') {
-        Some(i) => (&partial[..=i], &partial[i + 1..]),
-        None => ("./", partial),
-    };
-    let Ok(rd) = std::fs::read_dir(if dir.is_empty() { "./" } else { dir }) else {
-        return Vec::new();
-    };
-    let mut out: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.starts_with(name_prefix) && !n.starts_with('.'))
-        .map(|n| {
-            let base = if dir == "./" && !partial.starts_with("./") {
-                ""
-            } else {
-                dir
-            };
-            format!("{base}{n}/")
-        })
-        .collect();
     out.sort();
     out
 }
@@ -741,7 +709,7 @@ fn print_activation_line() {
 /// post-process: when the cursor sits on a flag that requires
 /// a value (e.g. `--name`, `--metric`, …), advance past it and
 /// run completion on the value position. This means
-/// `nmbrs plot ... --name<TAB>` produces the available plot
+/// `nmbrs report plot ... --name<TAB>` produces the available plot
 /// names instead of just echoing back `--name` — there's only
 /// one possible continuation (a value), so we may as well
 /// take it.
@@ -900,7 +868,7 @@ fn split_line_local(line: &str, point: usize) -> (Vec<String>, String) {
 }
 
 /// File-backed rapid-tap counter, mirroring veks-completion's
-/// internal driver (which is private): previous [`TapState`] is
+/// internal driver (which is private): previous [`veks_completion::TapState`] is
 /// read from `<tmp>/.nmbrs_tap_<shell-pid>`, the pure
 /// [`veks_completion::next_tap_state`] cadence rule advances it,
 /// and the new state is written back. Keyed by the invoking
@@ -939,20 +907,6 @@ fn detect_tap(app: &str, input_key: &str, max_level: u32) -> u32 {
     tap_count
 }
 
-/// Orthogonal dispatch flags on the report/plot/table commands — the ones the
-/// builder recognises that are not vocab-driven. Shared by
-/// [`kind_subcommand_node`] (which advertises them) and
-/// [`value_taking_flags`] (which treats them as value-taking), so the two cannot
-/// disagree about what the surface is.
-/// Boolean flags the plot/table RENDERERS consume that live in no spec walk
-/// (`summary::parse_args` / `plot_metrics::parse_args`). Unioned into
-/// [`known_flags`] so the report dispatcher's closed-surface check accepts
-/// what the renderers implement.
-/// kv forms every `nmbrs report` path consumes (`extract_workload` plucks
-/// `workload=` anywhere in the args; `session=` resolves via
-/// `read_session_dir`). Declared on the report group AND its verb
-/// subleafs so `nmbrs report [--synthesized] workload=<TAB>` completes
-/// workload references the same way `nmbrs run workload=<TAB>` does.
 // ─── Canonical parameter definitions (define once, reference everywhere) ──
 //
 // A parameter that appears on more than one command is defined HERE —
@@ -967,35 +921,15 @@ pub(crate) const WORKLOAD_KV_PARAM: crate::cli_spec::KvParam = crate::cli_spec::
     provider: workload_provider,
 };
 
-/// `session=<name>` — completes session names.
-pub(crate) const SESSION_KV_PARAM: crate::cli_spec::KvParam = crate::cli_spec::KvParam {
-    key: "session=",
-    provider: session_name_provider,
-};
-
 /// The workload reference as a flag/positional VALUE.
 pub(crate) const WORKLOAD_VALUE: crate::cli_spec::ValueProvider =
     crate::cli_spec::ValueProvider::Custom(workload_provider);
-
-/// `--workload <ref>` — the flag spelling. Help is per-site; lookup is not.
-pub(crate) fn workload_flag(help: &'static str) -> crate::cli_spec::Flag {
-    crate::cli_spec::Flag {
-        long: "--workload",
-        short: None,
-        aliases: &[],
-        arity: crate::cli_spec::Arity::Value,
-        value: WORKLOAD_VALUE,
-        help,
-        repeatable: false,
-    }
-}
 
 /// `--db <path>` — metrics-db override, shared by every read-side command.
 pub(crate) fn db_flag() -> crate::cli_spec::Flag {
     crate::cli_spec::Flag {
         long: "--db",
         short: None,
-        aliases: &[],
         arity: crate::cli_spec::Arity::Value,
         value: crate::cli_spec::ValueProvider::Path,
         help: "Override metrics db. Default: sessions/latest/metrics.db",
@@ -1020,7 +954,6 @@ pub(crate) fn execution_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--execution",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: EXECUTION_ID_VALUE,
             help: "Filter to one execution_id (default: most recent).",
@@ -1029,7 +962,6 @@ pub(crate) fn execution_flags() -> Vec<crate::cli_spec::Flag> {
         Flag {
             long: "--all-executions",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Pull every execution's instances (aggregate read).",
@@ -1062,14 +994,15 @@ ff_kv!(STANZA_CONCURRENCY_KV_PARAM, "stanza_concurrency=");
 // duration in seconds has no closed set to offer.
 ff_kv!(SYSMON_INTERVAL_KV_PARAM, "sysmon-interval=");
 
-/// `adapter=` / `driver=` — adapter inventory lookup.
+/// `adapter=` — adapter inventory lookup.
 pub(crate) const ADAPTER_KV_PARAM: crate::cli_spec::KvParam = crate::cli_spec::KvParam {
     key: "adapter=",
     provider: adapter_provider,
 };
+/// `driver=` — SRD-109 driver manifests (bundled + `./drivers/`).
 pub(crate) const DRIVER_KV_PARAM: crate::cli_spec::KvParam = crate::cli_spec::KvParam {
     key: "driver=",
-    provider: adapter_provider,
+    provider: driver_manifest_provider,
 };
 
 /// `seq=` — the SRD sequencer type, one closed set everywhere.
@@ -1079,20 +1012,30 @@ pub(crate) const SEQ_KV_PARAM: crate::cli_spec::KvParam = crate::cli_spec::KvPar
 };
 
 /// The lone `workload=` kv, for commands whose runtime plucks it but
-/// whose surface has no other kv (check).
+/// whose surface has no other kv: `check`, and every `nmbrs report` path
+/// (`extract_workload` plucks `workload=` anywhere in the args). Declared on
+/// the report group AND its verb subleafs so `nmbrs report [--synthesized]
+/// workload=<TAB>` completes workload references the same way
+/// `nmbrs run workload=<TAB>` does.
 pub(crate) static WORKLOAD_KV: &[crate::cli_spec::KvParam] = &[WORKLOAD_KV_PARAM];
 
-pub(crate) static REPORT_KV: &[crate::cli_spec::KvParam] = &[WORKLOAD_KV_PARAM, SESSION_KV_PARAM];
-
+/// Boolean flags the plot/table RENDERERS consume that live in no spec walk
+/// (`summary::parse_args` / `plot_metrics::parse_args`). Unioned into
+/// [`known_flags`] so the report dispatcher's closed-surface check accepts
+/// what the renderers implement.
 pub(crate) const RENDERER_BOOL_FLAGS: &[&str] = &["--no-report", "--verbose", "--create", "--tree"];
 
+/// Orthogonal dispatch flags on the report/plot/table commands — the ones the
+/// builder recognises that are not vocab-driven. Shared by
+/// [`kind_subcommand_node`] (which advertises them) and
+/// [`value_taking_flags`] (which treats them as value-taking), so the two cannot
+/// disagree about what the surface is.
 pub(crate) const REPORT_DISPATCH_VALUE_FLAGS: &[&str] = &[
     "--name",
     "--at",
     "--contextual",
     "--rename",
     "--group",
-    "--workload",
     "--session",
     "--db",
     "--body",
@@ -1119,9 +1062,6 @@ fn value_taking_flags() -> &'static std::collections::HashSet<String> {
                     out.insert(f.long.to_string());
                     if let Some(short) = f.short {
                         out.insert(short.to_string());
-                    }
-                    for a in f.aliases {
-                        out.insert(a.to_string());
                     }
                 }
             }
@@ -1187,9 +1127,6 @@ pub(crate) fn known_flags() -> &'static std::collections::HashSet<String> {
                 out.insert(f.long.to_string());
                 if let Some(short) = f.short {
                     out.insert(short.to_string());
-                }
-                for a in f.aliases {
-                    out.insert(a.to_string());
                 }
             }
             for sub in &cmd.subcommands {
@@ -1271,11 +1208,11 @@ fn with_report_words(mut names: Vec<String>, partial: &str) -> Vec<String> {
 
 /// How many positional slots the item-name provider serves.
 ///
-/// veks counts every non-`-` word as a positional, and `workload=<file>` /
-/// `session=<dir>` are exactly that shape — so with the default single slot, one
+/// veks counts every non-`-` word as a positional, and `workload=<file>` is
+/// exactly that shape — so with the default single slot, one
 /// `workload=` token exhausted the budget and the name stopped completing:
-/// `nmbrs table comp` offered `compaction_shape` while
-/// `nmbrs table workload=x.yaml comp` offered nothing, though the second is the
+/// `nmbrs report table comp` offered `compaction_shape` while
+/// `nmbrs report table workload=x.yaml comp` offered nothing, though the second is the
 /// form the tool's own hint text tells you to use. Serving several slots lets the
 /// provider decide for itself, which is what [`report_name_slot_open`] does.
 const REPORT_POSITIONAL_SLOTS: usize = 4;
@@ -1302,7 +1239,7 @@ fn report_name_slot_open(ctx: &[&str]) -> bool {
     true
 }
 
-/// Positional completion for `nmbrs plot <name>` / `nmbrs report plot <name>`.
+/// Positional completion for `nmbrs report plot <name>`.
 ///
 /// `fn_provider` takes a plain fn pointer, so each kind gets its own thin
 /// wrapper rather than a closure over the kind.
@@ -1313,7 +1250,7 @@ fn plot_positional_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     with_report_words(plot_name_provider(partial, ctx), partial)
 }
 
-/// Positional completion for `nmbrs table <name>` / `nmbrs report table <name>`.
+/// Positional completion for `nmbrs report table <name>`.
 fn table_positional_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     if !report_name_slot_open(ctx) {
         return Vec::new();
@@ -1329,11 +1266,8 @@ pub(crate) fn kind_subcommand_node(kind: nmbrs_workload::report::Kind) -> Node {
     // the builder recognises in `report_build::Dispatch`.
     let mut all_value_flags: Vec<&'static str> = flags.clone();
     all_value_flags.extend(REPORT_DISPATCH_VALUE_FLAGS.iter().copied());
-    // Bare `key=value` spellings the report handlers accept alongside the `--`
-    // forms. Undeclared, they completed as nothing and read as an unrecognised
-    // token, so `table x session=<dir>` silently reported on `sessions/latest`
-    // while naming another directory.
-    all_value_flags.extend(REPORT_KV.iter().map(|kv| kv.key));
+    // The bare `workload=` kv the report handlers accept.
+    all_value_flags.extend(WORKLOAD_KV.iter().map(|kv| kv.key));
     let bool_flags: &[&str] = &[
         // `--create` persists the spec under `--name`; it takes no value
         // (`opts.create = true` in summary's parser). The retired
@@ -1385,18 +1319,17 @@ pub(crate) fn kind_subcommand_node(kind: nmbrs_workload::report::Kind) -> Node {
         .with_value_provider("--name", fn_provider(report_any_name_provider))
         .with_value_provider("--at", fn_provider(at_anchor_provider))
         .with_value_provider("--contextual", fn_provider(contextual_mode_provider))
-        .with_value_provider("--session", fn_provider(session_name_provider))
-        .with_value_provider("--workload", fn_provider(workload_provider));
-    // The bare kv spellings complete via the canonical definitions —
-    // the same provider the kv surface everywhere else uses.
-    for kv in REPORT_KV {
+        .with_value_provider("--session", fn_provider(session_name_provider));
+    // The bare kv completes via its canonical definition — the same
+    // provider the kv surface everywhere else uses.
+    for kv in WORKLOAD_KV {
         node = node.with_value_provider(kv.key, fn_provider(kv.provider));
     }
 
     // The POSITIONAL — the item name. Only `--name` carried a provider, so
-    // `nmbrs table <TAB>` offered nothing even though `nmbrs table --name <TAB>`
+    // `nmbrs report table <TAB>` offered nothing even though `nmbrs report table --name <TAB>`
     // listed the very same items, and the positional is the spelling the docs and
-    // everyday use favour (`nmbrs table compaction_shape`). Kind-specific, so
+    // everyday use favour (`nmbrs report table compaction_shape`). Kind-specific, so
     // `table` offers table items and `plot` offers plots rather than both.
     node = match kind {
         nmbrs_workload::report::Kind::Plot => node
@@ -1681,8 +1614,8 @@ fn scenario_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
 /// an error message, matching the existing provider
 /// convention.
 pub fn execution_id_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
-    // Resolve the db from the command line — `--db`, the `--session*` family,
-    // or a bare `session=` — instead of assuming the latest session. Hardcoding
+    // Resolve the db from the command line — `--db` or the `--session*`
+    // family — instead of assuming the latest session. Hardcoding
     // `latest_metrics_db()` offered values from a DIFFERENT session than the one
     // being targeted: with `--session=<dir>` naming a session holding only
     // exec 77, completion still offered `0 1` from `sessions/latest`. Values that
@@ -1736,8 +1669,21 @@ fn adapter_provider(partial: &str, _ctx: &[&str]) -> Vec<String> {
     names
 }
 
+fn driver_manifest_provider(partial: &str, _ctx: &[&str]) -> Vec<String> {
+    nmbrs_workload::drivers::manifest_names()
+        .into_iter()
+        .filter(|n| n.starts_with(partial))
+        .collect()
+}
+
 fn static_profiler(partial: &str, _ctx: &[&str]) -> Vec<String> {
     filter_prefix(&["off", "flamegraph", "perf"], partial)
+}
+
+/// `perf record --call-graph` modes `profiler_callgraph=` accepts
+/// (`nmbrs_runtime::profiler`).
+fn static_profiler_callgraph(partial: &str, _ctx: &[&str]) -> Vec<String> {
+    filter_prefix(&["fp", "dwarf", "lbr"], partial)
 }
 
 fn static_tui(partial: &str, _ctx: &[&str]) -> Vec<String> {
@@ -1870,8 +1816,8 @@ pub(crate) fn pid_provider(partial: &str, _ctx: &[&str]) -> Vec<String> {
 /// SRD-46 cross-kind name provider for `nmbrs report --name`:
 /// emits every plot AND table item the workload defines (or
 /// the session db has persisted). Kind-filtered providers stay
-/// separate so `nmbrs plot` / `nmbrs table` aliases offer only
-/// their own kind.
+/// separate so `nmbrs report plot` / `nmbrs report table` offer
+/// only their own kind.
 pub(crate) fn report_any_name_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     let mut all: Vec<String> = Vec::new();
     if let Some(path) = workload_from_context(ctx) {
@@ -1931,7 +1877,7 @@ fn summary_name_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     Vec::new()
 }
 
-/// Metric-family completion for `nmbrs plot --metric`. Reads
+/// Metric-family completion for `nmbrs report plot --metric`. Reads
 /// the session db's `metric_family` table so the user gets the
 /// closed vocabulary of metrics actually recorded in this
 /// session (recall_at_10_mean, cycles_total, errors_total, …).
@@ -1947,7 +1893,7 @@ fn metric_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// Stored-plot-name completion for `nmbrs plot --name`. Same
+/// Stored-plot-name completion for `nmbrs report plot --name`. Same
 /// rules as `summary_name_provider`: `workload=<path>` overrides
 /// db lookup.
 fn plot_name_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
@@ -1979,7 +1925,7 @@ fn plot_name_provider(partial: &str, ctx: &[&str]) -> Vec<String> {
     Vec::new()
 }
 
-/// Label-key completion for `nmbrs plot --series` and `--x`.
+/// Label-key completion for `nmbrs report plot --series` and `--x`.
 ///
 /// Surfaces every distinct label key recorded in the metrics
 /// db, narrowed to the metric family in scope when one can be
@@ -2457,7 +2403,6 @@ pub fn spec() -> crate::cli_spec::Command {
         flags: vec![Flag {
             long: "--shell",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(shells),
             help: "bash | zsh | fish | elvish | powershell. Omit for activation line.",
@@ -2602,15 +2547,15 @@ mod walker_tests {
         );
         // Bool flags and bare params are not this shape.
         assert_eq!(split_attached_value("--strict=1"), None);
-        assert_eq!(split_attached_value("session=/tmp/s"), None);
+        assert_eq!(split_attached_value("phases=load"), None);
         assert_eq!(split_attached_value("--execution"), None);
     }
 
     /// The item-name POSITIONAL must complete, and must survive a preceding
     /// `key=value` token.
     ///
-    /// Only `--name` carried a provider, so `nmbrs table <TAB>` offered nothing
-    /// while `nmbrs table --name <TAB>` listed the very same items — and the
+    /// Only `--name` carried a provider, so `nmbrs report table <TAB>` offered nothing
+    /// while `nmbrs report table --name <TAB>` listed the very same items — and the
     /// positional is the spelling the docs and everyday use favour. veks counts
     /// every non-`-` word as a positional, so `workload=<file>` alone exhausted a
     /// single slot and silenced the provider even after it was attached.
@@ -2627,7 +2572,7 @@ mod walker_tests {
             "a kv param must not consume the name slot"
         );
         assert!(
-            report_name_slot_open(&["workload=w.yaml", "session=/tmp/s"]),
+            report_name_slot_open(&["workload=w.yaml", "phases=load"]),
             "several kv params must not consume it either"
         );
         assert!(
@@ -2661,8 +2606,8 @@ mod walker_tests {
     /// are handed, so completing `--execution` under `--session=<dir>` offered
     /// execution ids from a DIFFERENT session — values that do not exist in the
     /// session being targeted, which is worse than no suggestion. The correct
-    /// resolver (`db_path_from_context`, honouring `--db`, `--session*` and bare
-    /// `session=`) already existed and had 11 other callers.
+    /// resolver (`db_path_from_context`, honouring `--db` and `--session*`)
+    /// already existed and had 11 other callers.
     #[test]
     fn db_backed_providers_honour_the_session_named_on_the_line() {
         use nmbrs_metrics::reporters::sqlite::SqliteReporter;
@@ -2694,21 +2639,12 @@ mod walker_tests {
             "`--session=<dir>` must select the db: {got:?}"
         );
 
-        // The bare spelling resolves identically — read_session_dir routes
-        // through the same resolver.
-        let bare = format!("session={}", dir.display());
-        let got = execution_id_provider("", &[&bare]);
-        assert!(
-            got.iter().any(|e| e == "77"),
-            "bare `session=<dir>` must select the db: {got:?}"
-        );
-
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The session provider must scan the root the RUNTIME uses. It read a
-    /// hardcoded `"logs"` — the pre-SRD-77 name — so `--session <TAB>` and
-    /// `session=<TAB>` silently offered nothing on every current layout, which
+    /// hardcoded `"logs"` — the pre-SRD-77 name — so `--session <TAB>`
+    /// silently offered nothing on every current layout, which
     /// reads as "no sessions exist" rather than "this provider is looking in the
     /// wrong place".
     #[test]
@@ -2952,7 +2888,6 @@ mod walker_tests {
             "--replace",
             "--rename",
             "--group",
-            "--workload",
             "--dry-run",
             "--name",
         ] {
@@ -3112,12 +3047,19 @@ mod walker_tests {
     #[test]
     fn report_rename_offers_replace_and_dry_run() {
         let cands = complete(&["nmbrs", "report", "rename", "old_name", "new_name", "--"]);
-        for required in ["--replace", "--dry-run", "--workload"] {
+        for required in ["--replace", "--dry-run"] {
             assert!(
                 cands.iter().any(|c| c == required),
                 "rename completion missing `{required}`: {cands:?}"
             );
         }
+        // The workload override is the `workload=` kv, not a flag.
+        let cands = complete(&["nmbrs", "report", "rename", "old_name", "new_name", "wor"]);
+        assert!(
+            cands.iter().any(|c| c == "workload="),
+            "rename completion missing `workload=`: {cands:?}"
+        );
+        assert!(!cands.iter().any(|c| c == "--workload"), "{cands:?}");
     }
 
     #[test]

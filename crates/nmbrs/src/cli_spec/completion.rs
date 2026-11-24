@@ -36,7 +36,7 @@ fn to_strict_node(cmd: &Command) -> StrictNode<true, true> {
     // command carrying an override got the plain leaf node instead — and since
     // an override is used precisely by commands that declare no `flags` /
     // `kv_params` of their own, that node is EMPTY: the command name completes,
-    // then nothing after it. `nmbrs table`/`nmbrs plot` behaved that way while
+    // then nothing after it. `nmbrs report table`/`nmbrs report plot` behaved that way while
     // `nmbrs report table` (a deeper child, built by `to_node`) worked.
     let strict: StrictNode<false, false> = if let Some(provider) = cmd.completion_override {
         StrictNode::from_node(provider())
@@ -101,9 +101,6 @@ fn leaf_node(cmd: &Command) -> Node {
             if let Some(short) = f.short {
                 node = node.with_value_provider(short, fn_provider(provider));
             }
-            for a in f.aliases {
-                node = node.with_value_provider(a, fn_provider(provider));
-            }
         }
     }
     for kv in cmd.kv_params {
@@ -136,7 +133,7 @@ mod tests {
     /// which used to fall through to the plain leaf builder and drop the
     /// override — and since override-carrying commands declare no `flags` of
     /// their own, the result was an empty node: the command name completed and
-    /// nothing after it did. `nmbrs table` / `nmbrs plot` were in that state while
+    /// nothing after it did. `nmbrs report table` / `nmbrs report plot` were in that state while
     /// `nmbrs report table` worked.
     #[test]
     fn root_level_completion_override_is_honoured() {

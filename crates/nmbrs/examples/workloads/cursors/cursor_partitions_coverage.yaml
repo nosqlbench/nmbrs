@@ -1158,7 +1158,7 @@ scenarios:
   # A malformed spec in comprehension position (`for: "p in
   # partitions(\"<bad>\")"`) must surface the VERBATIM polydat
   # diagnostic as the PRIMARY error — no panic backtrace, and no
-  # downstream "type mismatch: cannot connect String output to ext
+  # downstream "type mismatch: cannot connect str output to ext
   # input" leak. These scenarios are NAMED-ONLY: they are never the
   # walked scenario (the `#@ run` directive pins `windowed_chunking`)
   # and are exercised exclusively by their own `#[test]` fns in
@@ -1167,7 +1167,7 @@ scenarios:
   # CRITICAL: every rejection scenario points at the `noop_emit`
   # phase, which makes NO reference to `p`. If the phase consumed
   # `p` (e.g. `idx_of(p)`), the failed spec would leave `p` as a
-  # raw String and the binding would raise a String→ext type
+  # raw str and the binding would raise a str→ext type
   # mismatch that MASKS the spec diagnostic — defeating the test.
   # ─────────────────────────────────────────────────────────────
 
@@ -1477,7 +1477,7 @@ phases:
     # invalid, so partition resolution fails before this phase runs.
     # The phase makes NO reference to `p`, ensuring the verbatim
     # spec diagnostic is the primary error rather than a downstream
-    # String→ext type mismatch that would mask it.
+    # str→ext type mismatch that would mask it.
     cycles: 1
     concurrency: 1
     ops:

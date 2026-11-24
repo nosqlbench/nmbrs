@@ -50,7 +50,7 @@ impl Drop for Sandbox {
 /// it, the offer opens at floor 2 and discovers ~6 by climbing.
 /// The tight window (250ms) makes the discovery fast; the op
 /// latency (10ms) keeps enough attempts per window for a stable
-/// fraction. `retry_advisory: off` keeps this log focused on the
+/// fraction. `retry_advisory: false` keeps this log focused on the
 /// governor's own lines.
 const WORKLOAD: &str = r#"description: throttle governor e2e
 
@@ -69,7 +69,7 @@ phases:
         stmt: "x"
         tries: 8
         retry_backoff: "10ms"
-        retry_advisory: "off"
+        retry_advisory: false
         result-overload: 6
         result-latency: "10ms"
 "#;

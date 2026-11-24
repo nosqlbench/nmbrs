@@ -58,8 +58,8 @@ new ad-hoc machinery:
    `result:` op-template field becomes a multi-line Polydat source
    string — same syntactic shape as `bindings:`, just
    evaluated AFTER the op runs with a small set of pre-bound
-   wires injected: `body: Str` (the result body's text
-   projection), `count: U64` (row/element count), `ok: Bool`
+   wires injected: `body: str` (the result body's text
+   projection), `count: u64` (row/element count), `ok: bool`
    (success boolean), plus every name from the op's
    `[name]`-bracket capture declarations. Each `:=`
    assignment in the block declares one result wire. The user
@@ -120,11 +120,11 @@ The load-bearing rule:
   assignment declares one result wire.
 - **Pre-bound result wires.** A small set of wires the runtime
   injects into the result-bindings scope before evaluation:
-  `body: Str` (body's text projection), `count: U64`
-  (row/element count), `ok: Bool` (success boolean), plus
+  `body: str` (body's text projection), `count: u64`
+  (row/element count), `ok: bool` (success boolean), plus
   every name from the op's existing `[name]`-bracket capture
   declarations.
-- **Body projection.** The `body: Str` wire's value — a single
+- **Body projection.** The `body: str` wire's value — a single
   string derived from the op's `OpResult` body. The default
   projection is `body.to_text()`; adapters can override (e.g.
   CQL exposes the result row's text columns directly without a
@@ -181,9 +181,9 @@ syntax** — no inference required.
 `<name> := <expr>` assignment declares one result wire. The
 expression may reference:
 
-- `body: Str` — the result body's text projection.
-- `count: U64` — number of rows / records / elements.
-- `ok: Bool` — success boolean.
+- `body: str` — the result body's text projection.
+- `count: u64` — number of rows / records / elements.
+- `ok: bool` — success boolean.
 - Any name from the op's `[name]`-bracket capture declarations.
 - Any in-scope wire reachable via the standard scope chain
   (workload-root `shared`, intermediate scopes, the op's own
@@ -211,9 +211,9 @@ needed (mirrors `bindings: |`).
 
 | Name     | Type   | Source                                                     |
 |----------|--------|------------------------------------------------------------|
-| `body`   | Str    | `OpResult.body.to_text()` projection (per-adapter override).|
-| `count`  | U64    | `OpResult.body.element_count()` — the row / record count.  |
-| `ok`     | Bool   | `true` when the inner adapter returned `Ok(_)` or skipped. |
+| `body`   | str    | `OpResult.body.to_text()` projection (per-adapter override).|
+| `count`  | u64    | `OpResult.body.element_count()` — the row / record count.  |
+| `ok`     | bool   | `true` when the inner adapter returned `Ok(_)` or skipped. |
 | captures | varies | Names declared via `[name]` brackets in the op's fields.   |
 
 A user-written `body :=` / `count :=` / `ok :=` assignment in
@@ -235,7 +235,7 @@ forms map to Polydat source as follows:
 | `<name>: <polydat-call>`               | `<name> := <polydat-call>`                    |
 
 Path expressions are deferred because they require structural
-access to the body that `body: Str` doesn't provide. They land
+access to the body that `body: str` doesn't provide. They land
 when (a) a `body_json: <json-shape>` wire is added alongside
 `body`, or (b) a `json_path(body, "rows[0].field")` stdlib
 function lands. Both are out of scope for SRD-66; workloads
@@ -898,8 +898,8 @@ the computed value and updates the extern's slot via
 Two architectural shapes considered:
 
 **A. Compile result-bindings into the op-template kernel.**
-Append `extern body: Str` / `extern count: U64` / `extern
-ok: Bool` plus the user's source to the op's bindings before
+Append `extern body: str` / `extern count: u64` / `extern
+ok: bool` plus the user's source to the op's bindings before
 kernel synthesis. The kernel re-evaluates per cycle when
 the runtime sets these inputs. This is the SRD's preferred
 shape (§"Compilation lifecycle"), but requires the constraint-1
@@ -938,10 +938,10 @@ This is the implicit-modal projection the user explicitly
 rejected — instead, workload authors compose
 `exactly_one_value(body)` to assertively unwrap a unary
 structure (Surface 4). For that to work, `body` needs to
-be a structural value (not Str), so `exactly_one_value` can
+be a structural value (not str), so `exactly_one_value` can
 inspect the row × column shape.
 
-Settling on the body Value variant (Str vs Json vs a new
+Settling on the body Value variant (str vs json vs a new
 `Body` Value type) is the gate for both `exactly_one_value`
 and the kernel-driven path's body extern.
 

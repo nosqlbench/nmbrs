@@ -18,7 +18,7 @@ nmbrs-metrics = { workspace = true }
 nmbrs-runtime = { workspace = true }
 # Needed for SRD 23 §"TUI surface" — session-root lookup and
 # runtime-context globals that back the control-edit affordance.
-polydat = "0.6.2"
+polydat = "0.10.0"
 # tokio::spawn needed for non-blocking control writes from the
 # event loop; `rt` feature supplies the handle.
 tokio = { version = "1", features = ["sync", "time", "rt"] }

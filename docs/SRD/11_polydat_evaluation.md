@@ -1,11 +1,11 @@
 # 11: Polydat Evaluation Model — nmbrs-side framing
 
 > **Planned (SRD-84):** `&&` / `||` land as **eager** truthiness
-> combinators (both operands evaluate → `U64` 1/0); short-circuit is a
+> combinators (both operands evaluate → `u64` 1/0); short-circuit is a
 > deferred optimization (needs conditional-pull — out of scope now).
 > The `<expr> as <type>` cast (Part 1b) is an **optional, alignment-only**
 > type-fusion infill into the SRD-79 layer. Part 3 formalises the
-> **truthiness contract**: predicates resolve to `U64` 1/0 (comparisons
+> **truthiness contract**: predicates resolve to `u64` 1/0 (comparisons
 > already do), an indeterminate value takes a stub's declared
 > truthy/falsy default, and Rust-generic stubs bind their return type
 > via the SRD-80b `Wire` trait. See [SRD-84](84_grammar_safe_matter.md).
@@ -28,18 +28,18 @@ bridge and the cursor-driven evaluation pump.
 ## Planned: type-driven name resolution
 
 The current name-resolution flow (Pass 1 auto-infers every
-unknown identifier as a `U64` coordinate input, Pass 3 binding
+unknown identifier as a `u64` coordinate input, Pass 3 binding
 compilation resolves against the resulting input set) is
 type-agnostic. This is the cause of three operator-visible
 symptoms:
 
-- The audit-log `boundary adapter: no catalog entry for X → Ext`
-  warning class (workloads that pass U64 / Str / Handle values
-  into auto-extern'd slots typed as the catch-all `Ext`).
+- The audit-log `boundary adapter: no catalog entry for X → ext`
+  warning class (workloads that pass u64 / str / handle values
+  into auto-extern'd slots typed as the catch-all `ext`).
 - The workload-author surface ambiguity around `set: { mode:
   outer }`: today the bare token lowers to a wire reference
-  and silently auto-extern's as a `U64` coordinate, even when
-  the operator intended a Str literal.
+  and silently auto-extern's as a `u64` coordinate, even when
+  the operator intended a str literal.
 - The YAML array / object workload param round-trip through
   stringified text: `mnc_values: [8, 128]` and `opts: {a: 1}`
   flatten to `"[8,128]"` and `"{\"a\":1}"` at the polydat
@@ -53,16 +53,16 @@ that makes name resolution type-aware end-to-end. **Primary
 goal**: primitive type alignment outside of `Value::Json` —
 the type-expectation graph collapses workload-author
 polymorphism into runtime specialization wherever the
-alignment can be proved safe (`U64`, `F64`, `Str`, `Bool`,
-`VecU64`, `VecF32`, …) so producer and consumer wire types
+alignment can be proved safe (`u64`, `f64`, `str`, `bool`,
+`vec_u64`, `vec_f32`, …) so producer and consumer wire types
 agree by construction. **Type fusion / polyfill** is the
 auto-bridge that inserts conversion adapters where primitive
 mismatches DO exist (widening, narrowing, parse-from-string,
-etc.) or materializes a primitive from `Json` at the
+etc.) or materializes a primitive from `json` at the
 receiver. **`Value::Json` is the interstitial bridge and
 last-resort carrier** — used only when the graph genuinely
 can't decide a primitive alignment OR when the operator
-explicitly defers typing for late binding. Json is never
+explicitly defers typing for late binding. json is never
 the default when the graph could have committed. When SRD-79
 ships, this section will be replaced with the new resolution
 contract; until then, the existing flow stands and the audit-

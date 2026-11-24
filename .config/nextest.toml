@@ -17,11 +17,15 @@ fail-fast = false
 # reports.)
 slow-timeout = { period = "60s" }
 
+# The PTY tests each allocate a pseudo-terminal plus an `nmbrs` child.
+# Under nextest's one-process-per-test fan-out the concurrent PTY
+# allocations starve each other and the emulator's render loop stalls, so
+# those binaries share a single-slot group: one PTY test at a time, still
+# overlapped with the rest of the suite. Every binary that uses
+# `tests/pty_support` belongs in the filter below.
+[test-groups]
+pty = { max-threads = 1 }
+
 [[profile.default.overrides]]
-# The cassandra-cpp driver's integration tests talk to the LIVE node and
-# time out spuriously while a heavy compaction is in flight (observed:
-# LIB_REQUEST_TIMED_OUT across six tests, all passing minutes later).
-# Retry those twice before calling them failed; everything else stays
-# no-retry so a real regression fails loudly the first time.
-filter = "package(cassandra-cpp)"
-retries = 2
+filter = 'binary(op_leaf_display) | binary(output_channel_harness) | binary(plotter_alignment) | binary(readout_pipeline) | binary(srd92_display) | binary(tui_display_harness) | binary(tui_terminal_toggle)'
+test-group = 'pty'

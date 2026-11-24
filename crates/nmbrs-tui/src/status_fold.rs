@@ -7,7 +7,8 @@
 //! the consumer**, not by N per-phase producer threads submitting strings
 //! to one slot (SRD-100 §6). Each display surface walks `active_phases`
 //! and calls [`render_phase_status`] on every entry to re-derive *that
-//! phase's* status line from its [`PhaseRenderHandle`]
+//! phase's* status line from its
+//! [`PhaseRenderHandle`](nmbrs_runtime::observer::PhaseRenderHandle)
 //! (`nmbrs_runtime::observer`). This replaces the retired inline-status
 //! refresh thread + the single `RunState::status_render` scalar that the
 //! threads stomped under concurrency.
@@ -240,7 +241,7 @@ pub fn render_active_status_with_gutters(snap: &RunState) -> Option<(String, Vec
 /// impossible by construction; `strip_and_body_agree_on_every_glyph` pins it.
 ///
 /// Single-cell, text-presentation characters per the
-/// [`crate::widgets::TIMING_MARK`] rule: an emoji-presentation glyph would
+/// `crate::widgets::TIMING_MARK` rule: an emoji-presentation glyph would
 /// occupy two terminal cells and shift every divider on the row.
 pub const GLYPH_CPU: char = '⚙';
 pub const GLYPH_IO: char = '⛃';
@@ -253,7 +254,7 @@ pub const GLYPH_STORAGE: char = '⛁';
 /// categories appear — a `Some` field is an enabled category with a
 /// measurement; absent is absent, not zero.
 ///
-/// Glyphs follow the [`crate::widgets::TIMING_MARK`] rule: single-cell,
+/// Glyphs follow the `crate::widgets::TIMING_MARK` rule: single-cell,
 /// text-presentation symbols — an emoji-presentation glyph would occupy two
 /// terminal cells and shift every divider on the row. ⚙ cpu, ⛃ io (busy
 /// platters), ▤ ram (bank rows), ⇅ rambw (transfer), ⛁ storage (space on

@@ -151,12 +151,18 @@ phases:
           - field: status
             eq: "200"
         strict: true
+        # Jolokia answers `{request, value, status, …}`; the live
+        # compactions are the entries of `.value`. Capture how many
+        # there are and poll until none remain.
+        bindings: |
+          extern active_compactions: u64 = 0
+        capture:
+          active_compactions: "/value:count"
         poll:
-          mode: await_empty
+          until: "active_compactions == 0"
           interval_ms: 1000
           timeout_ms: 600000
           max_error_retries: 3
-          json_path: "/value"
           metric_name: index_build_time_s
 
   # Verify the index works with a query

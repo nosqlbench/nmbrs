@@ -26,13 +26,13 @@ use polydat::Kernel;
 use polydat::ast::Value;
 use polydat::kernel::{KernelProgram, PolydatProgram};
 
-/// Cached `NMBRS_DIRTY_DEBUG` flag — per-cycle `std::env::var`
+/// Cached `NMBRS_DIRTY_DEBUG=true` switch — per-cycle `std::env::var`
 /// reads measured at ~30% of single-fiber CPU; the OnceLock
 /// makes the gate a single atomic load on the hot path. See
-/// the matching helpers in `wires.rs` / polydat's `engines.rs`.
+/// the matching helper in `wires.rs`.
 fn nmbrs_dirty_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| std::env::var("NMBRS_DIRTY_DEBUG").is_ok())
+    *FLAG.get_or_init(|| crate::debug_env::debug_flag("NMBRS_DIRTY_DEBUG"))
 }
 
 /// Shared op builder that distributes per-fiber builders.
@@ -449,7 +449,8 @@ pub fn validate_bind_points(
         let program = program_for_op(&template.name);
         for (field_name, value) in &template.op {
             if let serde_json::Value::String(s) = value {
-                let bps = bindpoints::extract_bind_points(s);
+                let bps = bindpoints::extract_bind_points(s)
+                    .map_err(|e| format!("op '{}' field '{field_name}': {e}", template.name))?;
                 for bp in &bps {
                     if let BindPoint::Reference {
                         name, qualifier, ..

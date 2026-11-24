@@ -38,7 +38,7 @@ enum Source {
 /// to completion, and return the merged YAML text ready for
 /// `parse::parse_workload`, plus any resolution warnings the
 /// chain produced (a target name matching multiple resources —
-/// see [`resolve_extends_target`]). Callers surface the warnings
+/// see `resolve_extends_target`). Callers surface the warnings
 /// on their own channel; dropping them silently is a bug.
 ///
 /// The returned text has every `extends:` directive stripped.
@@ -190,8 +190,8 @@ fn resolve_extends_target(
 
     // A pinned target that resolves at its pinned location is
     // unambiguous by declaration.
-    if pinned && local.is_some() {
-        return Ok(Source::File(local.unwrap()));
+    if pinned && let Some(path) = local {
+        return Ok(Source::File(path));
     }
     if pinned
         && origin_dir.is_none()

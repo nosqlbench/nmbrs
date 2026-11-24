@@ -254,8 +254,9 @@ pub struct ScopeNode {
     ///
     /// `OnceLock` keeps installation lock-free; downstream
     /// readers walk the parent chain via
-    /// [`ScopeTree::lookup_name`] and never touch this slot
-    /// directly.
+    /// [`ScopeTree::nearest_installed_ancestor_kernel`] /
+    /// [`ScopeTree::ancestor_kernels`] and only ever read
+    /// this slot.
     pub cached_kernel: std::sync::OnceLock<std::sync::Arc<crate::scope_kernel::ScopeKernel>>,
     /// SRD-13d §3 scope-elision mark — set once at
     /// pre-walk by [`ScopeTree::mark_scope_elision`] and
@@ -383,7 +384,7 @@ impl ScopeTree {
     /// (node 0). The walker seeds its scope cursor here so the top-level
     /// scenario nodes resolve **positionally** against this node's children
     /// (one scope-tree child per scenario node, in order — see
-    /// [`Self::append_subtree`]). Falls back to the root if (degenerately)
+    /// `Self::append_subtree`). Falls back to the root if (degenerately)
     /// there is no scenario layer.
     pub fn scenario_root_idx(&self) -> ScopeNodeIdx {
         // Session(0) → Workload → Scenario. Walk two layers down.
@@ -706,7 +707,7 @@ impl ScopeTree {
     ///
     /// The workload root is always materialised, so this
     /// always terminates with `Some(idx)`. Returns `None`
-    /// only if [`mark_scope_elision`] hasn't been run.
+    /// only if [`Self::mark_scope_elision`] hasn't been run.
     pub fn nearest_materialised(&self, idx: ScopeNodeIdx) -> Option<ScopeNodeIdx> {
         let mut cur = idx;
         loop {
@@ -1089,7 +1090,7 @@ impl ScopeTree {
     /// authoritative answer for "what is `<name>` at this
     /// scope?" — every name visible at this scope (own outputs
     /// plus parent-inherited values bound via
-    /// [`PolydatKernel::materialize_wiring_from_outer`]) resolves through the
+    /// [`ScopeKernel::synthesize_under`](crate::scope_kernel::ScopeKernel::synthesize_under)) resolves through the
     /// standard Polydat API on this one kernel. Callers don't walk
     /// the scope tree to do name resolution; Polydat's auto-extern +
     /// outer-scope wiring already encapsulates the layering.
@@ -1263,6 +1264,51 @@ impl<'a> Iterator for AncestorsIter<'a> {
         let node = &self.tree.nodes[idx];
         self.cursor = node.parent;
         Some((idx, node))
+    }
+}
+
+/// One-line display label for a scenario-level `bindings:` scope.
+///
+/// Summarizes the names the scope DEFINES (`x := …`, `shared y := …`,
+/// `extern z: T = …`, `input w: T`) instead of echoing raw source —
+/// the first source line is often a comment, which read as an
+/// unnatural, repeating emission in the scenario-tree readout.
+/// Comment-only / empty sources degrade to a bare `bindings:`.
+pub fn bindings_label(source: &str) -> String {
+    let mut names: Vec<&str> = Vec::new();
+    for line in source.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let t = t
+            .strip_prefix("shared ")
+            .or_else(|| t.strip_prefix("volatile "))
+            .or_else(|| t.strip_prefix("const "))
+            .or_else(|| t.strip_prefix("final "))
+            .unwrap_or(t);
+        let t = t
+            .strip_prefix("extern ")
+            .or_else(|| t.strip_prefix("input "))
+            .unwrap_or(t);
+        let ident_end = t
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .unwrap_or(t.len());
+        if ident_end == 0 {
+            continue;
+        }
+        let rest = t[ident_end..].trim_start();
+        if rest.starts_with(":=") || rest.starts_with(':') {
+            let name = &t[..ident_end];
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    match names.len() {
+        0 => "bindings:".to_string(),
+        1..=4 => format!("bindings: {}", names.join(", ")),
+        n => format!("bindings: {} (+{} more)", names[..4].join(", "), n - 4),
     }
 }
 
@@ -1566,7 +1612,7 @@ mod tests {
     fn for_each_scope_kernel_uses_native_type_for_numeric_iter_var() {
         // Single-clause for_each over a numeric workload param.
         // Pre-eval at synthesis detects U64 from "1, 10" and
-        // declares `extern k: u64` instead of `extern k: String`.
+        // declares `extern k: u64` instead of `extern k: str`.
         // Per SRD-18b "native types as the general rule".
         use std::sync::Arc;
 
@@ -2049,50 +2095,5 @@ mod tests {
         // Fix: scoped lookup picks the right descendant.
         assert_eq!(tree.find_bindings_scope_under(3, &bindings_source), Some(4));
         assert_eq!(tree.find_bindings_scope_under(6, &bindings_source), Some(7));
-    }
-}
-
-/// One-line display label for a scenario-level `bindings:` scope.
-///
-/// Summarizes the names the scope DEFINES (`x := …`, `shared y := …`,
-/// `extern z: T = …`, `input w: T`) instead of echoing raw source —
-/// the first source line is often a comment, which read as an
-/// unnatural, repeating emission in the scenario-tree readout.
-/// Comment-only / empty sources degrade to a bare `bindings:`.
-pub fn bindings_label(source: &str) -> String {
-    let mut names: Vec<&str> = Vec::new();
-    for line in source.lines() {
-        let t = line.trim();
-        if t.is_empty() || t.starts_with('#') {
-            continue;
-        }
-        let t = t
-            .strip_prefix("shared ")
-            .or_else(|| t.strip_prefix("volatile "))
-            .or_else(|| t.strip_prefix("const "))
-            .or_else(|| t.strip_prefix("final "))
-            .unwrap_or(t);
-        let t = t
-            .strip_prefix("extern ")
-            .or_else(|| t.strip_prefix("input "))
-            .unwrap_or(t);
-        let ident_end = t
-            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-            .unwrap_or(t.len());
-        if ident_end == 0 {
-            continue;
-        }
-        let rest = t[ident_end..].trim_start();
-        if rest.starts_with(":=") || rest.starts_with(':') {
-            let name = &t[..ident_end];
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-    }
-    match names.len() {
-        0 => "bindings:".to_string(),
-        1..=4 => format!("bindings: {}", names.join(", ")),
-        n => format!("bindings: {} (+{} more)", names[..4].join(", "), n - 4),
     }
 }

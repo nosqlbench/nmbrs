@@ -209,7 +209,7 @@ impl LogOnlyObserver {
     /// (`inline_suppress`). Every signal — banners, the scope/phase
     /// readouts, completion notices — still flows through the channel to
     /// `session.log` (the file write in
-    /// [`crate::observer::log_categorized`] is independent of these
+    /// [`nmbrs_runtime::observer::log_tagged`] is independent of these
     /// flags); it just isn't rendered to *this* surface.
     ///
     /// Only applied on an interactive TTY: a non-interactive run

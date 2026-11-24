@@ -81,9 +81,7 @@ use std::collections::{HashMap, HashSet};
 use crate::scope_kernel::ScopeKernel;
 use polydat::kernel::ManifestEntry;
 
-use super::helpers::{
-    format_value_as_final_literal, port_type_to_extern_name, workload_param_type_name,
-};
+use super::helpers::{format_value_as_final_literal, workload_param_port_type};
 
 /// Per-scope context the walker needs from its caller.
 ///
@@ -233,10 +231,9 @@ pub fn cascade_parent_into_source(inputs: CascadeInputs<'_>, outputs: CascadeOut
                 continue;
             }
             if let Some(entry) = manifest_by_name.get(name.as_str()) {
-                let type_name = port_type_to_extern_name(entry.port_type);
                 outputs
                     .source
-                    .push_str(&format!("extern {name}: {type_name}\n"));
+                    .push_str(&format!("extern {name}: {}\n", entry.port_type));
                 outputs.emitted.insert(name.clone());
                 outputs.inherited_names.push(name.clone());
             } else if let Some(value) = workload_params.get(name) {
@@ -263,10 +260,10 @@ pub fn cascade_parent_into_source(inputs: CascadeInputs<'_>, outputs: CascadeOut
         if shadow_names.contains(name) {
             continue;
         }
-        let type_name = workload_param_type_name(value);
+        let port_type = workload_param_port_type(value);
         outputs
             .source
-            .push_str(&format!("extern {name}: {type_name}\n"));
+            .push_str(&format!("extern {name}: {port_type}\n"));
         outputs.emitted.insert(name.clone());
         outputs.inherited_names.push(name.clone());
     }
@@ -333,10 +330,9 @@ pub fn cascade_parent_into_source(inputs: CascadeInputs<'_>, outputs: CascadeOut
             continue;
         }
         let port_type = parent_program.node_meta(node_idx).outs[port_idx].typ;
-        let type_name = port_type_to_extern_name(port_type);
         outputs
             .source
-            .push_str(&format!("extern {owned}: {type_name}\n"));
+            .push_str(&format!("extern {owned}: {port_type}\n"));
         outputs.emitted.insert(owned.clone());
         outputs.inherited_names.push(owned);
     }

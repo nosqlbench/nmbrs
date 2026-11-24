@@ -1,7 +1,10 @@
 [workspace]
 # Every crate — the core crates and the adapters (`nmbrs-adapter-<name>`) —
-# lives in its own directory under `crates/`, named for the crate.
-members = ["crates/*"]
+# lives in its own directory under `crates/`, named for the crate. `xtask`
+# holds the repository's own tasks (the release gate behind `cargo ws-check`
+# and `cargo ws-release`, docs/guide/releasing.md); it is versioned with the
+# crates and never published.
+members = ["crates/*", "xtask"]
 # The vendored cassandra-cpp fork (published as `nmbrs-cassandra-cpp`) is not
 # a member: its lib-tests link `-lcassandra` against the system, which only the
 # cassandra-cpp Docker sysroot has, so `cargo test --workspace` from a clean
@@ -14,10 +17,8 @@ resolver = "3"
 
 # Shared package metadata inherited by every member via
 # `field.workspace = true`. `version` is the one version every crate carries:
-# the crates move in lockstep, so release with
-# `cargo workspaces version <bump> --force '*'` — the tool otherwise skips
-# crates unchanged since their last tag while their inherited version still
-# moves. Each crate names its own `readme`.
+# the crates move in lockstep, and `cargo ws-release` is what moves them
+# (docs/guide/releasing.md). Each crate names its own `readme`.
 [workspace.package]
 version = "0.4.0"
 edition = "2024"

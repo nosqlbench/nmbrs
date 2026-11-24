@@ -185,7 +185,7 @@ Two things enable this split:
    - **Type assertion** — one per supported `PortType`. Asserts
      the runtime value's variant matches the expected type. Used
      when provenance can't prove the wire already carries the
-     right type (e.g. a dynamic `Json` navigation that is
+     right type (e.g. a dynamic `json` navigation that is
      *supposed* to yield a u64 but can't be proven to at compile
      time).
    - **Value assertion** — type-specific, parameterised by a
@@ -310,15 +310,15 @@ convention: `assert_<type>[_<constraint>]`.
 
 | Node | Signature | Purpose |
 |------|-----------|---------|
-| `assert_u64` | `u64 → u64` | Confirms the runtime `Value` variant is `U64` |
-| `assert_f64` | `f64 → f64` | Confirms `F64` |
-| `assert_bool` | `bool → bool` | Confirms `Bool` |
-| `assert_str` | `String → String` | Confirms `Str` |
-| `assert_bytes` | `Bytes → Bytes` | Confirms `Bytes` |
-| `assert_json` | `Json → Json` | Confirms `Json` |
+| `assert_u64` | `u64 → u64` | Confirms the runtime value's type is `u64` |
+| `assert_f64` | `f64 → f64` | Confirms `f64` |
+| `assert_bool` | `bool → bool` | Confirms `bool` |
+| `assert_str` | `str → str` | Confirms `str` |
+| `assert_bytes` | `bytes → bytes` | Confirms `bytes` |
+| `assert_json` | `json → json` | Confirms `json` |
 
 These are only meaningful where runtime typing can actually
-diverge from the static port type (JSON navigation, `Ext` unwraps,
+diverge from the static port type (JSON navigation, `ext` unwraps,
 cross-adapter values). Where the source's output `PortType` is
 already known to equal the sink's input `PortType`, the compiler
 **skips the assertion** — zero cost, no node inserted.
@@ -543,12 +543,12 @@ The compiler *skips* inserting an assertion in any of these cases
    already equals the sink's declared input `PortType`. This
    covers the majority of wires. Type assertions exist for the
    minority where the runtime value's variant could diverge from
-   the declared type (dynamic JSON navigation, `Ext` unwraps,
+   the declared type (dynamic JSON navigation, `ext` unwraps,
    cross-adapter handoffs). When the type system already proves
    alignment, no `assert_<type>` is inserted — both in strict and
    non-strict mode, at zero runtime cost. The same applies *after*
    an auto-inserted type adapter: once `__u64_to_f64` has run, the
-   downstream wire is statically `F64`, and no `assert_f64` is
+   downstream wire is statically `f64`, and no `assert_f64` is
    needed on top of it.
 2. **Constant source.** Source is a `ConstNode` whose literal
    value has already been validated against the sink's constraint

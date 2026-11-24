@@ -43,7 +43,7 @@ A comprehension clause `x in S` must turn the **source** `S`
 into a sequence of values, binding `x` to each in turn. The
 source can resolve to many shapes — a literal list, a range, a
 generator, a workload param holding a list, a single scalar, a
-native vector, a JSON array, an `Ext` carrying a partition list.
+native vector, a JSON array, an `ext` carrying a partition list.
 
 Two intentions collide in `x in S`:
 
@@ -143,13 +143,13 @@ scattered per-type special cases. For a resolved value `V`:
 
 | `V` | interior |
 |---|---|
-| `VecF32` / `VecI32` / `VecF64` / `VecI64` / … (native vectors) | the element values |
-| `Json` that is an array | the element values |
-| `Ext` exposing a list (e.g. `PartitionList`) | the list entries |
+| `vec_f32` / `vec_i32` / `vec_f64` / `vec_i64` / … (native vectors) | the element values |
+| `json` that is an array | the element values |
+| `ext` exposing a list (e.g. `PartitionList`) | the list entries |
 | string **comprehension**, double-quoted | the token spans (§3.2) |
 | string **comprehension**, single-quoted | none |
-| `U64` / `F64` / `Bool` | none |
-| `Json` non-array, `Bytes`, `Handle`, opaque `Ext`, plain string **literal** | none |
+| `u64` / `f64` / `bool` | none |
+| `json` non-array, `bytes`, `handle`, opaque `ext`, plain string **literal** | none |
 
 `Some(interior)` ⇒ iterable ⇒ relaxed peels / `[S…]` succeeds.
 `None` ⇒ scalar ⇒ relaxed wraps / `[S…]` errors / `[S]` binds

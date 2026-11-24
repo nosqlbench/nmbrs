@@ -1,8 +1,8 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! Sqlite [`DataSource`] adapter against the nmbrs
-//! `metrics.db` schema. **First non-test `DataSource`
+//! Sqlite [`MetricAccess`] adapter against the nmbrs
+//! `metrics.db` schema. **First non-test `MetricAccess`
 //! impl** — see SRD-47 §"What this push enables next".
 //!
 //! # Schema contract
@@ -64,22 +64,6 @@ use rusqlite::{Connection, OptionalExtension, params_from_iter, types::Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Sqlite-backed [`DataSource`] (and [`MetricCatalog`]).
-/// Wraps a [`Connection`] behind a [`Mutex`] so the trait's
-/// `&self` methods can serialize statement preparation and
-/// execution.
-///
-/// Open with [`SqliteDataSource::open`] for a path or
-/// [`SqliteDataSource::from_connection`] to bring your own
-/// connection (useful for in-memory tests). Either path
-/// applies the read-side PRAGMAs the adapter wants.
-///
-/// `db_path` is captured when [`Self::open`] is used so the
-/// catalog cache layer can mtime-invalidate against the
-/// on-disk file. Sources opened via
-/// [`Self::from_connection`] don't have a path and thus
-/// can't drive mtime-based invalidation; their cache layer
-/// has to fall back to TTL + manual `invalidate()`.
 /// How a metric instance is selected across the executions in a
 /// (possibly `refine`-d) session store. Reports default to
 /// [`LatestPerInstance`](ExecutionSelection::LatestPerInstance).
@@ -101,6 +85,22 @@ pub enum ExecutionSelection {
     Specific(u64),
 }
 
+/// Sqlite-backed [`MetricAccess`] (and [`MetricCatalog`]).
+/// Wraps a [`Connection`] behind a [`Mutex`] so the trait's
+/// `&self` methods can serialize statement preparation and
+/// execution.
+///
+/// Open with [`SqliteDataSource::open`] for a path or
+/// [`SqliteDataSource::from_connection`] to bring your own
+/// connection (useful for in-memory tests). Either path
+/// applies the read-side PRAGMAs the adapter wants.
+///
+/// `db_path` is captured when [`Self::open`] is used so the
+/// catalog cache layer can mtime-invalidate against the
+/// on-disk file. Sources opened via
+/// [`Self::from_connection`] don't have a path and thus
+/// can't drive mtime-based invalidation; their cache layer
+/// has to fall back to TTL + manual `invalidate()`.
 pub struct SqliteDataSource {
     conn: Mutex<Connection>,
     db_path: Option<PathBuf>,
@@ -138,7 +138,7 @@ impl SqliteDataSource {
     /// Closure suitable for
     /// [`super::catalog::CachedCatalog::with_mtime_fn`].
     /// Returns the latest `mtime` of the underlying file as
-    /// a monotonic [`Instant`] (computed by anchoring the
+    /// a monotonic [`Instant`](std::time::Instant) (computed by anchoring the
     /// system-time-difference against an initial fixed
     /// epoch — `Instant` itself isn't constructable from a
     /// system time, but the comparison is what matters and

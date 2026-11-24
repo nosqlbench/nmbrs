@@ -66,7 +66,7 @@ see named in error messages:
 
 | Form | Meaning |
 |---|---|
-| `Bool`, `U64`, `F64`, `Str`, `StrList` | plain scalars / string lists (numeric strings accepted where documented) |
+| `bool`, `u64`, `f64`, `str`, `StrList` | plain scalars / string lists (numeric strings accepted where documented). `bool` is a YAML bool or the string `"true"` / `"false"` — never `on`/`off`, `yes`/`no`, or `1`/`0` |
 | `Duration` | `"2.5h"`, bare seconds, or a `{param}` reference |
 | `ParamRef` | a `{param}` / iteration-variable reference is accepted here |
 | `GkSource` / `GkExpr` | a polydat bindings block / a single polydat expression |

@@ -35,7 +35,7 @@
 //! 4. The render thread polls every ~50 ms, drains **every** log
 //!    line the actor has queued on the durable scrollback stream
 //!    since the last tick (see
-//!    [`crate::run_state_actor::LogLine`]), prints those that pass
+//!    `crate::run_state_actor::LogLine`), prints those that pass
 //!    `min_level`, and advances `last_seen_seq`.
 //!
 //! `shutdown()` clears `sink_active` so the observer resumes
@@ -94,7 +94,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub(crate) const RESUME_FRESH: u64 = u64::MAX;
 
 /// A fresh cross-swap resume cursor to share across a sink's
-/// lifetime — starts at [`RESUME_FRESH`] so the first sink seeds
+/// lifetime — starts at `RESUME_FRESH` so the first sink seeds
 /// from the live log position and each post-swap sink resumes from
 /// the prior sink's final cursor. Used by the supervisor and the
 /// `tui_display_harness` example (which simulates a Ctrl-T swap by
@@ -151,7 +151,7 @@ impl LogOnlySink {
     /// Share a cross-swap log cursor with the supervisor so this
     /// sink re-emits the lines that scrolled while a TUI swap held
     /// the alternate screen, instead of skipping them (see
-    /// [`RESUME_FRESH`]).
+    /// `RESUME_FRESH`).
     pub fn with_resume(mut self, resume_from: Arc<AtomicU64>) -> Self {
         self.resume_from = Some(resume_from);
         self
@@ -159,7 +159,7 @@ impl LogOnlySink {
 
     /// Wire an interactive prompt into this sink. The receiver
     /// will be drained on every render tick; each
-    /// `WatcherSignal::Key(...)` feeds the [`PromptState`]'s
+    /// `WatcherSignal::Key(...)` feeds the `PromptState`'s
     /// keymap and the resize / help / interrupt chords adjust
     /// layout directly. Without a key receiver the sink runs
     /// in its legacy log-only mode.
@@ -916,7 +916,6 @@ fn run_render_loop(
                 prompt_input.as_ref(),
                 cols,
                 &status_margin,
-                margin_visible_width,
                 &status_gutters,
                 &mut gutter_state,
             );
@@ -1052,20 +1051,22 @@ pub(crate) struct PromptInput {
 /// and the status. Each row is `\r`-homed and erase-to-EOL'd so residue
 /// from a wider prior render is scrubbed.
 ///
-/// Row 0 of the status carries `status_margin` (timer + phase counter +
-/// `│ ` divider); rows 1+ carry `row2_margin` (the running-phase
-/// progress/ETA/spinner variant, padded so the divider column aligns)
-/// when present, else the standard margin.
+/// Each status row's margin comes from its entry in `gutters`: a header
+/// row wears its own timing triad and a detail row its gutter cell (or a
+/// blank divider), all the visible width of `status_margin` (timer +
+/// phase counter + `│ ` divider) so the divider column aligns. Row 0
+/// falls back to `status_margin` itself. An empty `status_margin` means
+/// the sink runs marginless, and no row gets a margin.
 pub(crate) fn draw_footer_at_cursor<W: Write>(
     out: &mut W,
     status_text: Option<&str>,
     prompt: Option<&PromptInput>,
     term_cols: u16,
     status_margin: &str,
-    margin_width: u16,
     gutters: &[crate::status_fold::RowGutter],
     gutter_state: &mut GutterState,
 ) -> (u16, u16) {
+    let margin_width = visible_width(status_margin) as u16;
     let status_lines: Vec<&str> = status_text
         .map(|s| s.split('\n').collect())
         .unwrap_or_default();
@@ -1311,13 +1312,6 @@ fn redraw_console_altscreen<W: Write>(
     let _ = write!(out, "\x1b[{rows};{}H", cursor_col + 1);
     let _ = out.flush();
 }
-
-/// Build the continuation (row-2+) margin for the footer status block: a blank
-/// gutter the same visible width as the row-1 [`format_margin_prefix`], with the
-/// `│` divider in the same column. A phase's detail rows — its metric line and
-/// its op-leaf lines — sit under this so they line up beneath the count/time
-/// triad, matching the interactive tree (only an entry's leading row shows the
-/// triad; its detail rows are blank under the divider). Empty when no phase is
 
 /// Completion-bar gutter cell (the house braille bar + divider).
 fn bar_gutter(frac: f64, w: usize, color: bool) -> String {
@@ -1826,7 +1820,6 @@ mod redraw_tests {
             None,
             80,
             row1,
-            target as u16,
             &[],
             &mut GutterState::default(),
         );
@@ -1875,14 +1868,12 @@ mod redraw_tests {
         margin: &str,
     ) -> String {
         let mut out: Vec<u8> = Vec::new();
-        let width = super::visible_width(margin) as u16;
         draw_footer_at_cursor(
             &mut out,
             status,
             prompt,
             80,
             margin,
-            width,
             &[],
             &mut GutterState::default(),
         );
@@ -1914,7 +1905,6 @@ mod redraw_tests {
             None,
             80,
             "",
-            0,
             &[],
             &mut GutterState::default(),
         );
@@ -1944,7 +1934,6 @@ mod redraw_tests {
             None,
             80,
             "",
-            0,
             &[],
             &mut GutterState::default(),
         );
@@ -1999,7 +1988,6 @@ mod redraw_tests {
             None,
             80,
             row1,
-            super::visible_width(row1) as u16,
             &gutters,
             &mut GutterState::default(),
         );
@@ -2034,7 +2022,6 @@ mod redraw_tests {
             None,
             80,
             margin,
-            super::visible_width(margin) as u16,
             &[],
             &mut GutterState::default(),
         );
@@ -2059,7 +2046,6 @@ mod redraw_tests {
             None,
             80,
             margin,
-            super::visible_width(margin) as u16,
             &[],
             &mut GutterState::default(),
         );
@@ -2084,7 +2070,6 @@ mod redraw_tests {
             None,
             80,
             row1,
-            super::visible_width(row1) as u16,
             &[],
             &mut GutterState::default(),
         );

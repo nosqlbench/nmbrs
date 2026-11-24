@@ -1,6 +1,9 @@
 # Scoped stop actions — decoupling detection scope from action scope (C spec)
 
-Status: design, ready to implement. Lineage: continues **SRD-83** (stop-condition shell
+Status: design, ready to implement. Naming (decided 2026-11-06): the keys stay
+`when:` / `each:` / `effect:`, the names every workload and SRD uses. The rename to
+`condition:` / `per:` / `action:` this note first proposed was not taken, and no key has an
+alternate spelling. Lineage: continues **SRD-83** (stop-condition shell
 distribution) and relates to **SRD-101** (`continue_if`). This is the "shell-evaluation
 follow-up" named in `crates/nmbrs-runtime/src/activity.rs:2299-2302`.
 
@@ -27,17 +30,17 @@ config to the trip site.
 
 | axis | field | value | status |
 |---|---|---|---|
-| condition | `condition:` (alias `when:`) | polydat predicate over runtime wires | exists |
+| condition | `when:` | polydat predicate over runtime wires | exists |
 | firing | `pulse:` | `continuous \| phase_end` (`{every: <dur>}` deferred to B) | names existing points |
-| detection distribution | `per:` (alias `each:`) | `ScopeLevel` or `[ScopeLevel]` | exists (rename) |
-| effect | `action:` (alias `effect:`) | `stop \| fail` or `{do: halt, as: success\|failure}` | exists (rename) |
-| **action target** | **`at:`** | one `ScopeLevel`; **default = innermost of `per`** | **NEW** |
+| detection distribution | `each:` | `ScopeLevel` or `[ScopeLevel]` | exists |
+| effect | `effect:` | `stop \| fail` or `{do: halt, as: success\|failure}` | exists |
+| **action target** | **`at:`** | one `ScopeLevel`; **default = innermost of `each`** | **NEW** |
 
 `ScopeLevel = self \| op \| phase \| scenario \| workload` (unchanged, `model.rs:670-682`).
 
 ### Field notes
 
-- **`condition:`** — pure boolean, no timing. Keep `when:` as an accepted alias.
+- **`when:`** — pure boolean, no timing.
 - **`pulse:`** — a **tagged union value** so the name never overclaims periodicity. Map to the
   two firing points that already exist: `continuous` = inline per-turn in the activity drain
   loop (`activity.rs:2344-2429`); `phase_end` = phase-completion aggregation
@@ -45,30 +48,28 @@ config to the trip site.
   `CadenceReporter`/`PhaseStopEvaluator` registry) is **B**, not C. If `pulse:` is omitted,
   default per condition kind exactly as the current `trigger` doc intends
   (`model.rs:726-728`): attempt/rate wires → `continuous`; `children_*` → `phase_end`.
-- **`per:`** — detection distribution (rename of `each:`). Keep fine-grained detection here;
+- **`each:`** — detection distribution. Keep fine-grained detection here;
   attempt-level wires (`attempt_total`, `attempt_failure`) only exist at phase scope and are
   hard-zeroed at the workload shell (`workload_shell.rs:146-161`) — so detection must NOT move
-  outward; only the *action* travels. `per:` may be a set (fan-out).
-- **`action:`** — effect. Current `effect` already folds halt + validity: `fail` =
+  outward; only the *action* travels. `each:` may be a set (fan-out).
+- **`effect:`** — Current `effect` already folds halt + validity: `fail` =
   Interrupted+Failed, `stop` = Interrupted+Succeeded. Accept the legacy scalar (`stop`/`fail`)
   AND an explicit `{do: halt, as: success|failure}` for readers who want the validity spelled
   out. Default = `fail` (unchanged).
 - **`at:`** — NEW. The scope the effect lands on, resolved up the scope tree from the detection
   node. Single `ScopeLevel`.
 
-## The `per` / `at` split and default (the crux)
+## The `each` / `at` split and default (the crux)
 
-- `per:` = **where it is evaluated** (placement/distribution). `at:` = **where the effect
-  lands** (destination). They are different scope-typed fields with opposite jobs; the
-  asymmetric names (`per` vs `at`) are what keep `per: phase` from being mistaken for
-  `at: phase`.
-- **`at:` defaults to the innermost (most specific) level of `per:`.** So a rule with no `at:`
+- `each:` = **where it is evaluated** (placement/distribution). `at:` = **where the effect
+  lands** (destination). They are different scope-typed fields with opposite jobs.
+- **`at:` defaults to the innermost (most specific) level of `each:`.** So a rule with no `at:`
   acts exactly where it is detected — identical to today's behaviour. Outward routing is
   strictly opt-in and visible.
-  - `stop_when` (`per:` default `self`) → `at:` default = `self` = detect-and-act-in-place
+  - `stop_when` (`each:` default `self`) → `at:` default = `self` = detect-and-act-in-place
     (unchanged).
   - `continue_if` keeps its existing default *target* by setting its `at:` default to
-    `scenario` (preserving `default_continue_if_each`, `model.rs:734+`), while its `per:`
+    `scenario` (preserving `default_continue_if_each`, `model.rs:734+`), while its `each:`
     becomes the inner sweep-iteration scope it already evaluates at. This removes the
     each=target conflation without changing observed behaviour.
 
@@ -100,19 +101,17 @@ generic paths share the "where":
 
 ## Carry the target through the pipeline (stop dropping it)
 
-- `model.rs:717-732` — add `at: Option<ScopeLevel>`; add `pulse`; add `per`/`action` as the
-  canonical names with `each`/`effect`/`when` accepted as aliases (serde `alias`).
+- `model.rs:717-732` — add `at: Option<ScopeLevel>`; add `pulse`.
 - `stop_conditions.rs:304-315` — `StopConditionDecl` gains a resolved `target: ScopeLevel`
-  (default = innermost of `per`); stop discarding `each:` at `executor.rs:4839`.
+  (default = innermost of `each`); stop discarding `each:` at `executor.rs:4839`.
 - gather sites — `executor.rs:4820-4826` (phase) and `runner.rs:2826-2828` (workload) select
-  by `per:` for **placement** but must no longer drop the `at:`/`target`. Close the routing
+  by `each:` for **placement** but must no longer drop the `at:`/`target`. Close the routing
   gap where a phase-declared outer-target condition currently reaches no evaluator.
 
 ## Scope of C vs deferred (B)
 
-- **In C:** `at:` + `StopSink` + the `per`/`at` split and default; `pulse: continuous|phase_end`
-  naming the existing firing points; alias-based rename (`each→per`, `effect→action`,
-  `when→condition`); threaded through the bespoke phase trip and the generic
+- **In C:** `at:` + `StopSink` + the `each`/`at` split and default; `pulse: continuous|phase_end`
+  naming the existing firing points; threaded through the bespoke phase trip and the generic
   `PhaseStopEvaluator`. Detection stays inline where per-attempt granularity is required.
 - **Deferred to B:** `pulse: {every: <dur>}` and actually desugaring `stop_when` onto the
   `CadenceReporter`/`PhaseStopEvaluator` registry (`cadence_reporter.rs:547`,
@@ -122,13 +121,13 @@ generic paths share the "where":
 
 ## Backward compatibility
 
-All renames are additive via serde `alias`: existing workloads using `when`/`each`/`effect`
+No key is renamed and none gains an alias: existing workloads using `when`/`each`/`effect`
 and no `at:` parse unchanged and behave identically (`at` defaults to the detection scope).
 The only behavioural change is that a condition may now *opt in* to an outer `at:` target.
 
 ## Acceptance
 
-A `stop_when` declared with `per: phase` (fine-grained attempt-level detection) and
+A `stop_when` declared with `each: phase` (fine-grained attempt-level detection) and
 `at: workload` detects in the phase drain loop and halts the workload shell (via
 `WorkloadShell::request_stop`) without cancelling the whole session — matching the reported
 need where a phase-scoped attempt-failure probe should stop the enclosing workload, not the

@@ -66,7 +66,7 @@ We're focused merely on the structural rules here.
 
 ```yaml
 scenarios:
-  default: run driver=diag cycles=10
+  default: run adapter=diag cycles=10
 ```
 
 *json:*
@@ -75,7 +75,7 @@ scenarios:
 
 {
   "scenarios": {
-    "default": "run driver=diag cycles=10"
+    "default": "run adapter=diag cycles=10"
   }
 }
 ```
@@ -94,8 +94,8 @@ scenarios:
 ```yaml
 scenarios:
   default:
-    step1: run alias=first driver=diag cycles=10
-    step2: run alias=second driver=diag cycles=10
+    step1: run alias=first adapter=diag cycles=10
+    step2: run alias=second adapter=diag cycles=10
 ```
 
 *json:*
@@ -105,8 +105,8 @@ scenarios:
 {
   "scenarios": {
     "default": {
-      "step1": "run alias=first driver=diag cycles=10",
-      "step2": "run alias=second driver=diag cycles=10"
+      "step1": "run alias=first adapter=diag cycles=10",
+      "step2": "run alias=second adapter=diag cycles=10"
     }
   }
 }
@@ -126,8 +126,8 @@ scenarios:
 ```yaml
 scenarios:
   default:
-    - run alias=first driver=diag cycles=10
-    - run alias=second driver=diag cycles=10
+    - run alias=first adapter=diag cycles=10
+    - run alias=second adapter=diag cycles=10
 ```
 
 *json:*
@@ -137,8 +137,8 @@ scenarios:
 {
   "scenarios": {
     "default": [
-      "run alias=first driver=diag cycles=10",
-      "run alias=second driver=diag cycles=10"
+      "run alias=first adapter=diag cycles=10",
+      "run alias=second adapter=diag cycles=10"
     ]
   }
 }
@@ -164,7 +164,7 @@ should only be changeable for some steps.
 # The user is not allowed to change the value for the alias parameter, and attempting to do so
 # will cause an error to be thrown and the scenario halted.
 scenarios:
-  default: run alias==first driver=diag cycles=10
+  default: run alias==first adapter=diag cycles=10
 ```
 
 *json:*
@@ -173,7 +173,7 @@ scenarios:
 
 {
   "scenarios": {
-    "default": "run alias==first driver=diag cycles=10"
+    "default": "run alias==first adapter=diag cycles=10"
   }
 }
 ```
@@ -198,7 +198,7 @@ can be useful when you want to clearly indicate that a parameter must remain as 
 # The user is not allowed to change the value for the alias parameter, and attempting to do so
 # will cause an error to be thrown and the scenario halted.
 scenarios:
-  default: run alias===first driver=diag cycles=10
+  default: run alias===first adapter=diag cycles=10
 ```
 
 *json:*
@@ -207,7 +207,7 @@ scenarios:
 
 {
   "scenarios": {
-    "default": "run alias===first driver=diag cycles=10"
+    "default": "run alias===first adapter=diag cycles=10"
   }
 }
 ```

@@ -311,7 +311,7 @@ fn validate_key(key: &str) -> Result<(), SelectorParseError> {
 // Lookup errors
 // =========================================================================
 
-/// Error returned by [`crate::component::Component::find_one`].
+/// Error returned by [`crate::component::find_one`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LookupError {
     /// Zero components matched the selector.

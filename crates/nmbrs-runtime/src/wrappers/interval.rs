@@ -401,9 +401,7 @@ mod tests {
     /// stop is already latched — it must not wait out the interval.
     #[tokio::test]
     async fn dwell_short_circuits_on_session_stop() {
-        let _g = crate::session_signals::STOP_GLOBAL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _g = crate::session_signals::STOP_GLOBAL_TEST_LOCK.lock().await;
         crate::session_signals::request_stop();
         let t = std::time::Instant::now();
         // A 10s dwell must return immediately, not after 10s.

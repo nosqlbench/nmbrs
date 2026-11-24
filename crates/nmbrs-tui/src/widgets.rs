@@ -466,11 +466,11 @@ impl DecimatingTrend {
     fn halve_hist(&mut self) {
         self.stride = self.stride.saturating_mul(2);
         let mut merged = Vec::with_capacity(self.hist.len().div_ceil(2));
-        let mut it = self.hist.chunks_exact(2);
-        for pair in &mut it {
-            merged.push((pair[0] + pair[1]) / 2.0);
+        let (pairs, rest) = self.hist.as_chunks::<2>();
+        for [a, b] in pairs {
+            merged.push((a + b) / 2.0);
         }
-        if let [last] = it.remainder() {
+        if let [last] = rest {
             merged.push(*last);
         }
         self.hist = merged;

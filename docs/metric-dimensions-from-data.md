@@ -34,11 +34,11 @@ Today the label values a metric can carry are fixed at component-attach time
 
 Verified on 2026-07-28, so the design does not need to solve any of it:
 
-- `Str` is a first-class `PortType` (`polydat/src/ast.rs:1036`).
+- `str` is a first-class `PortType` (`polydat/src/ast.rs:1036`).
 - Nodes take **runtime** (non-`Const`) string arguments — `str_eq(a: &str, b:
   &str)` (`polydat/src/library/compare.rs:118`) is a real node over two String
   wires.
-- A query's text column captures into a `Str` wire and flows into a node
+- A query's text column captures into a `str` wire and flows into a node
   argument. Verified end to end against a live node: `extern kname: str = ""` +
   `capture: kname: "/0/keyspace_name"` → `str_eq(kname, "system")` → `1`, with
   the negative comparison returning `0`.
@@ -137,7 +137,7 @@ metrics already emit `volatile __metric_<name> := <expr>`
 (`crates/nmbrs-runtime/src/scope.rs`):
 
 ```
-volatile __cell_tier := tier_name       # typed Str by the declaration
+volatile __cell_tier := tier_name       # typed str by the declaration
 ```
 
 So a cell coordinate is a **compiled kernel output**, type-checked and pulled
@@ -199,7 +199,7 @@ the same class of check that just caught the per-op program bug in
 1. a metric's `cell:` names a dimension declared at some enclosing tier;
 2. a dimension name is declared at exactly **one** tier in the chain — this
    turns `Component::attach`'s runtime **panic** into a compile error;
-3. the cell expression types as `Str`, by ordinary polydat type checking once
+3. the cell expression types as `str`, by ordinary polydat type checking once
    the binding is synthesized.
 
 ### 6. Report side

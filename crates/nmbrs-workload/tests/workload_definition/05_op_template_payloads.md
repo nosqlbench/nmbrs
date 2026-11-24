@@ -16,7 +16,7 @@ uniform op structure.
 When you are using the command, it is possible to specify `op=...` instead of providing a workload
 path. When you do that, a workload description is automatically derived for you on-the-fly.
 
-`nb run driver=stdout op='cycle number {{NumberNameToString}'`
+`nmbrs run adapter=stdout op='cycle number {{NumberNameToString}'`
 
 The equivalent structure has the same effect as if you had created a workload description like this:
 

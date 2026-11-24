@@ -130,7 +130,7 @@ guard.
 - No timestamps in console messages; the `session.log` projection adds
   a wall-clock stamp, and metrics carry timing.
 - The inspector socket (`nmbrs attach`'s out-of-band endpoint) is **off
-  by default**; opt in with `inspector=on`. It is not part of the
+  by default**; opt in with `inspector=true`. It is not part of the
   in-process display path — the in-process TUI/observer never read it.
 
 ---

@@ -28,12 +28,12 @@ arc-swap = "1"
 # polydat-side metric-reading node registration (formerly
 # `polydat::nodes::metrics`) so polydat itself doesn't take a
 # reverse dep on nmbrs-metrics.
-polydat = "0.6.2"
+polydat = "0.10.0"
 # `inventory` is needed for the polydat-node registration macro
 # (`polydat::register_nodes!`) to emit its `inventory::submit!`
 # block from this crate.
 inventory = "0.3.24"
-rusqlite = { version = "0.31", features = ["bundled", "functions"], optional = true }
+rusqlite = { version = "0.43", features = ["bundled", "functions"], optional = true }
 # Used by the query API's label matchers (anchored regex). Core to the
 # `queryapi` module, so non-optional.
 regex = "1"

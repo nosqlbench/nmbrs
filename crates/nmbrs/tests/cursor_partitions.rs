@@ -1174,10 +1174,10 @@ fn cursor_partitions_no_over_ignores_cursor_param() {
 // A malformed partition spec in comprehension position must surface
 // the VERBATIM polydat diagnostic as the PRIMARY error: the run
 // fails, the named fragment appears in stderr, and neither a panic
-// backtrace nor a downstream "type mismatch: cannot connect String
+// backtrace nor a downstream "type mismatch: cannot connect str
 // output to ext input" leak is present. The scenarios all point at
 // the `noop_emit` phase, which ignores `p` so the spec diagnostic is
-// never masked by a String→ext type mismatch.
+// never masked by a str→ext type mismatch.
 //
 // These scenarios are NAMED-ONLY — never the walked scenario — so the
 // example walker (which runs only `windowed_chunking`) is unaffected.

@@ -16,7 +16,7 @@
 #    each class in a phase announces itself ONCE ("retry advisory:
 #    ..."), capped at three classes per phase, so a retry storm
 #    identifies itself without flooding the log. Silence it per op
-#    with `retry_advisory: off`.
+#    with `retry_advisory: false`.
 #
 # 2. `sampled` — opt-in counter-exemplars. `retry_exemplar_rate`
 #    (fraction, default 0.0 = off) samples errors caught in the

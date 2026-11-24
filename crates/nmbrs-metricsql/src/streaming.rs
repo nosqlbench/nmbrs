@@ -34,7 +34,7 @@
 //! streaming evaluation produces the same result as batch
 //! evaluation, regardless of how the input samples are
 //! partitioned across `ingest` calls. This is verified by
-//! [`tests::streaming_equals_batch_for_supported_shapes`] —
+//! `tests::streaming_equals_batch_for_supported_shapes` —
 //! the load-bearing artifact. If it ever fails, the algebra
 //! is broken; relaxing the test is not the recovery path.
 //!
@@ -1034,7 +1034,7 @@ pub enum Grouping {
 /// transforms. The vector side accumulates incrementally;
 /// the postprocesses run at snapshot time.
 ///
-/// Vector/vector binary ops live in the recursive [`Node`]
+/// Vector/vector binary ops live in the recursive `Node`
 /// tree — `a + b` becomes `Node::Binary { left: Leaf(a),
 /// right: Leaf(b), op: Add }`. Each leaf maintains its own
 /// matchers; ingest walks the tree, samples are filtered at

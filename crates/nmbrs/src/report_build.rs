@@ -25,13 +25,13 @@
 //! 1. Caller picks the kind and passes the remaining args
 //!    (post-`nmbrs report <kind>`) to [`build_item`].
 //! 2. The parser consumes flags one by one, validating each
-//!    against [`directives_for(kind)`].
+//!    against [`directives_for(kind)`](vocab::directives_for).
 //! 3. Unknown flags / flags that don't apply to the kind
 //!    are reported as parse errors with the kind name in
 //!    the diagnostic.
 //! 4. Returns a [`BuildResult`] carrying the constructed
 //!    [`ReportItem`] plus orthogonal CLI flags
-//!    (`--add` / `--workload` / `--session` / etc.) that
+//!    (`--add` / `--at` / `--session` / etc.) that
 //!    the caller dispatches against.
 
 use nmbrs_workload::report::vocab::{self, Directive, DirectiveTarget, ValueProvider, YamlForm};
@@ -72,9 +72,10 @@ pub struct Dispatch {
     /// `--group <name>` — group key inside the target
     /// `report:` block. Defaults to `cli_added`.
     pub group: String,
-    /// `--workload <path>` — explicit workload file for
+    /// `workload=<path>` — explicit workload file for
     /// `--add` (otherwise discovered from the active
-    /// session's `checkpoint.jsonl`).
+    /// session's `checkpoint.jsonl`). Peeled off the args by
+    /// the report dispatcher, which fills this in.
     pub workload: Option<String>,
     /// `--stdout` — print rendered text/table to stdout
     /// instead of writing to a scratch file. Plots reject
@@ -276,11 +277,6 @@ fn try_consume_dispatch_flag(
         "--group" => {
             let v = take_value("--group")?;
             dispatch.group = v.clone();
-            Ok(Some((2, true)))
-        }
-        "--workload" => {
-            let v = take_value("--workload")?;
-            dispatch.workload = Some(v.clone());
             Ok(Some((2, true)))
         }
         "--name" => {
@@ -662,8 +658,6 @@ mod tests {
                 "scenario:foo",
                 "--group",
                 "my_group",
-                "--workload",
-                "/tmp/wl.yaml",
                 "--stdout",
                 "--dry-run",
             ]),
@@ -673,7 +667,6 @@ mod tests {
         assert!(r.dispatch.replace);
         assert_eq!(r.dispatch.at.as_deref(), Some("scenario:foo"));
         assert_eq!(r.dispatch.group, "my_group");
-        assert_eq!(r.dispatch.workload.as_deref(), Some("/tmp/wl.yaml"));
         assert!(r.dispatch.stdout);
         assert!(r.dispatch.dry_run);
     }

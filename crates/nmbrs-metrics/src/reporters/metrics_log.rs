@@ -25,7 +25,7 @@
 //!   end, never enumerate paths.
 //!
 //! Records are rendered by the same
-//! [`render_record`](super::per_instance::render_record) the per-instance files
+//! `per_instance::render_record` the per-instance files
 //! use, so the two are parseable by one reader and differ only in routing.
 //!
 //! ## Durability
@@ -58,11 +58,11 @@ impl MetricsLogReporter {
     /// same observer log instead of destroying what a reader already consumed.
     pub fn new(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("create metrics log dir {parent:?}: {e}"))?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create metrics log dir {parent:?}: {e}"))?;
         }
         let file = std::fs::OpenOptions::new()
             .create(true)

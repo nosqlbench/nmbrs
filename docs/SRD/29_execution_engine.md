@@ -131,13 +131,13 @@ in place.
 
 | Node | Signature | Description |
 |------|-----------|-------------|
-| `control` | `String → f64` | Current committed value of a [dynamic control](23_dynamic_controls.md) by name, via its reified gauge. Resolves by walking up the component tree from the session root, honoring branch scope. Missing / non-reified / non-numeric → `0.0`. |
-| `control_u64` | `String → u64` | As `control`, cast to `u64` (negatives clamp to `0`). Sugar over `f64_to_u64(control(name))`. |
-| `control_bool` | `String → bool` | As `control`, `true` iff the gauge value is non-zero. Missing → `false`. |
-| `control_str` | `String → String` | As `control`, rendered via the control's erased `value_string()`. For enum / string-valued controls. |
-| `control_set` | `String, f64 → u64` | Non-blocking write into a named control (spawns an async `set_f64`). Returns `1` if dispatched, `0` if no session root. `Versioned<T>::origin` carries the enclosing binding name. |
-| `metric` | `String → f64` | Latest reading of a named metric series, scoped to the nearest ancestor component publishing it. Pairs with `metric_window(name, duration)` ([SRD 42](42_windowed_metrics.md)). |
-| `phase` | `→ String` | Name of the executing phase; pins against the enclosing executor (`tokio::task_local!`, so work-stealing can't leak phase identity across fibers). |
+| `control` | `str → f64` | Current committed value of a [dynamic control](23_dynamic_controls.md) by name, via its reified gauge. Resolves by walking up the component tree from the session root, honoring branch scope. Missing / non-reified / non-numeric → `0.0`. |
+| `control_u64` | `str → u64` | As `control`, cast to `u64` (negatives clamp to `0`). Sugar over `f64_to_u64(control(name))`. |
+| `control_bool` | `str → bool` | As `control`, `true` iff the gauge value is non-zero. Missing → `false`. |
+| `control_str` | `str → str` | As `control`, rendered via the control's erased `value_string()`. For enum / string-valued controls. |
+| `control_set` | `str, f64 → u64` | Non-blocking write into a named control (spawns an async `set_f64`). Returns `1` if dispatched, `0` if no session root. `Versioned<T>::origin` carries the enclosing binding name. |
+| `metric` | `str → f64` | Latest reading of a named metric series, scoped to the nearest ancestor component publishing it. Pairs with `metric_window(name, duration)` ([SRD 42](42_windowed_metrics.md)). |
+| `phase` | `→ str` | Name of the executing phase; pins against the enclosing executor (`tokio::task_local!`, so work-stealing can't leak phase identity across fibers). |
 | `cycle` | `→ u64` | Current cycle ordinal for the running fiber — sugar for reaching the cycle value without declaring it as an explicit input. |
 | `concurrency` | `→ f64` | Alias for `control("concurrency")` — the activity's live fiber count. |
 | `rate` | `→ f64` | Alias for `control("rate")` — the live rate-limiter target (ops/sec). |

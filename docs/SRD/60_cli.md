@@ -71,7 +71,8 @@ Known parameter categories:
 - **Activity**: `cycles`, `concurrency`, `rate`, `stanzarate`,
   `stanza_concurrency`, `sc`, `errors`, `seq`, `tags`
 - **Workload**: `workload`, `op`, `format`, `filename`
-- **Adapter selection**: `adapter`, `driver`
+- **Adapter selection**: `adapter`; `driver` selects an SRD-109
+  driver manifest, never an adapter
 - **CQL**: `hosts`, `host`, `port`, `keyspace`, `consistency`,
   `username`, `password`, `request_timeout_ms`
 - **HTTP**: `base_url`, `timeout`
@@ -98,8 +99,8 @@ Specs:
 |------------------------|-----------------------------------------------|
 | `report`               | `nmbrs report all --session <S>`               |
 | `report:<args>`        | `nmbrs report <args> --session <S>`            |
-| `plot`                 | `nmbrs plot all --session <S>`                 |
-| `plot:<name>`          | `nmbrs plot --name <name> --session <S>`       |
+| `plot`                 | `nmbrs report plot all --session <S>`                 |
+| `plot:<name>`          | `nmbrs report plot --name <name> --session <S>`       |
 
 `<S>` is the active run's session directory (resolved from
 the same `--session=`/`logs/latest` lookup the report
@@ -175,11 +176,10 @@ Workload params are discoverable: when the user has specified
 
 ---
 
-### Plot Command
+### Wiring Visualize Command
 
-    nmbrs plot Polydat <expr|file.polydat> [cycles=N] [--width=N] [--height=N]
-                                 [--mode=plot|histogram] [--no-color]
-                                 [--xscale=N] [--yscale=N] [--max-labels=N]
+    nmbrs wiring visualize <expr|file.polydat> [cycles=N] [output=<path>]
+                           [--width=N] [--height=N] [--mode=<mode>] [--no-color]
 
 Evaluate a Polydat expression and render outputs to the terminal:
 - Numeric outputs → braille scatter plot (default) or histogram

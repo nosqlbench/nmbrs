@@ -103,7 +103,7 @@ bindings: |
   doubled_count := mul(count_big, 2)
 
 scenarios:
-  # ── shared types: u64, f64, String, bool — all values
+  # ── shared types: u64, f64, str, bool — all values
   # including edge cases (0, 0.0, "", false) ─────────────────
   shared_types:
     - emit_shared_types

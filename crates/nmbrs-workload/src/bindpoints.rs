@@ -7,7 +7,12 @@
 //! and `{{expr}}` inline binding definitions. Classifies fields as
 //! static (no bind points) or dynamic (has bind points).
 
+use polydat::ast::PortType;
+
 /// Namespace qualifier for a bind point reference.
+///
+/// Each namespace has one qualifier word, written lower-case:
+/// `input`, `bind`, `capture`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BindQualifier {
     /// No qualifier — resolved by priority: bind → capture → input.
@@ -17,8 +22,37 @@ pub enum BindQualifier {
     /// `{bind:name}` — Polydat binding output.
     Bind,
     /// `{capture:name}` — capture context (volatile or sticky port).
-    /// Also accepts `{port:name}` as an alias.
     Capture,
+}
+
+impl BindQualifier {
+    /// The qualifier a word names: `input`, `bind` or `capture`.
+    /// `None` for any other word.
+    fn from_word(word: &str) -> Option<Self> {
+        match word {
+            "input" => Some(Self::Input),
+            "bind" => Some(Self::Bind),
+            "capture" => Some(Self::Capture),
+            _ => None,
+        }
+    }
+
+    /// The qualifier word to write in place of `word`, when `word`
+    /// is a spelling that is not one: `coord` and `coordinate` (now
+    /// `input`), `port` (now `capture`), and any other casing of a
+    /// qualifier word (`Bind`). `None` for any other word,
+    /// qualifier words included.
+    fn retired_word(word: &str) -> Option<&'static str> {
+        if Self::from_word(word).is_some() {
+            return None;
+        }
+        match word.to_ascii_lowercase().as_str() {
+            "input" | "coord" | "coordinate" => Some("input"),
+            "bind" => Some("bind"),
+            "capture" | "port" => Some("capture"),
+            _ => None,
+        }
+    }
 }
 
 /// Workload-author lvalue assertion attached to a [`BindPoint::Reference`].
@@ -34,18 +68,18 @@ pub enum BindQualifier {
 /// - `{meta:<type>}` — explicit polydat `PortType` assertion. The
 ///   binder uses the asserted type as the lvalue for verification,
 ///   overriding what cluster-side metadata would say. The type
-///   name is the lower-snake-case form (`u64`, `i32`, `f64`,
-///   `vec_f32`, `str`, `bytes`, etc.) — matches `PortType`'s
-///   `Display` form.
+///   name is the type's one polydat keyword (`u64`, `i32`, `f64`,
+///   `vec_f32`, `str`, `bytes`, etc.) — the spelling `PortType`'s
+///   `Display` prints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LvalueSpec {
     /// `:*` — workload-author opt-in to type fusion.
     Wildcard,
     /// `:<typename>` — workload-author asserts a polydat
-    /// `PortType` by name. The string is preserved verbatim;
-    /// adapters parse it to `PortType` at construction time and
-    /// error on unknown names.
-    Explicit(String),
+    /// `PortType` by its keyword. Resolved here, through
+    /// `PortType::from_workload_name`, so an adapter reads the
+    /// asserted type and never parses a type name itself.
+    Explicit(PortType),
 }
 
 /// A detected bind point in an op template field.
@@ -78,10 +112,11 @@ pub enum FieldType {
     Template(Vec<BindPoint>),
 }
 
-/// Scan a string value for bind points and classify it.
-pub fn classify_field(value: &str) -> FieldType {
-    let bind_points = extract_bind_points(value);
-    if bind_points.is_empty() {
+/// Scan a string value for bind points and classify it. Fails as
+/// [`extract_bind_points`] does.
+pub fn classify_field(value: &str) -> Result<FieldType, String> {
+    let bind_points = extract_bind_points(value)?;
+    Ok(if bind_points.is_empty() {
         FieldType::Static
     } else if bind_points.len() == 1
         && value.starts_with('{')
@@ -94,11 +129,17 @@ pub fn classify_field(value: &str) -> FieldType {
         }
     } else {
         FieldType::Template(bind_points)
-    }
+    })
 }
 
 /// Extract all bind points from a string.
-pub fn extract_bind_points(value: &str) -> Vec<BindPoint> {
+///
+/// Fails when a bind point is malformed: a `{name:<type>}` lvalue
+/// assertion whose type is a spelling polydat retired or a type a
+/// workload may not assert (see [`split_lvalue_spec`]). The error
+/// quotes the bind point; a caller that knows the op and field
+/// prefixes them.
+pub fn extract_bind_points(value: &str) -> Result<Vec<BindPoint>, String> {
     let mut points = Vec::new();
     let chars: Vec<char> = value.chars().collect();
     let mut i = 0;
@@ -159,7 +200,7 @@ pub fn extract_bind_points(value: &str) -> Vec<BindPoint> {
                         let expr = expr.strip_suffix(":=").unwrap_or(expr).trim();
                         points.push(BindPoint::InlineDefinition(expr.to_string()));
                         i += 1;
-                    } else if let Some((name_part, spec)) = extract_lvalue_spec(raw) {
+                    } else if let Some((name_part, spec)) = extract_lvalue_spec(raw)? {
                         // Lvalue-asserted reference: `{name:*}` (wildcard)
                         // or `{name:<typename>}` (explicit polydat type).
                         // Detected BEFORE `is_expression` so the `:*` /
@@ -169,7 +210,7 @@ pub fn extract_bind_points(value: &str) -> Vec<BindPoint> {
                         // qualifier+spec composition is not currently
                         // supported (the lvalue-spec detector only
                         // matches when `name_part` is a bare identifier).
-                        let (qualifier, name) = parse_qualified_ref(name_part);
+                        let (qualifier, name) = parse_qualified_ref(name_part)?;
                         points.push(BindPoint::Reference {
                             name,
                             qualifier,
@@ -182,7 +223,7 @@ pub fn extract_bind_points(value: &str) -> Vec<BindPoint> {
                         i += 1;
                     } else {
                         // Simple identifier — reference bind point
-                        let (qualifier, name) = parse_qualified_ref(raw);
+                        let (qualifier, name) = parse_qualified_ref(raw)?;
                         points.push(BindPoint::Reference {
                             name,
                             qualifier,
@@ -197,7 +238,7 @@ pub fn extract_bind_points(value: &str) -> Vec<BindPoint> {
         }
     }
 
-    points
+    Ok(points)
 }
 
 /// Detect whether bind point content is a Polydat expression (not a simple name).
@@ -208,7 +249,7 @@ pub fn is_expression_public(s: &str) -> bool {
     is_expression(s)
 }
 
-/// Public form of [`extract_lvalue_spec`] for adapters that need
+/// Public form of `extract_lvalue_spec` for adapters that need
 /// to interleave bind-point processing with text generation
 /// (e.g., the cassandra-cpp `resolve_structural_and_mark_remaining`
 /// walker, which scans the statement text char-by-char and must
@@ -219,17 +260,23 @@ pub fn is_expression_public(s: &str) -> bool {
 /// lvalue-spec suffix; `(body, None)` otherwise. The first half
 /// of the tuple is always the body with any `:*` or `:<type>`
 /// suffix stripped.
-pub fn split_lvalue_spec(body: &str) -> (&str, Option<LvalueSpec>) {
-    match extract_lvalue_spec(body) {
+///
+/// Fails when the suffix names a type but not one a workload may
+/// assert: a spelling polydat retired (`{id:String}`: "`String` is
+/// no longer a type keyword; write `str`") or an internal-only type
+/// (`handle`, `ext`).
+pub fn split_lvalue_spec(body: &str) -> Result<(&str, Option<LvalueSpec>), String> {
+    Ok(match extract_lvalue_spec(body)? {
         Some((name_part, spec)) => (name_part, Some(spec)),
         None => (body, None),
-    }
+    })
 }
 
 /// Detect the `:<spec>` lvalue-assertion suffix on a bind-point
 /// body. Returns `Some((name_part, spec))` when the body is the
-/// shape `<bare-identifier>:<*-or-bare-identifier>`; otherwise
-/// `None`.
+/// shape `<bare-identifier>:<*-or-type-keyword>`; `None` when it is
+/// not an lvalue assertion at all; and an error when the suffix is
+/// a type name that cannot be asserted.
 ///
 /// Matched explicitly (not as part of `is_expression` or the
 /// general qualifier-parse path) because:
@@ -253,68 +300,40 @@ pub fn split_lvalue_spec(body: &str) -> (&str, Option<LvalueSpec>) {
 /// helper runs from). Within this helper we don't even check
 /// qualifier-ness — we just require both halves to be bare
 /// identifier shape.
-fn extract_lvalue_spec(raw: &str) -> Option<(&str, LvalueSpec)> {
-    let (name_part, spec_part) = raw.rsplit_once(':')?;
+fn extract_lvalue_spec(raw: &str) -> Result<Option<(&str, LvalueSpec)>, String> {
+    let Some((name_part, spec_part)) = raw.rsplit_once(':') else {
+        return Ok(None);
+    };
     let name_part = name_part.trim();
     let spec_part = spec_part.trim();
     if !is_bare_identifier(name_part) {
-        return None;
+        return Ok(None);
     }
-    // If the left side is a known qualifier (`input`, `bind`,
-    // `capture`, `coord`, `coordinate`), let the existing
-    // qualifier path claim this binding instead — don't shadow it
-    // here. Composition (`{capture:meta:type}`) is not currently
-    // supported; punt on it cleanly by declining.
-    let lower = name_part.to_lowercase();
-    if matches!(
-        lower.as_str(),
-        "input" | "coord" | "coordinate" | "bind" | "capture"
-    ) {
-        return None;
+    // If the left side is a qualifier (`input`, `bind`,
+    // `capture`), let the qualifier path claim this binding
+    // instead — don't shadow it here. Composition
+    // (`{capture:meta:type}`) is not currently supported; punt on
+    // it cleanly by declining.
+    if BindQualifier::from_word(name_part).is_some() {
+        return Ok(None);
     }
     if spec_part == "*" {
-        Some((name_part, LvalueSpec::Wildcard))
-    } else if is_polydat_type_name(spec_part) {
-        Some((name_part, LvalueSpec::Explicit(spec_part.to_string())))
+        Ok(Some((name_part, LvalueSpec::Wildcard)))
+    } else if let Some(port_type) = PortType::from_workload_name(spec_part) {
+        Ok(Some((name_part, LvalueSpec::Explicit(port_type))))
+    } else if let Some(retired) = PortType::retired_keyword_message(spec_part) {
+        Err(format!("bind point `{{{raw}}}`: {retired}"))
+    } else if PortType::from_keyword(spec_part).is_some() {
+        Err(format!(
+            "bind point `{{{raw}}}`: `{spec_part}` is an internal type; \
+             a bind point cannot assert it"
+        ))
     } else {
-        // Suffix isn't `*` or a known polydat type name; this is
-        // not a lvalue-spec binding. Fall through so the outer
-        // dispatch lets the unqualified-name path claim it (as
-        // `{port:auth_token}` does — `auth_token` isn't a polydat
-        // type so the whole body becomes the bare name).
-        None
+        // Suffix isn't `*` or a type name; this is not a
+        // lvalue-spec binding. Fall through so the outer dispatch
+        // lets the reference path claim the whole body.
+        Ok(None)
     }
-}
-
-/// Names that may appear as the `<type>` part of a
-/// `{name:<type>}` lvalue-spec binding. Matches the lower-snake-
-/// case `Display` form of `polydat::ast::PortType` for the
-/// variants that are user-facing as op-template lvalue
-/// assertions. `handle` and `none` are intentionally excluded —
-/// they're internal-only types that a workload author should
-/// never assert.
-///
-/// Hard-coded here (rather than reaching into polydat) so this
-/// crate stays free of a polydat dependency. Drift between this
-/// list and `PortType` becomes a test-time mismatch in
-/// `polydat::ast::PortType::from_str`, which the workload-side
-/// adapter `map_op` calls when it encounters an `Explicit` spec.
-fn is_polydat_type_name(s: &str) -> bool {
-    matches!(
-        s,
-        "u64"
-            | "f64"
-            | "u32"
-            | "i32"
-            | "i64"
-            | "f32"
-            | "bool"
-            | "str"
-            | "bytes"
-            | "json"
-            | "vec_f32"
-            | "vec_i32"
-    )
 }
 
 /// Bare-identifier shape: ASCII alpha or underscore start; rest
@@ -362,31 +381,43 @@ fn is_literal_start(c: char) -> bool {
     c == '\'' || c == '"'
 }
 
-/// Parse a qualified reference like "coord:cycle" or just "cycle".
-fn parse_qualified_ref(raw: &str) -> (BindQualifier, String) {
-    if let Some((prefix, name)) = raw.split_once(':') {
-        let qualifier = match prefix.trim().to_lowercase().as_str() {
-            "input" | "coord" | "coordinate" => BindQualifier::Input,
-            "bind" => BindQualifier::Bind,
-            "capture" => BindQualifier::Capture,
-            _ => return (BindQualifier::None, raw.to_string()), // not a known qualifier
-        };
-        (qualifier, name.trim().to_string())
-    } else {
-        (BindQualifier::None, raw.to_string())
+/// Parse a qualified reference like "input:cycle" or just "cycle".
+///
+/// A body whose prefix is not a qualifier word stays one
+/// unqualified name. A prefix that is a retired spelling of a
+/// qualifier, before a plain name, is refused with the bind point
+/// to write: "`port` is not a bind-point qualifier; write
+/// `{capture:auth_token}`".
+fn parse_qualified_ref(raw: &str) -> Result<(BindQualifier, String), String> {
+    let Some((prefix, name)) = raw.split_once(':') else {
+        return Ok((BindQualifier::None, raw.to_string()));
+    };
+    let (prefix, name) = (prefix.trim(), name.trim());
+    if let Some(qualifier) = BindQualifier::from_word(prefix) {
+        return Ok((qualifier, name.to_string()));
     }
+    if let Some(canonical) = BindQualifier::retired_word(prefix)
+        && is_bare_identifier(name)
+    {
+        return Err(format!(
+            "bind point `{{{raw}}}`: `{prefix}` is not a bind-point qualifier; \
+             write `{{{canonical}:{name}}}`"
+        ));
+    }
+    Ok((BindQualifier::None, raw.to_string()))
 }
 
 /// Extract all referenced binding names from a string (only `{name}`, not `{{expr}}`).
-/// Returns the bare name without qualifier.
-pub fn referenced_bindings(value: &str) -> Vec<String> {
-    extract_bind_points(value)
+/// Returns the bare name without qualifier. Fails as
+/// [`extract_bind_points`] does.
+pub fn referenced_bindings(value: &str) -> Result<Vec<String>, String> {
+    Ok(extract_bind_points(value)?
         .into_iter()
         .filter_map(|bp| match bp {
             BindPoint::Reference { name, .. } => Some(name),
             _ => None,
         })
-        .collect()
+        .collect())
 }
 
 /// Replace `{name}` bind point references with `?` markers for
@@ -394,9 +425,10 @@ pub fn referenced_bindings(value: &str) -> Vec<String> {
 ///
 /// Also strips quotes that immediately surround a bind point:
 /// `'{id}'` → `?` (not `'?'`), because CQL prepared bind markers
-/// must not be inside string literals.
-pub fn replace_bind_points_with_markers(value: &str) -> String {
-    let names = referenced_bindings(value);
+/// must not be inside string literals. Fails as
+/// [`extract_bind_points`] does.
+pub fn replace_bind_points_with_markers(value: &str) -> Result<String, String> {
+    let names = referenced_bindings(value)?;
     let mut result = value.to_string();
     for name in &names {
         // Try quoted form first: '{name}' → ?
@@ -411,29 +443,13 @@ pub fn replace_bind_points_with_markers(value: &str) -> String {
             result.replace_range(pos..pos + bare.len(), "?");
         }
     }
-    result
+    Ok(result)
 }
 
 // =================================================================
 // Capture points: [name] and [name as alias] in op template strings
 // =================================================================
 
-/// A capture point extracted from an op template.
-///
-/// Capture points mark result fields that should be extracted from
-/// the operation result and stored as named variables for use in
-/// subsequent operations or verification.
-///
-/// Formats:
-/// - `[username]` — capture "username" as "username" (single value)
-/// - `[username as u1]` — capture "username", store as "u1" (single value)
-/// - `[(List) field]` — capture with type assertion
-/// - `[*]` — capture all available fields
-/// - `[@keys]` — **slurp**: collect every row's `keys` column into
-///   a `Value::Json` array. Use when the result has multiple rows
-///   and the consumer needs all per-row column values as a list
-///   (e.g. recall-evaluator's `actual:` reads).
-/// - `[@col as values]` — slurp with alias.
 /// Row-set aggregation for a declarative capture: reduce an
 /// array-of-rows body (or addressed sub-array) to one scalar by
 /// folding the named field across rows. Declared with a
@@ -455,6 +471,22 @@ pub enum CaptureAgg {
     Sum(String),
 }
 
+/// A capture point extracted from an op template.
+///
+/// Capture points mark result fields that should be extracted from
+/// the operation result and stored as named variables for use in
+/// subsequent operations or verification.
+///
+/// Formats:
+/// - `[username]` — capture "username" as "username" (single value)
+/// - `[username as u1]` — capture "username", store as "u1" (single value)
+/// - `[(List) field]` — capture with type assertion
+/// - `[*]` — capture all available fields
+/// - `[@keys]` — **slurp**: collect every row's `keys` column into
+///   a `Value::Json` array. Use when the result has multiple rows
+///   and the consumer needs all per-row column values as a list
+///   (e.g. recall-evaluator's `actual:` reads).
+/// - `[@col as values]` — slurp with alias.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapturePoint {
     /// The field name to capture from the result.
@@ -703,6 +735,57 @@ pub fn parse_capture_points(template: &str) -> CaptureParseResult {
 mod tests {
     use super::*;
 
+    /// `{name:<type>}` resolves the type through polydat's keyword
+    /// table, so every keyword a workload author may assert is an
+    /// lvalue spec, and the internal-only `handle` and `ext` are not.
+    #[test]
+    fn lvalue_spec_resolves_polydat_type_keywords() {
+        for (body, expected) in [
+            ("meta:i32", PortType::I32),
+            ("id:str", PortType::Str),
+            ("emb:vec_f32", PortType::VecF32),
+            ("ids:vec_i64", PortType::VecI64),
+        ] {
+            let (name, spec) = split_lvalue_spec(body).unwrap();
+            assert_eq!(spec, Some(LvalueSpec::Explicit(expected)), "{body}");
+            assert_eq!(Some(name), body.split(':').next(), "{body}");
+        }
+        assert_eq!(
+            split_lvalue_spec("meta:*").unwrap(),
+            ("meta", Some(LvalueSpec::Wildcard))
+        );
+        assert_eq!(
+            split_lvalue_spec("host:auth_token").unwrap(),
+            ("host:auth_token", None)
+        );
+    }
+
+    /// A suffix that names a type a workload may not assert is
+    /// refused, quoting the bind point: a spelling polydat retired
+    /// with the keyword to write, an internal-only type as such.
+    #[test]
+    fn lvalue_spec_refuses_a_type_that_cannot_be_asserted() {
+        assert_eq!(
+            extract_bind_points("WHERE id = {id:String}"),
+            Err(
+                "bind point `{id:String}`: `String` is no longer a type keyword; write `str`"
+                    .to_string()
+            )
+        );
+        for (body, typ) in [("h:handle", "handle"), ("p:ext", "ext")] {
+            assert_eq!(
+                split_lvalue_spec(body),
+                Err(format!(
+                    "bind point `{{{body}}}`: `{typ}` is an internal type; \
+                     a bind point cannot assert it"
+                )),
+            );
+        }
+        assert!(referenced_bindings("{id:Json}").is_err());
+        assert!(classify_field("{id:Str}").is_err());
+        assert!(replace_bind_points_with_markers("{id:Ext}").is_err());
+    }
+
     #[test]
     fn is_expression_detects_function_calls() {
         assert!(is_expression("hash(cycle)"));
@@ -738,22 +821,22 @@ mod tests {
 
     #[test]
     fn static_field() {
-        assert_eq!(classify_field("plain text"), FieldType::Static);
-        assert_eq!(classify_field("42"), FieldType::Static);
-        assert_eq!(classify_field(""), FieldType::Static);
+        assert_eq!(classify_field("plain text").unwrap(), FieldType::Static);
+        assert_eq!(classify_field("42").unwrap(), FieldType::Static);
+        assert_eq!(classify_field("").unwrap(), FieldType::Static);
     }
 
     #[test]
     fn pure_bind_ref() {
         assert_eq!(
-            classify_field("{userid}"),
+            classify_field("{userid}").unwrap(),
             FieldType::BindRef("userid".into())
         );
     }
 
     #[test]
     fn template_with_bind_points() {
-        let ft = classify_field("SELECT * FROM t WHERE id={id} AND name={name}");
+        let ft = classify_field("SELECT * FROM t WHERE id={id} AND name={name}").unwrap();
         match ft {
             FieldType::Template(points) => {
                 assert_eq!(points.len(), 2);
@@ -780,7 +863,7 @@ mod tests {
 
     #[test]
     fn inline_definition() {
-        let ft = classify_field("value is {{Template('user-{}', ToString())}}");
+        let ft = classify_field("value is {{Template('user-{}', ToString())}}").unwrap();
         match ft {
             FieldType::Template(points) => {
                 assert_eq!(points.len(), 1);
@@ -797,21 +880,21 @@ mod tests {
 
     #[test]
     fn mixed_references_and_literals() {
-        let refs = referenced_bindings("INSERT INTO t (a, b) VALUES ({col_a}, {col_b})");
+        let refs = referenced_bindings("INSERT INTO t (a, b) VALUES ({col_a}, {col_b})").unwrap();
         assert_eq!(refs, vec!["col_a", "col_b"]);
     }
 
     #[test]
     fn no_bind_points() {
-        let refs = referenced_bindings("just a plain string");
+        let refs = referenced_bindings("just a plain string").unwrap();
         assert!(refs.is_empty());
     }
 
     // --- Qualified bind point tests ---
 
     #[test]
-    fn qualified_coord() {
-        let points = extract_bind_points("{coord:cycle}");
+    fn qualified_input() {
+        let points = extract_bind_points("{input:cycle}").unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(
             points[0],
@@ -825,7 +908,7 @@ mod tests {
 
     #[test]
     fn qualified_capture() {
-        let points = extract_bind_points("{capture:balance}");
+        let points = extract_bind_points("{capture:balance}").unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(
             points[0],
@@ -839,7 +922,7 @@ mod tests {
 
     #[test]
     fn qualified_bind() {
-        let points = extract_bind_points("{bind:user_id}");
+        let points = extract_bind_points("{bind:user_id}").unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(
             points[0],
@@ -853,13 +936,13 @@ mod tests {
 
     #[test]
     fn unknown_qualifier_becomes_unqualified() {
-        // "port" is not a recognized qualifier — treated as unqualified
-        let points = extract_bind_points("{port:auth_token}");
+        // "host" is not a qualifier — treated as unqualified
+        let points = extract_bind_points("{host:auth_token}").unwrap();
         assert_eq!(points.len(), 1);
         assert_eq!(
             points[0],
             BindPoint::Reference {
-                name: "port:auth_token".into(),
+                name: "host:auth_token".into(),
                 qualifier: BindQualifier::None,
                 lvalue_spec: None,
             }
@@ -868,7 +951,7 @@ mod tests {
 
     #[test]
     fn unqualified_still_works() {
-        let points = extract_bind_points("{user_id}");
+        let points = extract_bind_points("{user_id}").unwrap();
         assert_eq!(
             points[0],
             BindPoint::Reference {
@@ -881,20 +964,35 @@ mod tests {
 
     #[test]
     fn qualified_referenced_bindings_returns_bare_name() {
-        let refs = referenced_bindings("VALUES ({coord:cycle}, {capture:balance}, {user_id})");
+        let refs =
+            referenced_bindings("VALUES ({input:cycle}, {capture:balance}, {user_id})").unwrap();
         assert_eq!(refs, vec!["cycle", "balance", "user_id"]);
     }
 
+    /// Each namespace has one qualifier word; a retired spelling of
+    /// one is refused with the bind point to write.
     #[test]
-    fn coordinate_long_form() {
-        let points = extract_bind_points("{coordinate:row}");
+    fn a_retired_qualifier_spelling_is_refused_naming_the_qualifier() {
+        for (body, write) in [
+            ("coord:cycle", "input:cycle"),
+            ("coordinate:row", "input:row"),
+            ("port:auth_token", "capture:auth_token"),
+            ("Bind:user_id", "bind:user_id"),
+        ] {
+            let prefix = body.split(':').next().unwrap();
+            assert_eq!(
+                extract_bind_points(&format!("VALUES ({{{body}}})")),
+                Err(format!(
+                    "bind point `{{{body}}}`: `{prefix}` is not a bind-point qualifier; \
+                     write `{{{write}}}`"
+                )),
+            );
+        }
+        // A wire that happens to be named like a retired qualifier
+        // still takes an lvalue assertion.
         assert_eq!(
-            points[0],
-            BindPoint::Reference {
-                name: "row".into(),
-                qualifier: BindQualifier::Input,
-                lvalue_spec: None,
-            }
+            split_lvalue_spec("port:u64").unwrap(),
+            ("port", Some(LvalueSpec::Explicit(PortType::U64)))
         );
     }
 

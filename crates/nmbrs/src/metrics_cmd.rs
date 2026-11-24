@@ -24,8 +24,8 @@
 //!   - substring filter via `~`: `{profile=~label}` or
 //!     `recall{profile=~label}`
 //!
-//! Honors `--session <path>` / `--session-name` / `--session-path`, and the bare
-//! `session=<path>` spelling, resolved locally by `resolve_db`; the active db
+//! Honors `--session <path>` / `--session-name` / `--session-path`, resolved
+//! locally by `resolve_db`; the active db
 //! defaults to `sessions/latest/metrics.db`. `--db <path>` overrides all of them.
 //!
 //! These used to be swallowed here and applied by a startup hook that repointed
@@ -130,17 +130,11 @@ fn execution_qualifier_flags() -> Vec<Flag> {
 /// had a branch for it. The lifecycle members of the family
 /// (`--session-reuse/keep/shelflife`) are deliberately absent: they choose how to
 /// treat a session being written, and these commands only read.
-/// The bare `session=<dir>` spelling, declared so completion offers it beside
-/// `--session`. The handlers accept it via `forward_session_flags`; declaring it
-/// here is what makes it discoverable rather than folklore.
-pub static SESSION_KV: &[crate::cli_spec::KvParam] = &[crate::completion::SESSION_KV_PARAM];
-
 fn session_resolution_flags() -> Vec<Flag> {
     vec![
         Flag {
             long: "--session",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: crate::completion::SESSION_NAME_VALUE,
             help: "Read this session instead of the latest (path or name).",
@@ -149,7 +143,6 @@ fn session_resolution_flags() -> Vec<Flag> {
         Flag {
             long: "--session-name",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: crate::completion::SESSION_NAME_VALUE,
             help: "Read the session with this name.",
@@ -158,7 +151,6 @@ fn session_resolution_flags() -> Vec<Flag> {
         Flag {
             long: "--session-path",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Path,
             help: "Read the session at this path.",
@@ -173,7 +165,6 @@ fn list_or_show_flags() -> Vec<Flag> {
         Flag {
             long: "--format",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(format_completer),
             help: "plain | json | jsonl | yaml | csv. Default: plain.",
@@ -182,7 +173,6 @@ fn list_or_show_flags() -> Vec<Flag> {
         Flag {
             long: "--tofile",
             short: None,
-            aliases: &["--to-file"],
             arity: Arity::Value,
             value: ValueProvider::Path,
             help: "Write to <path>. With no --format, extension picks.",
@@ -191,7 +181,6 @@ fn list_or_show_flags() -> Vec<Flag> {
         Flag {
             long: "--tree",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Reshape json/yaml as nested key=value tree.",
@@ -200,7 +189,6 @@ fn list_or_show_flags() -> Vec<Flag> {
         Flag {
             long: "--list",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Names only — families + label dimensions, no value summary \
@@ -211,7 +199,6 @@ fn list_or_show_flags() -> Vec<Flag> {
     out.push(Flag {
         long: "--scope",
         short: None,
-        aliases: &[],
         arity: Arity::Bool,
         value: ValueProvider::None,
         help: "Annotate each leaf with its SRD-93 lifecycle state \
@@ -241,7 +228,6 @@ fn show_flags() -> Vec<Flag> {
     out.push(Flag {
         long: "--values",
         short: None,
-        aliases: &[],
         arity: Arity::Bool,
         value: ValueProvider::None,
         help: "DEPRECATED — per-leaf value summaries moved to \
@@ -259,7 +245,6 @@ fn watch_flags() -> Vec<Flag> {
         Flag {
             long: "--interval",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Polling interval (e.g. 1s, 500ms). Default: 2s.",
@@ -268,7 +253,6 @@ fn watch_flags() -> Vec<Flag> {
         Flag {
             long: "--warmup",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Delay before the first poll.",
@@ -277,7 +261,6 @@ fn watch_flags() -> Vec<Flag> {
         Flag {
             long: "--all-samples",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Evaluate over every sample, not the live window.",
@@ -286,7 +269,6 @@ fn watch_flags() -> Vec<Flag> {
         Flag {
             long: "--no-clear",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Append output instead of clearing the screen per poll.",
@@ -301,7 +283,6 @@ fn match_flags() -> Vec<Flag> {
     let mut out = vec![Flag {
         long: "--db",
         short: None,
-        aliases: &[],
         arity: Arity::Value,
         value: ValueProvider::Path,
         help: "Override metrics db. Default: sessions/latest/metrics.db",
@@ -323,7 +304,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--range",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(crate::completion::metrics_range_provider),
             help: "Apply a metricsql `[<dur>]` range to the selector: `all` = \
@@ -333,7 +313,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--family",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(crate::completion::metric_family_provider),
             help: "Add a metric family to the query (repeatable; tab-completes \
@@ -344,7 +323,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--at",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Anchor timestamp (ms epoch). Default: the db's latest sample.",
@@ -353,7 +331,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--lookback",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Range-query lookback window (stepped). Default: 0 = instant.",
@@ -362,7 +339,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--step",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Range-query step. Default: 1m.",
@@ -371,7 +347,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--stale-window",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Instant-query staleness window. Default: 5m.",
@@ -380,7 +355,6 @@ fn query_flags() -> Vec<Flag> {
         Flag {
             long: "--all-samples",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Emit every sample, not just the latest per series.",
@@ -421,7 +395,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: list_cmd_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -443,7 +417,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: show_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -466,7 +440,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: list_or_show_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -488,7 +462,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: match_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -509,7 +483,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: match_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -531,7 +505,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: groups_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 positionals: vec![crate::cli_spec::Positional {
                     name: "expr",
@@ -560,7 +534,7 @@ pub fn spec() -> Command {
                 // declared flags still drive completion (cli_spec §raw_args)
                 // — so `--range`/`--lookback`/… now tab-complete.
                 flags: query_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 // Completion-only positional: `raw_args=true` makes the
                 // walker hand the unparsed tail straight to
@@ -589,7 +563,7 @@ pub fn spec() -> Command {
                 category: Category::Tools,
                 level: Level::Secondary,
                 flags: watch_flags(),
-                kv_params: SESSION_KV,
+                kv_params: &[],
                 dynamic_options: None,
                 // Completion-only positional — see the `query` note above.
                 positionals: vec![crate::cli_spec::Positional {
@@ -703,34 +677,11 @@ fn forward_session_flags(p: &ParsedCommand, argv: &mut Vec<String>) {
             argv.push(v.to_string());
         }
     }
-    // The bare `session=<dir>` spelling too. On a walker-parsed command it
-    // arrives as a POSITIONAL, so without this it was silently swallowed as (or
-    // beside) the expression and the command read the latest session while naming
-    // another — the same silent-wrong-answer the `--session` gap produced. The
-    // report/summary family already accepts this spelling.
-    if let Some(v) = bare_session_positional(p) {
-        argv.push("--session".to_string());
-        argv.push(v);
-    }
 }
 
-/// The value of a bare `session=<dir>` positional, if present.
-fn bare_session_positional(p: &ParsedCommand) -> Option<String> {
-    p.positionals
-        .iter()
-        .find_map(|t| t.strip_prefix("session=").map(|v| v.to_string()))
-        .filter(|v| !v.is_empty())
-}
-
-/// The first positional that is the command's EXPRESSION — skipping a bare
-/// `session=<dir>`, which is a parameter rather than an expression. Without this,
-/// `metrics match session=<dir> "pat"` would take the session token as the
-/// pattern and match nothing.
+/// The command's EXPRESSION: its first positional.
 fn expr_positional(p: &ParsedCommand) -> Option<&str> {
-    p.positionals
-        .iter()
-        .map(|s| s.as_str())
-        .find(|t| !t.starts_with("session="))
+    p.positionals.first().map(|s| s.as_str())
 }
 
 fn forward_exec_qualifier_flags(p: &ParsedCommand, argv: &mut Vec<String>) {
@@ -749,7 +700,6 @@ fn groups_flags() -> Vec<Flag> {
         Flag {
             long: "--by",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Comma-separated label keys to group by (required).",
@@ -758,7 +708,6 @@ fn groups_flags() -> Vec<Flag> {
         Flag {
             long: "--format",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(format_completer),
             help: "plain | csv | json. Default: plain.",
@@ -1039,7 +988,7 @@ impl MetricsExecFlag {
 /// output round-trips into other commands that take a fully
 /// qualified metric instance reference.
 /// The metrics db these read commands should open: an explicit `--db`, else the
-/// session named on the line (`--session*`, or a bare `session=`), else the
+/// session named on the line (`--session*`), else the
 /// latest session.
 ///
 /// The middle step is the one that was missing. All three parsers below SWALLOWED
@@ -1897,7 +1846,7 @@ struct ValueSummary {
     max: Option<f64>,
     stddev: Option<f64>,
     /// Earliest sample_value.timestamp_ms for this instance.
-    /// Combined with [`ts_max_ms`] gives the span the summary
+    /// Combined with [`Self::ts_max_ms`] gives the span the summary
     /// covers.
     ts_min_ms: Option<i64>,
     ts_max_ms: Option<i64>,
@@ -1941,14 +1890,11 @@ fn list(args: &[String], show_values_in: bool) {
             other if other.starts_with("--format=") => {
                 format_arg = Some(other[9..].to_string());
             }
-            "--tofile" | "--to-file" => {
+            "--tofile" => {
                 tofile = iter.next().map(PathBuf::from);
             }
             other if other.starts_with("--tofile=") => {
                 tofile = Some(PathBuf::from(&other[9..]));
-            }
-            other if other.starts_with("--to-file=") => {
-                tofile = Some(PathBuf::from(&other[10..]));
             }
             "--tree" => {
                 tree_mode = true;
@@ -2074,7 +2020,7 @@ fn list(args: &[String], show_values_in: bool) {
     // Bucket by family then by sorted label tuple. Used by the
     // tree renderer; structured renderers walk the flat list.
     let mut tree: BTreeMap<String, BTreeMap<Vec<(String, String)>, i64>> = BTreeMap::new();
-    let mut kept: Vec<(i64, String, Vec<(String, String)>)> = Vec::new();
+    let mut kept: Vec<(i64, InstanceRow)> = Vec::new();
     for (id, spec) in &rows {
         let (family, labels) = split_spec(spec);
         if let Some(f) = filter.as_ref()
@@ -2085,7 +2031,14 @@ fn list(args: &[String], show_values_in: bool) {
         let mut sorted = labels.clone();
         sorted.sort();
         tree.entry(family.clone()).or_default().insert(sorted, *id);
-        kept.push((*id, family, labels));
+        kept.push((
+            *id,
+            InstanceRow {
+                family,
+                labels,
+                values: None,
+            },
+        ));
     }
 
     // SRD-93 stage 1 — value summaries are computed ONCE, by a single
@@ -2093,7 +2046,7 @@ fn list(args: &[String], show_values_in: bool) {
     // (the plain tree renderer used to recompute each leaf with its
     // own per-instance query storm).
     let summaries: std::collections::HashMap<i64, ValueSummary> = if show_values {
-        let ids: std::collections::HashSet<i64> = kept.iter().map(|(id, _, _)| *id).collect();
+        let ids: std::collections::HashSet<i64> = kept.iter().map(|(id, _)| *id).collect();
         load_all_value_summaries(&conn, &ids)
     } else {
         Default::default()
@@ -2110,17 +2063,11 @@ fn list(args: &[String], show_values_in: bool) {
 
     let mut flat: Vec<InstanceRow> = kept
         .into_iter()
-        .map(|(id, family, labels)| {
-            let values = if show_values {
-                Some(summaries.get(&id).cloned().unwrap_or_default())
-            } else {
-                None
-            };
-            InstanceRow {
-                family,
-                labels,
-                values,
+        .map(|(id, mut row)| {
+            if show_values {
+                row.values = Some(summaries.get(&id).cloned().unwrap_or_default());
             }
+            row
         })
         .collect();
 
@@ -3109,10 +3056,10 @@ fn load_all_value_summaries(
     // output for a data-less instance.
     let backfill = |out: &mut HashMap<i64, ValueSummary>| {
         for &id in ids {
-            if !out.contains_key(&id) {
+            out.entry(id).or_insert_with(|| {
                 let kind = kinds.get(&id).copied().unwrap_or(LeafKind::Gauge);
-                out.insert(id, finalize(kind, Accum::default()));
-            }
+                finalize(kind, Accum::default())
+            });
         }
     };
 
@@ -3180,7 +3127,7 @@ fn load_all_value_summaries(
                     // Mirror `ORDER BY count DESC LIMIT 1`: highest
                     // non-null count wins; NULL counts rank lowest.
                     let rank = count.unwrap_or(i64::MIN);
-                    let better = acc.peak.as_ref().map_or(true, |(best, _)| rank > *best);
+                    let better = acc.peak.as_ref().is_none_or(|(best, _)| rank > *best);
                     if better {
                         acc.peak = Some((
                             rank,
@@ -3385,39 +3332,6 @@ mod tests {
             argv,
             vec!["--session-path".to_string(), "/tmp/p".to_string()]
         );
-    }
-
-    /// The bare `session=<dir>` spelling arrives as a POSITIONAL on a
-    /// walker-parsed command. Unforwarded it was silently swallowed and the
-    /// command read the latest session — the same silent-wrong-answer as the
-    /// `--session` gap. The report/summary family already accepts this spelling.
-    #[test]
-    fn bare_session_positional_is_forwarded_and_kept_out_of_the_expr() {
-        let p = parsed(&["zzprobe*", "session=/tmp/s"], &[]);
-        let mut argv = Vec::new();
-        forward_session_flags(&p, &mut argv);
-        assert_eq!(argv, vec!["--session".to_string(), "/tmp/s".to_string()]);
-        assert_eq!(
-            expr_positional(&p),
-            Some("zzprobe*"),
-            "the pattern must still be the expression"
-        );
-
-        // Order must not matter: with the session token FIRST, the expression is
-        // still the pattern — otherwise `session=…` becomes the pattern and
-        // matches nothing.
-        let p = parsed(&["session=/tmp/s", "zzprobe*"], &[]);
-        assert_eq!(expr_positional(&p), Some("zzprobe*"));
-        let mut argv = Vec::new();
-        forward_session_flags(&p, &mut argv);
-        assert_eq!(argv, vec!["--session".to_string(), "/tmp/s".to_string()]);
-
-        // No session token ⇒ nothing forwarded, expression unchanged.
-        let p = parsed(&["zzprobe*"], &[]);
-        let mut argv = Vec::new();
-        forward_session_flags(&p, &mut argv);
-        assert!(argv.is_empty());
-        assert_eq!(expr_positional(&p), Some("zzprobe*"));
     }
 
     /// `resolve_db` prefers an explicit `--db`, then the named session, then the

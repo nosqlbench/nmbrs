@@ -92,20 +92,25 @@ pub fn parse_workload(
         parse_blocks(blocks_val, &doc_params, &doc_tags, &mut all_ops)?;
     }
 
-    // Top-level ops (no blocks): no block sugar to inline.
-    for key in ["ops", "op", "operations", "statements", "statement"] {
-        if let Some(ops_val) = obj.get(key)
-            && obj.get("blocks").is_none()
-        {
-            parse_ops_field(
-                ops_val,
-                "block0",
-                &BindingsDef::default(),
-                &doc_params,
-                &doc_tags,
-                &mut all_ops,
-            )?;
+    // Top-level ops (no blocks): no block sugar to inline. A
+    // workload declares its ops one way — top-level ops alongside
+    // `blocks:` are an error, never silently dropped.
+    if let Some(ops_val) = op_collection(obj, "workload")? {
+        if obj.contains_key("blocks") {
+            return Err(
+                "workload: top-level `ops:`/`op:` and `blocks:` both given; \
+                 put these ops in a block, or drop `blocks:`"
+                    .to_string(),
+            );
         }
+        parse_ops_field(
+            &ops_val,
+            "block0",
+            &BindingsDef::default(),
+            &doc_params,
+            &doc_tags,
+            &mut all_ops,
+        )?;
     }
 
     // Stage 5: Parse phases
@@ -1209,7 +1214,7 @@ fn parse_scenario_nodes(val: &JVal) -> Vec<ScenarioNode> {
 }
 
 /// Resolve every `IncludedScenario { name, children: [] }` node
-/// produced by [`parse_scenario_nodes`] into one whose `children`
+/// produced by `parse_scenario_nodes` into one whose `children`
 /// hold a clone of the referenced scenario's resolved nodes.
 ///
 /// Two failure modes are surfaced as parse errors:
@@ -1486,19 +1491,11 @@ fn parse_phases(
         };
 
         // SRD-82 Part 6 — daemon phase (runs concurrently with foreground
-        // siblings, stopped when they complete). Accept bool / 0|1 / on|off.
+        // siblings, stopped when they complete). A boolean: `true` / `false`.
         let daemon = phase_obj
             .get("daemon")
-            .map(|v| match v {
-                JVal::Bool(b) => *b,
-                JVal::Number(n) => n.as_u64().map(|u| u != 0).unwrap_or(false),
-                JVal::String(s) => matches!(
-                    s.trim().to_ascii_lowercase().as_str(),
-                    "true" | "on" | "yes" | "1"
-                ),
-                _ => false,
-            })
-            .unwrap_or(false);
+            .map_or(Ok(false), |v| crate::boolean::json_bool("daemon", v))
+            .map_err(|e| format!("phase '{phase_name}': {e}"))?;
 
         let adapter = phase_obj
             .get("adapter")
@@ -1616,27 +1613,30 @@ fn parse_phases(
 
         // Parse inline ops if present
         let mut inline_ops = Vec::new();
-        for key in ["ops", "op", "operations", "statements", "statement"] {
-            if let Some(ops_val) = phase_obj.get(key) {
-                let phase_tags = {
-                    let mut t = doc_tags.clone();
-                    t.insert("phase".to_string(), phase_name.clone());
-                    t
-                };
-                // Phase inline ops carry zero "outer YAML
-                // bindings sugar" — they're directly under the
-                // phase, no block wrapper. Workload + phase
-                // bindings reach them via the Polydat Kernel chain.
-                parse_ops_field(
-                    ops_val,
-                    phase_name,
-                    &BindingsDef::default(),
-                    doc_params,
-                    &phase_tags,
-                    &mut inline_ops,
-                )?;
-                break;
-            }
+        if phase_obj.contains_key("op") {
+            return Err(format!(
+                "phase '{phase_name}': `op:` is not a phase key; write the phase's \
+                 op templates under `ops:`"
+            ));
+        }
+        if let Some(ops_val) = op_collection(phase_obj, &format!("phase '{phase_name}'"))? {
+            let phase_tags = {
+                let mut t = doc_tags.clone();
+                t.insert("phase".to_string(), phase_name.clone());
+                t
+            };
+            // Phase inline ops carry zero "outer YAML
+            // bindings sugar" — they're directly under the
+            // phase, no block wrapper. Workload + phase
+            // bindings reach them via the Polydat Kernel chain.
+            parse_ops_field(
+                &ops_val,
+                phase_name,
+                &BindingsDef::default(),
+                doc_params,
+                &phase_tags,
+                &mut inline_ops,
+            )?;
         }
 
         // Auto-tag inline ops
@@ -2056,9 +2056,22 @@ fn parse_single_block(
     doc_tags: &HashMap<String, String>,
     all_ops: &mut Vec<ParsedOp>,
 ) -> Result<(), String> {
-    let obj = match block_val.as_object() {
-        Some(o) => o,
-        None => return Ok(()),
+    let obj = match block_val {
+        JVal::Object(o) => o,
+        // A block written as a bare string is one op.
+        JVal::String(s) => {
+            let mut op = ParsedOp::simple("stmt1", s);
+            op.params = exclude_non_op_keys(doc_params);
+            op.tags = doc_tags.clone();
+            op.tags.insert("block".to_string(), block_name.to_string());
+            all_ops.push(op);
+            return Ok(());
+        }
+        other => {
+            return Err(format!(
+                "block '{block_name}': must be a mapping or a single op string, got {other}"
+            ));
+        }
     };
 
     // SRD-13f Push D: workload-level `bindings:` no longer
@@ -2073,32 +2086,65 @@ fn parse_single_block(
     let mut block_tags = merge_string_maps(doc_tags, &extract_string_map(obj.get("tags")));
     block_tags.insert("block".to_string(), block_name.to_string());
 
-    // Find ops field
-    for key in ["ops", "op", "operations", "statements", "statement"] {
-        if let Some(ops_val) = obj.get(key) {
-            parse_ops_field(
-                ops_val,
-                block_name,
-                &block_bindings,
-                &block_params,
-                &block_tags,
-                all_ops,
-            )?;
-            return Ok(());
-        }
-    }
-
-    // If no ops field, check if the block value itself is a string (single op)
-    if let Some(s) = block_val.as_str() {
-        let mut op = ParsedOp::simple("stmt1", s);
-        op.bindings = block_bindings;
-        op.params = block_params;
-        op.tags = block_tags;
-        all_ops.push(op);
+    if let Some(ops_val) = op_collection(obj, &format!("block '{block_name}'"))? {
+        parse_ops_field(
+            &ops_val,
+            block_name,
+            &block_bindings,
+            &block_params,
+            &block_tags,
+            all_ops,
+        )?;
     }
 
     Ok(())
 }
+
+/// Collection keys that are not keys: the ops of a workload, phase
+/// or block go under `ops:` (or one op under `op:`).
+const RETIRED_COLLECTION_KEYS: &[&str] = &["operations", "statements", "statement"];
+
+/// The op templates of a workload, phase or block (`scope` names it
+/// in errors). `ops:` holds them in any shape (string, list or map);
+/// `op:` is the one-op shorthand of a workload or block (a phase
+/// declares none) — a string is its statement and a map is the op
+/// template itself. A retired spelling is rejected, naming `ops:`.
+fn op_collection(obj: &serde_json::Map<String, JVal>, scope: &str) -> Result<Option<JVal>, String> {
+    if let Some(k) = RETIRED_COLLECTION_KEYS
+        .iter()
+        .find(|k| obj.contains_key(**k))
+    {
+        return Err(format!(
+            "{scope}: `{k}:` is not a key; write op templates under `ops:` \
+             (or a single op under `op:`)"
+        ));
+    }
+    match (obj.get("ops"), obj.get("op")) {
+        (Some(_), Some(_)) => Err(format!(
+            "{scope}: both `ops:` and `op:` given; `op:` is a single op and \
+             `ops:` holds any number — write one of them"
+        )),
+        (Some(ops), None) => Ok(Some(ops.clone())),
+        (None, Some(JVal::Array(_))) => Err(format!(
+            "{scope}: `op:` is a single op; write a list of op templates under `ops:`"
+        )),
+        (None, Some(JVal::Object(template))) => {
+            Ok(Some(JVal::Array(vec![JVal::Object(template.clone())])))
+        }
+        (None, Some(statement)) => Ok(Some(statement.clone())),
+        (None, None) => Ok(None),
+    }
+}
+
+/// Op-template keys that are not keys, each with the key to write.
+const RETIRED_OP_KEYS: &[(&str, &str)] = &[
+    ("ops", "`op:`"),
+    ("operations", "`op:`"),
+    ("statement", "`stmt:` (or `op:`)"),
+    ("statements", "`stmt:` (or `op:`)"),
+    ("desc", "`description:`"),
+    ("driver", "`adapter:`"),
+];
 
 // -----------------------------------------------------------------
 // Ops
@@ -2112,13 +2158,11 @@ fn parse_ops_field(
     tags: &HashMap<String, String>,
     all_ops: &mut Vec<ParsedOp>,
 ) -> Result<(), String> {
-    // SRD-32a: activity/phase-scope param keys (cycles / concurrency /
-    // rate / errors / error_rate_max) are consumed at phase/activity scope,
-    // never as op fields. Strip them from the inherited params before they
-    // reach any op, so an inherited `rate` doesn't collide with the `rate`
-    // wrapper's field-ownership guard. A genuine op-level `rate:` reaches the
-    // op via the typed `ParsedOp.rate` field, which is untouched.
-    let op_scope_params = exclude_activity_keys(params);
+    // Activity/phase-scope param keys and the workload's default-adapter
+    // selectors are never op fields ([`exclude_non_op_keys`]). Strip them from
+    // the inherited params before they reach any op. A genuine op-level
+    // `rate:` or `adapter:` is written on the op and is untouched.
+    let op_scope_params = exclude_non_op_keys(params);
     let params = &op_scope_params;
     let mut op_counter = 0;
 
@@ -2272,6 +2316,17 @@ fn evaluations_vocab() -> Vec<&'static str> {
     crate::vocab::evaluation_kinds()
 }
 
+/// Scan every string under `value` for bind points, failing on the
+/// first malformed one ([`crate::bindpoints::extract_bind_points`]).
+fn check_bind_points(value: &JVal) -> Result<(), String> {
+    match value {
+        JVal::String(s) => crate::bindpoints::extract_bind_points(s).map(|_| ()),
+        JVal::Array(items) => items.iter().try_for_each(check_bind_points),
+        JVal::Object(map) => map.values().try_for_each(check_bind_points),
+        _ => Ok(()),
+    }
+}
+
 /// Normalize a full op object (map of fields).
 fn normalize_op_object(
     map: &serde_json::Map<String, JVal>,
@@ -2287,9 +2342,14 @@ fn normalize_op_object(
         .unwrap_or(default_name)
         .to_string();
 
+    if let Some((k, write)) = RETIRED_OP_KEYS.iter().find(|(k, _)| map.contains_key(*k)) {
+        return Err(format!(
+            "op '{name}' (block '{block_name}'): `{k}:` is not an op-template key; write {write}"
+        ));
+    }
+
     let description = map
         .get("description")
-        .or_else(|| map.get("desc"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -2336,7 +2396,6 @@ fn normalize_op_object(
     let activity_params = [
         "ratio",
         "adapter",
-        "driver",
         "space",
         "instrument",
         "start-timers",
@@ -2490,9 +2549,9 @@ fn normalize_op_object(
     // SRD-108 Part B (+ SRD-109 Part 3) — `abstract:` declares
     // this op as a typed slot: `{ needs: {name: type,…}, yields:
     // {name: type,…}, results: {name: type,…} }`. Unknown keys
-    // are rejected; types are polydat DSL type names, verified
-    // against the compiled op-template program at pre-map
-    // synthesis.
+    // are rejected; each type is a polydat type keyword, resolved
+    // here and verified against the compiled op-template program
+    // at pre-map synthesis.
     let abstract_interface: Option<crate::model::OpInterface> = match map.get("abstract") {
         None => None,
         Some(v) => {
@@ -2515,7 +2574,9 @@ fn normalize_op_object(
                 for (wire, typ) in entries {
                     let type_name = typ.as_str().ok_or_else(|| format!(
                             "op '{name}': `abstract.{k}.{wire}:` type                              must be a string, got {typ}"))?;
-                    target.insert(wire.clone(), type_name.to_string());
+                    let port_type = crate::port_types::resolve_type_keyword(type_name)
+                        .map_err(|e| format!("op '{name}': `abstract.{k}.{wire}:` {e}"))?;
+                    target.insert(wire.clone(), port_type);
                 }
             }
             Some(iface)
@@ -2657,7 +2718,12 @@ fn normalize_op_object(
             let (path, count, agg, row_filter) = match raw.strip_suffix(":count") {
                 Some(p) => (p.to_string(), true, None, None),
                 None => match parse_capture_agg_suffix(raw) {
-                    Some((p, a, f)) => (p, false, Some(a), f),
+                    Some(suffix) => (
+                        suffix.path_prefix,
+                        false,
+                        Some(suffix.agg),
+                        suffix.row_filter,
+                    ),
                     None => (raw.to_string(), false, None, None),
                 },
             };
@@ -2723,6 +2789,16 @@ fn normalize_op_object(
         }
     }
 
+    // Every op field and param is bind-point text the runtime
+    // scans again later; refuse a malformed bind point here, where
+    // the op and field can be named.
+    for (section, fields) in [("field", &op_fields), ("param", &op_params)] {
+        for (field, value) in fields.iter() {
+            check_bind_points(value)
+                .map_err(|e| format!("op '{name}' {section} '{field}': {e}"))?;
+        }
+    }
+
     Ok(ParsedOp {
         traverse,
         name,
@@ -2746,24 +2822,6 @@ fn normalize_op_object(
     })
 }
 
-/// SRD-40b §1 + §2: parse the `metrics:` field on an op
-/// template. Three YAML shapes accepted, dispatched on the
-/// value's type:
-///
-/// - **Scalar** (bare string, §2.1): one metric with the
-///   string as both family and `value:`.
-/// - **Sequence** (list, §2.2): each entry is a bare-name
-///   string OR a `name := <Polydat expression>` wire-expression.
-///   Wire expressions are auto-injected into the op's
-///   `bindings:` block; the metric is then a bare-name
-///   reference to the new wire.
-/// - **Mapping** (object, §2.3): canonical full-shape form
-///   keyed by metric name. Each value is either a string
-///   (treated as `value:`) or a full `MetricSpec` mapping.
-/// Parses a `:min(field)` / `:max(field)` / `:sum(field)` suffix on a
-/// declarative capture path, returning `(path_prefix, agg)`. The path
-/// prefix may be empty (root = the whole rows array). Returns `None`
-/// when the spec carries no recognized aggregation suffix.
 /// Split an optional `where <field>='<value>'` predicate off the tail of an
 /// aggregate's argument, returning `(field_expr, predicate)`.
 ///
@@ -2797,13 +2855,21 @@ fn split_capture_row_filter(arg: &str) -> (String, Option<(String, String)>) {
     }
 }
 
-fn parse_capture_agg_suffix(
-    raw: &str,
-) -> Option<(
-    String,
-    crate::bindpoints::CaptureAgg,
-    Option<(String, String)>,
-)> {
+/// A declarative capture path split at its aggregation suffix.
+struct CaptureAggSuffix {
+    /// The path before the suffix; empty addresses the whole rows array.
+    path_prefix: String,
+    /// The fold the suffix names.
+    agg: crate::bindpoints::CaptureAgg,
+    /// The `where <field>='<value>'` row filter, as `(field, value)`.
+    row_filter: Option<(String, String)>,
+}
+
+/// Parses a `:min(field)` / `:max(field)` / `:sum(field)` suffix on a
+/// declarative capture path, with an optional `where <field>='<value>'`
+/// row filter inside the parentheses. Returns `None` when the spec
+/// carries no recognized aggregation suffix.
+fn parse_capture_agg_suffix(raw: &str) -> Option<CaptureAggSuffix> {
     use crate::bindpoints::CaptureAgg;
     if !raw.ends_with(')') {
         return None;
@@ -2817,13 +2883,31 @@ fn parse_capture_agg_suffix(
             let arg = &raw[idx + tag.len()..raw.len() - 1];
             let (field, row_filter) = split_capture_row_filter(arg);
             if !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-                return Some((raw[..idx].to_string(), make(field), row_filter));
+                return Some(CaptureAggSuffix {
+                    path_prefix: raw[..idx].to_string(),
+                    agg: make(field),
+                    row_filter,
+                });
             }
         }
     }
     None
 }
 
+/// SRD-40b §1 + §2: parse the `metrics:` field on an op
+/// template. Three YAML shapes accepted, dispatched on the
+/// value's type:
+///
+/// - **Scalar** (bare string, §2.1): one metric with the
+///   string as both family and `value:`.
+/// - **Sequence** (list, §2.2): each entry is a bare-name
+///   string OR a `name := <Polydat expression>` wire-expression.
+///   Wire expressions are auto-injected into the op's
+///   `bindings:` block; the metric is then a bare-name
+///   reference to the new wire.
+/// - **Mapping** (object, §2.3): canonical full-shape form
+///   keyed by metric name. Each value is either a string
+///   (treated as `value:`) or a full `MetricSpec` mapping.
 fn parse_metrics_field(
     val: Option<&JVal>,
     op_name: &str,
@@ -3082,12 +3166,14 @@ fn parse_dimension_type(
     phase_name: &str,
     dim: &str,
 ) -> Result<crate::model::DimensionType, String> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "str" | "string" => Ok(crate::model::DimensionType::Str),
-        other => Err(format!(
+    let written = s.trim();
+    match crate::port_types::resolve_type_keyword(written) {
+        Ok(crate::port_types::PortType::Str) => Ok(crate::model::DimensionType::Str),
+        Ok(other) => Err(format!(
             "phase '{phase_name}' dimension '{dim}' type '{other}': label \
              values are strings; `str` is the only supported type"
         )),
+        Err(e) => Err(format!("phase '{phase_name}' dimension '{dim}': {e}")),
     }
 }
 
@@ -3396,16 +3482,6 @@ fn has_binding_named(src: &str, name: &str) -> bool {
     false
 }
 
-/// SRD-66 §"Surface 1 §Schema": parse the vari-structured
-/// `result:` field on an op template. Three shapes:
-///
-/// - **String** scalar — Polydat source block (multi-line or
-///   single-line). Each `<name> := <expr>` declares one
-///   wire.
-/// - **List** sequence — each element is itself a
-///   `ResultSpec` (recursively); fragments concatenate.
-/// - **Mapping** — named-key short-forms; each value is a
-///   string parsed as `count` / `ok` / path-expr / Polydat expr.
 /// Parse an op's `traverse:` block.
 ///
 /// Customises the always-installed traversal layer; it does not select it, so
@@ -3472,6 +3548,16 @@ fn parse_traverse_field(
     Ok(Some(TraverseSpec { path, on_missing }))
 }
 
+/// SRD-66 §"Surface 1 §Schema": parse the vari-structured
+/// `result:` field on an op template. Three shapes:
+///
+/// - **String** scalar — Polydat source block (multi-line or
+///   single-line). Each `<name> := <expr>` declares one
+///   wire.
+/// - **List** sequence — each element is itself a
+///   `ResultSpec` (recursively); fragments concatenate.
+/// - **Mapping** — named-key short-forms; each value is a
+///   string parsed as `count` / `ok` / path-expr / Polydat expr.
 fn parse_result_field(
     val: Option<&JVal>,
     op_name: &str,
@@ -3718,11 +3804,23 @@ fn merge_string_maps(
 /// the typed [`ParsedOp::rate`] path, not params, so this exclusion is safe.
 const ACTIVITY_PARAM_KEYS: &[&str] = &["cycles", "concurrency", "rate", "errors", "error_rate_max"];
 
-/// Clone `params` minus the activity/phase-scope keys ([`ACTIVITY_PARAM_KEYS`]).
-fn exclude_activity_keys(params: &HashMap<String, JVal>) -> HashMap<String, JVal> {
+/// The workload `params:` keys that select its DEFAULT adapter. An op never
+/// inherits them: an op's `params.adapter` is an op-level override, which
+/// outranks the phase's `adapter:`, so an inherited copy would outrank it
+/// too and a phase could never override the workload default. An op's own
+/// `adapter:` is written on the op and is untouched; a CLI `adapter=` still
+/// overlays every op (SRD 21, the outermost layer).
+const ADAPTER_SELECTOR_KEYS: &[&str] = &["adapter", "driver"];
+
+/// Clone `params` minus the keys an op never inherits from an enclosing
+/// `params:` block ([`ACTIVITY_PARAM_KEYS`], [`ADAPTER_SELECTOR_KEYS`]).
+fn exclude_non_op_keys(params: &HashMap<String, JVal>) -> HashMap<String, JVal> {
     params
         .iter()
-        .filter(|(k, _)| !ACTIVITY_PARAM_KEYS.contains(&k.as_str()))
+        .filter(|(k, _)| {
+            !ACTIVITY_PARAM_KEYS.contains(&k.as_str())
+                && !ADAPTER_SELECTOR_KEYS.contains(&k.as_str())
+        })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
@@ -3741,6 +3839,43 @@ fn merge_value_maps(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A malformed bind point is refused when the workload is
+    /// parsed, naming the op and the field or param that holds it.
+    #[test]
+    fn a_malformed_bind_point_is_refused_naming_its_op_and_field() {
+        let yaml = |op_body: &str| {
+            format!(
+                "phases:\n  load:\n    ops:\n      write: {op_body}\nscenarios: {{ default: [load] }}\n"
+            )
+        };
+        let err = parse_workload(
+            &yaml(r#"{ stmt: "INSERT INTO t (id) VALUES ({id:String})" }"#),
+            &HashMap::new(),
+        )
+        .expect_err("a retired type spelling on a bind point must be refused");
+        assert_eq!(
+            err.matches("op 'write' field 'stmt': bind point `{id:String}`: `String` is no longer a type keyword; write `str`").count(),
+            1,
+            "{err}"
+        );
+        let err = parse_workload(
+            &yaml(r#"{ stmt: "op", params: { label: "{h:handle}" } }"#),
+            &HashMap::new(),
+        )
+        .expect_err("an internal type on a bind point must be refused");
+        assert!(
+            err.contains(
+                "op 'write' param 'label': bind point `{h:handle}`: `handle` is an internal type"
+            ),
+            "{err}"
+        );
+        parse_workload(
+            &yaml(r#"{ stmt: "INSERT INTO t (id) VALUES ({id:str})" }"#),
+            &HashMap::new(),
+        )
+        .expect("a type keyword on a bind point parses");
+    }
 
     #[test]
     fn phase_metrics_mapping_form_preserves_raw_value() {
@@ -4119,6 +4254,31 @@ blocks:
         assert_eq!(ops[0].tags["block"], "main");
     }
 
+    /// The workload's default adapter is not an op-level override: an op
+    /// inherits no `adapter` from `params:`, so a phase's `adapter:` can
+    /// replace the default. An op's own `adapter:` stays on the op.
+    #[test]
+    fn an_op_does_not_inherit_the_workload_default_adapter() {
+        let yaml = r#"
+params:
+  adapter: cql
+  prepared: true
+blocks:
+  main:
+    ops:
+      plain: "SELECT * FROM t;"
+      routed:
+        adapter: stdout
+        stmt: "hello"
+"#;
+        let ops = parse_ops(yaml).unwrap();
+        let plain = ops.iter().find(|o| o.name == "plain").unwrap();
+        let routed = ops.iter().find(|o| o.name == "routed").unwrap();
+        assert!(!plain.params.contains_key("adapter"));
+        assert_eq!(plain.params["prepared"], true);
+        assert_eq!(routed.params["adapter"], "stdout");
+    }
+
     #[test]
     fn parse_auto_naming() {
         let yaml = r#"
@@ -4208,8 +4368,8 @@ ops:
         let yaml = r#"
 scenarios:
   default:
-    schema: run driver=cql tags==block:schema threads==1
-    main: run driver=cql tags==block:main cycles=1M
+    schema: run adapter=cql tags==block:schema threads==1
+    main: run adapter=cql tags==block:main cycles=1M
 ops:
   op1: "test"
 "#;
@@ -5038,18 +5198,44 @@ phases:
     }
 
     #[test]
-    fn checkpoint_short_form_no_and_false_and_off_all_disable() {
-        for word in &["no", "false", "off"] {
-            let cp = parse_checkpoint_field(&format!("checkpoint: {word}")).expect("present");
-            assert!(!cp.idempotent, "expected disabled for '{word}'");
+    fn checkpoint_bool_and_empty_forms_name_the_short_form() {
+        // One spelling per meaning: `idempotent` / `none` (or a
+        // mapping). A bool, its string spelling, or a bare null is
+        // an error naming the short form to write.
+        for (form, want) in [
+            ("true", "checkpoint: idempotent"),
+            ("false", "checkpoint: none"),
+            ("\"true\"", "checkpoint: idempotent"),
+            ("\"false\"", "checkpoint: none"),
+            ("", "checkpoint: idempotent"),
+        ] {
+            let v: serde_json::Value = if form.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::to_value(serde_yaml::from_str::<serde_yaml::Value>(form).unwrap())
+                    .unwrap()
+            };
+            let err = serde_json::from_value::<crate::model::Checkpoint>(v)
+                .expect_err(form)
+                .to_string();
+            assert!(err.contains(want), "{form:?}: {err}");
         }
     }
 
     #[test]
-    fn checkpoint_bool_false_disables() {
-        // YAML's bare `false` should map to disabled.
-        let cp = parse_checkpoint_field("checkpoint: false").expect("present");
-        assert!(!cp.idempotent);
+    fn checkpoint_short_forms_load_through_the_full_parser() {
+        // The construction table and the deserializer must agree on
+        // the short-form vocabulary (they once disagreed:
+        // `disabled` vs `none`, so `checkpoint: none` failed to load).
+        for (form, idempotent) in [("idempotent", true), ("none", false)] {
+            let yaml = format!(
+                "phases:\n  p:\n    cycles: 1\n    checkpoint: {form}\n    ops:\n      - select 1;\n"
+            );
+            let wl = parse_workload(&yaml, &HashMap::new())
+                .unwrap_or_else(|e| panic!("checkpoint: {form} must load: {e}"));
+            let cp = wl.phases["p"].checkpoint.as_ref().expect("declared");
+            assert_eq!(cp.idempotent, idempotent, "{form}");
+        }
     }
 
     #[test]
@@ -5570,8 +5756,8 @@ phases:
     /// The three declared verbs — and the `action:` alias — all load.
     #[test]
     fn accepts_declared_stop_condition_effects() {
-        for (key, verb) in [("effect", "stop"), ("effect", "fail"), ("action", "abort")] {
-            let yaml = format!(
+        let yaml = |key: &str, verb: &str| {
+            format!(
                 r#"
 scenarios:
   default:
@@ -5586,9 +5772,89 @@ phases:
       op1:
         stmt: "noop"
 "#
+            )
+        };
+        for verb in ["stop", "fail", "abort"] {
+            super::parse_workload(&yaml("effect", verb), &HashMap::new())
+                .unwrap_or_else(|e| panic!("effect: {verb} must load: {e}"));
+        }
+        // `effect:` has one spelling; `action:` is an unknown key, not an alias.
+        assert!(
+            super::parse_workload(&yaml("action", "abort"), &HashMap::new()).is_err(),
+            "`action:` must be rejected"
+        );
+    }
+
+    /// The op sugars all load: `op:` as a workload's one op (string or
+    /// template map), a block written as one string, and inside an op
+    /// `op:` as a statement string or as the payload map.
+    #[test]
+    fn op_sugar_forms_load() {
+        let stmt_of = |yaml: &str| -> String {
+            let w = super::parse_workload(yaml, &HashMap::new())
+                .unwrap_or_else(|e| panic!("must load:\n{yaml}\n{e}"));
+            assert_eq!(w.ops.len(), 1, "one op from:\n{yaml}");
+            w.ops[0]
+                .op
+                .get("stmt")
+                .and_then(|v| v.as_str())
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(stmt_of("op: select 1\n"), "select 1");
+        assert_eq!(stmt_of("op:\n  stmt: select 2\n  ratio: 3\n"), "select 2");
+        assert_eq!(stmt_of("blocks:\n  b1: select 3\n"), "select 3");
+        assert_eq!(stmt_of("ops:\n  o1:\n    op: select 4\n"), "select 4");
+        assert_eq!(
+            stmt_of("ops:\n  o1:\n    op:\n      stmt: select 5\n"),
+            "select 5"
+        );
+        assert_eq!(stmt_of("ops:\n  o1:\n    stmt: select 6\n"), "select 6");
+    }
+
+    /// Every retired key spelling is an error naming the key to write,
+    /// never a silent op field or an ignored key.
+    #[test]
+    fn retired_op_key_spellings_name_the_canonical_key() {
+        let cases = [
+            ("operations: select 1\n", "under `ops:`"),
+            ("statements: select 1\n", "under `ops:`"),
+            ("statement: select 1\n", "under `ops:`"),
+            ("blocks:\n  b1:\n    statements: select 1\n", "under `ops:`"),
+            ("op:\n  - select 1\n", "under `ops:`"),
+            ("ops: select 1\nop: select 2\n", "both `ops:` and `op:`"),
+            (
+                "ops: select 1\nblocks:\n  b1: select 2\n",
+                "and `blocks:` both given",
+            ),
+            (
+                "op: select 1\nblocks:\n  b1: select 2\n",
+                "and `blocks:` both given",
+            ),
+            ("phases:\n  p:\n    op: select 1\n", "under `ops:`"),
+            ("phases:\n  p:\n    statements: select 1\n", "under `ops:`"),
+            ("ops:\n  o1:\n    statement: select 1\n", "write `stmt:`"),
+            ("ops:\n  o1:\n    statements: select 1\n", "write `stmt:`"),
+            ("ops:\n  o1:\n    ops: select 1\n", "write `op:`"),
+            ("ops:\n  o1:\n    operations: select 1\n", "write `op:`"),
+            (
+                "ops:\n  o1:\n    stmt: select 1\n    desc: d\n",
+                "write `description:`",
+            ),
+            (
+                "ops:\n  o1:\n    stmt: select 1\n    driver: stdout\n",
+                "write `adapter:`",
+            ),
+        ];
+        for (yaml, expect) in cases {
+            let err = match super::parse_workload(yaml, &HashMap::new()) {
+                Ok(_) => panic!("must be rejected:\n{yaml}"),
+                Err(e) => e,
+            };
+            assert!(
+                err.contains(expect),
+                "{yaml}\n→ {err}\nmust contain {expect:?}"
             );
-            super::parse_workload(&yaml, &HashMap::new())
-                .unwrap_or_else(|e| panic!("{key}: {verb} must load: {e}"));
         }
     }
 

@@ -38,7 +38,7 @@ template contains:
 - `abstract.needs`, listing the values the request must carry: path
   parameters, required query parameters, and required request-body fields.
   Spec types map to Polydat types: `integer` to `u64`, `number` to `f64`,
-  `boolean` to `bool`, anything else to `String`.
+  `boolean` to `bool`, anything else to `str`.
 - `method`, and `uri` as `{base_url}` + the path + the required query
   parameters, each written as a bind point.
 - `content_type` and `body` when the operation has a request body. A JSON
@@ -71,7 +71,7 @@ default `base_url`. One of the generated templates:
 
 ```yaml
   # GET /pets
-  # optional, not templated: tag (String)
+  # optional, not templated: tag (str)
   listPets:
     description: "List pets, a page at a time"
     abstract:

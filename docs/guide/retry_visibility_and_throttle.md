@@ -63,7 +63,7 @@ WRN retry advisory: op 'insert' hit its first retryable [Overload] at cycle 12:
     simulated overload: in_flight=9 > 8 — further occurrences are absorbed by
     the tries budget (21) and appear only as att:%/r: chips and attempt_*
     metrics; sample live specimens via the retry_exemplar_rate control, or
-    silence this line with retry_advisory: off
+    silence this line with retry_advisory: false
 ```
 
 Design points:
@@ -74,7 +74,7 @@ Design points:
 - **Actionable.** The line names the class, the message, the
   budget, and both paths forward (turn on sampling / turn off the
   advisory).
-- **Opt-out, per op:** `retry_advisory: off`.
+- **Opt-out, per op:** `retry_advisory: false`.
 
 ## Layer 2 — counter-exemplars (opt-in sampling)
 

@@ -129,12 +129,7 @@ pub async fn run_command(args: &[String]) {
     // CLI adapter wins; else the workload's declared adapter.
     let resolved_adapter: Option<String> = params
         .get("adapter")
-        .or(params.get("driver"))
-        .or_else(|| {
-            effective_params
-                .get("adapter")
-                .or(effective_params.get("driver"))
-        })
+        .or_else(|| effective_params.get("adapter"))
         .cloned();
     let adapter_name = resolved_adapter
         .clone()
@@ -253,7 +248,6 @@ pub async fn run_command(args: &[String]) {
             .unwrap_or("default"),
         params
             .get("adapter")
-            .or(params.get("driver"))
             .map(|s| s.as_str())
             .unwrap_or(&adapter_name),
     ));
@@ -285,11 +279,16 @@ pub async fn run_command(args: &[String]) {
     // `nmbrs attach`; the in-process run (TUI, observer, RunState) never
     // reads it. Most runs are never attached to, so it's OFF by default
     // — a per-run socket plus an announcement line is just noise. Opt in
-    // with `inspector=on` when you intend to attach to a long workload.
+    // with `inspector=true` when you intend to attach to a long workload.
     let inspector_enabled = params
         .get("inspector")
-        .map(|v| matches!(v.as_str(), "on" | "true" | "1"))
-        .unwrap_or(false);
+        .map_or(Ok(false), |v| {
+            nmbrs_workload::boolean::parse_bool("inspector", v)
+        })
+        .unwrap_or_else(|e| {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        });
     let _inspector_join = if inspector_enabled {
         match nmbrs_tui::inspector_server::spawn(run_state.clone(), runtime_handle.clone()) {
             Ok((_path, join)) => Some(join),
@@ -684,21 +683,21 @@ fn print_post_run_reports(
     // nmbrs-runtime). Non-exiting: one report's failure must not
     // flip a successful run's exit code; no-data (the normal
     // dryrun/short-run condition) is a warning.
-    if run_result.is_ok() {
-        if let Some(dir) = session_dir.as_deref() {
-            match crate::report_cmd::render_session_reports(&dir.join("metrics.db")) {
-                Ok(_) => {}
-                Err(failures) => {
-                    for f in failures {
-                        nmbrs_runtime::diag!(
-                            nmbrs_runtime::observer::LogLevel::Error,
-                            "post-run report: {f}"
-                        );
-                    }
+    if run_result.is_ok()
+        && let Some(dir) = session_dir.as_deref()
+    {
+        match crate::report_cmd::render_session_reports(&dir.join("metrics.db")) {
+            Ok(_) => {}
+            Err(failures) => {
+                for f in failures {
+                    nmbrs_runtime::diag!(
+                        nmbrs_runtime::observer::LogLevel::Error,
+                        "post-run report: {f}"
+                    );
                 }
             }
-            auto_inject_details(dir);
         }
+        auto_inject_details(dir);
     }
 
     // Same rule as above: with no directory this run owns, there are no summaries
@@ -945,7 +944,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--strict",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Strict workload-param validation.",
@@ -954,7 +952,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--no-prompt",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Don't prompt; assume non-interactive.",
@@ -963,7 +960,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--resume-latest",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Resume the most recent compatible session.",
@@ -972,7 +968,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--force-retry-failed",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Retry a previously failed phase on resume.",
@@ -981,7 +976,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--session",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: crate::completion::SESSION_NAME_VALUE,
             help: "SRD-04 session umbrella (path or name).",
@@ -990,7 +984,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--session-name",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Override session name.",
@@ -999,29 +992,22 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--session-path",
             short: None,
-            aliases: &["--session-dir"],
             arity: Arity::Value,
             value: ValueProvider::Path,
-            help: "Override session directory. Env: NMBRS_SESSION_PATH \
-                   (legacy SESSION_DIRECTORY still honoured).",
+            help: "Override session directory. Env: NMBRS_SESSION_PATH.",
             repeatable: false,
         },
         Flag {
             long: "--session-reuse",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(crate::completion::session_reuse_values),
             help: "Reuse policy for the chosen session.",
             repeatable: false,
         },
-        // The `--sessions-*` spellings are aliases: the user guide documented only
-        // those, so declaring them is what stops a documented invocation from being
-        // parsed as an unknown flag and ignored.
         Flag {
             long: "--session-keep",
             short: None,
-            aliases: &["--sessions-max"],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "How many sessions to keep (0 disables count-based purge). \
@@ -1031,7 +1017,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--session-shelflife",
             short: None,
-            aliases: &["--sessions-shelflife"],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Age past which sessions are purged, e.g. 2w (0 disables). \
@@ -1041,7 +1026,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--resume",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Path,
             help: "Resume from a specific session.",
@@ -1050,7 +1034,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--polydat-lib",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Path,
             help: "GK library path override.",
@@ -1059,7 +1042,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--readout",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Readout-binding override.",
@@ -1073,7 +1055,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--metrics-log",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Also write metrics to one JSONL file for outside observers \
@@ -1084,7 +1065,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--per-instance-metrics",
             short: None,
-            aliases: &[],
             arity: Arity::Bool,
             value: ValueProvider::None,
             help: "Also write one file per (metric, label-tuple).",
@@ -1093,7 +1073,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--report-openmetrics-to",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::None,
             help: "Push metrics to an OpenMetrics/Prometheus endpoint URL.",
@@ -1102,7 +1081,6 @@ pub fn standard_run_flags() -> Vec<Flag> {
         Flag {
             long: "--kernel-opt",
             short: None,
-            aliases: &[],
             arity: Arity::Value,
             value: ValueProvider::Custom(crate::completion::static_kernel_opt),
             help: "Polydat kernel optimisation level (release|diagnostic).",
@@ -1143,7 +1121,6 @@ mod flag_declaration_tests {
         let mut names = Vec::new();
         for f in standard_run_flags() {
             names.push(f.long);
-            names.extend(f.aliases.iter().copied());
         }
         names
     }
@@ -1200,17 +1177,23 @@ mod flag_declaration_tests {
         );
     }
 
-    /// Aliases must be DECLARED, not just parsed: the walker validates against
-    /// the spec, and `--help` / completion read from it. A flag the runtime
-    /// honours but the spec omits reads as unsupported.
+    /// Each session setting has one flag spelling. The retired
+    /// `--sessions-max`, `--sessions-shelflife` and `--session-dir` spellings
+    /// are not declared, so the command line rejects them rather than
+    /// setting anything.
     #[test]
-    fn documented_aliases_are_declared_in_the_spec() {
+    fn retired_session_flag_spellings_are_rejected() {
         let declared = declared();
-        for alias in ["--sessions-max", "--sessions-shelflife", "--session-dir"] {
+        for retired in ["--sessions-max", "--sessions-shelflife", "--session-dir"] {
             assert!(
-                declared.contains(&alias),
-                "{alias} is accepted by the parser and named in the user guide, \
-                 so it must appear in the spec"
+                !declared.contains(&retired),
+                "{retired} must not be declared; its setting has one spelling"
+            );
+        }
+        for canonical in ["--session-keep", "--session-shelflife", "--session-path"] {
+            assert!(
+                declared.contains(&canonical),
+                "{canonical} must be declared"
             );
         }
     }

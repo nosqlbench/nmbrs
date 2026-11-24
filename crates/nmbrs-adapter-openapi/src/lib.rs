@@ -4,13 +4,13 @@
 //! # nmbrs-adapter-openapi
 //!
 //! OpenAPI workload-source adapter for nmbrs. Reads an OpenAPI
-//! 3.x spec, discovers endpoints, and synthesizes [`ParsedOp`]s
+//! 3.x spec, discovers endpoints, and synthesizes [`ParsedOp`](nmbrs_workload::model::ParsedOp)s
 //! plus Polydat binding source so a runner can drive traffic against
 //! the target API through the standard `http` adapter.
 //!
 //! Unlike a transport adapter (`stdout`, `cql`, `http`), this
 //! crate is a *workload generator*. It doesn't implement
-//! [`DriverAdapter`](nmbrs_runtime::adapter::DriverAdapter); it
+//! `nmbrs_runtime::adapter::DriverAdapter`; it
 //! produces synthesized ops that the http adapter executes.
 //!
 //! ## Usage

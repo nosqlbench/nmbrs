@@ -105,8 +105,8 @@ pub enum ResolveError {
         b_reason: WrapperActivation,
     },
     /// Constraint graph contains a `requires_inner` cycle
-    /// (e.g. A.requires_inner = [B] and B.requires_inner =
-    /// [A]). Almost always a registry-author bug; surface
+    /// (e.g. `A.requires_inner = [B]` and
+    /// `B.requires_inner = [A]`). Almost always a registry-author bug; surface
     /// at session start.
     ConstraintCycle { cycle: Vec<WrapperName> },
     /// Override referenced an unknown wrapper name. Carries

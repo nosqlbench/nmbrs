@@ -252,13 +252,13 @@ params-kernel    final dataset := "example"
                  final dim     := 25                       ← folded constants
                  final concurrency := "100"
    ↓
-workload-root    extern dataset: String                    ← input slots,
+workload-root    extern dataset: str                       ← input slots,
                  extern dim: u64                             wired from
-                 extern concurrency: String                  params-kernel
+                 extern concurrency: str                     params-kernel
                  …authored `bindings:` block here…
    ↓
 phase / op-template / for_each / do-loop / bindings scopes
-                 extern dataset: String                    ← same cascade
+                 extern dataset: str                       ← same cascade
                  …each scope's own bindings here…            shape downstream
 ```
 

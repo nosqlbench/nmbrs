@@ -63,7 +63,7 @@ fn list_names_bundled_blueprints_with_slot_counts() {
         .lines()
         .find(|l| l.starts_with("vector_suite_blueprint"))
         .unwrap_or_else(|| panic!("vector_suite_blueprint missing from listing:\n{stdout}"));
-    assert!(line.contains("24"), "twenty-four slots; line: {line}");
+    assert!(line.contains("26"), "twenty-six slots; line: {line}");
 }
 
 /// The headline contract: a freshly generated skeleton — no TODO
@@ -81,7 +81,7 @@ fn generated_template_binds_and_traverses_unedited() {
         ok,
         "template must succeed; stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(stdout.contains("24 slot(s)"), "stdout:\n{stdout}");
+    assert!(stdout.contains("26 slot(s)"), "stdout:\n{stdout}");
 
     let session = sandbox.dir.join("session");
     let (stdout, stderr, ok) = sandbox.nmbrs(&[

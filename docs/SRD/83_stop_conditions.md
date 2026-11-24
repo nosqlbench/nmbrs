@@ -513,7 +513,7 @@ Semantics — fragile-first, scaling to robust (TCP-style):
 
 Companion default (SRD-82 Part 3b): the retry loop's first sighting
 of each error class per phase emits ONE advisory line by default
-(capped at 3 classes/phase, `retry_advisory: off` to silence), so a
+(capped at 3 classes/phase, `retry_advisory: false` to silence), so a
 retry storm identifies itself even with exemplar sampling off.
 
 User-facing walkthrough of the layered system (counters → advisory

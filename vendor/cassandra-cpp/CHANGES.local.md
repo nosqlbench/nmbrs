@@ -26,3 +26,13 @@ does not expose. Keep this file current when the local surface changes —
   `timeout:` / `request_timeout_ms`, so a batch times out client-side
   well before a longer server-side coordinator timeout — the client and
   server disagree on when a request has failed.
+
+## Changed surface
+
+- **`ErrorKind::CassErrorResult` carries a `Box<CassErrorDetails>`.**
+  Upstream spreads the eleven fields of a detailed error result across
+  the variant itself, which makes every `Error`, and so every
+  `Result<_, Error>` the driver returns, at least 160 bytes. The fork
+  moves them into the named struct `CassErrorDetails` behind a box, so
+  the common `Ok` path stays small. Match on the variant and read the
+  fields by name (`details.code`, `details.message`, ...).

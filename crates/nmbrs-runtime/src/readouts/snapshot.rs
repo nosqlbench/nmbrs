@@ -14,11 +14,13 @@
 //!
 //! - [`strip_ansi`] — utility that turns the styled byte
 //!   stream into the plain-text fallback column.
-//! - [`render_to_snapshot_strings`] — convenience that
-//!   takes a [`StringSink`](super::StringSink)'s output
-//!   and returns the `(ansi_bytes, plain_text)` pair the
-//!   sqlite writer expects.
-//! - The [`SqliteReporter::upsert_readout_snapshot`]
+//! - [`capture`] — takes one rendered body (e.g. a
+//!   [`StringSink`](super::StringSink)'s output), derives
+//!   the plain-text column from it, and hands the
+//!   `(ansi_bytes, plain_text)` pair to the sqlite writer
+//!   behind a [`SnapshotWriter`].
+//! - The
+//!   [`SqliteReporter::upsert_readout_snapshot`](nmbrs_metrics::reporters::sqlite::SqliteReporter::upsert_readout_snapshot)
 //!   surface in `nmbrs-metrics::reporters::sqlite` is the
 //!   actual store.
 //!
@@ -61,25 +63,30 @@ pub fn lod_str(lod: super::Lod) -> &'static str {
 /// capture must never block or corrupt the readout-fire
 /// path.
 ///
-/// `subject_id` is normally produced by
-/// [`ReadoutContext::subject_id`](super::ReadoutContext::subject_id)
-/// — the trait default folds `subject_name` +
-/// `subject_labels` into the conventional `name@labels`
-/// shape; session-scoped contexts override to a literal
-/// `"session"`.
-pub fn capture(
+/// The row is keyed by `event`'s slot and subject kind and by `ctx`'s
+/// execution id and subject id. The subject id comes from
+/// [`ReadoutContext::subject_id`](super::ReadoutContext::subject_id):
+/// the trait default folds `subject_name` + `subject_labels` into the
+/// conventional `name@labels` shape, and session-scoped contexts
+/// override it to a literal `"session"`.
+pub fn capture<C: super::ReadoutContext + ?Sized>(
     writer: Option<&SnapshotWriter>,
-    slot: &str,
-    exec_id: u64,
-    subject_kind: &str,
-    subject_id: &str,
+    event: crate::lifecycle::EventType,
+    ctx: &C,
     readout_name: &str,
-    lod: &str,
+    lod: super::Lod,
     rendered: &str,
 ) {
     let Some(writer) = writer else {
         return;
     };
+    let slot = event.slot_name();
+    let exec_id = ctx.subject_exec_id();
+    let subject_kind = event.subject_kind();
+    let subject_kind = subject_kind.as_str();
+    let subject_id = ctx.subject_id();
+    let subject_id = subject_id.as_str();
+    let lod = lod_str(lod);
     let plain = strip_ansi(rendered);
     let now_nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

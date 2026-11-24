@@ -1,0 +1,69 @@
+#!/usr/bin/env nmbrs
+# vectordata/inventory.yaml — everything the catalog knows about a
+# dataset, printed profile by profile: the manifest step that precedes
+# `vectordata/audit`.
+#
+# Usage:
+#   nmbrs run workload=vectordata/inventory dataset=<name>
+#
+# Every value comes from polydat's dataset nodes, and the two
+# parameters are the ones the vector suite declares, so the same
+# `dataset=` works in both. `oracles_prefix` names the per-selectivity
+# oracle profile family (`<prefix>NN`, one per label value); the
+# default profile is always summarised first.
+
+description: |
+  Inventory of a dataset as the catalog resolves it: the profile
+  list with each profile's facets, then per profile the base, query
+  and neighbor counts, the vector dimensionality, and the distance
+  function.
+
+params:
+  dataset: example
+  oracles_prefix: "label_"
+
+scenarios:
+  default:
+    - profiles
+    - for_each: "profile in \"default\""
+      phases:
+        - profile_summary
+    - for_each: "profile in matching_profiles('{dataset}', '{oracles_prefix}')"
+      phases:
+        - profile_summary
+
+phases:
+  # One line per profile: name and facet list, straight from the
+  # group handle (no facet is opened, nothing is downloaded).
+  profiles:
+    adapter: stdout
+    cycles: "{dataset_profile_count(dataset_group_open(\"{dataset}\"))}"
+    concurrency: 1
+    bindings: |
+      const group := dataset_group_open("{dataset}")
+      name := dataset_profile_name_at(group, cycle)
+      facets := profile_facets(group, cycle)
+    ops:
+      profile:
+        stmt: "profile[{cycle}] {name}: {facets}"
+
+  # One summary line per profile. Prebuffering resolves the
+  # profile's facets (downloading on first use), so the counts and
+  # dimensionality below are read from the same handle the vector
+  # suite loads from.
+  profile_summary:
+    adapter: stdout
+    cycles: 1
+    concurrency: 1
+    bindings: |
+      const prebuffered := dataset_prebuffer("{dataset}:{profile}")
+      const bases := vector_count(prebuffered)
+      const queries := query_count(prebuffered)
+      const neighbors := neighbor_count("{dataset}:{profile}")
+      const dim := vector_dim("{dataset}:{profile}")
+      const distance := dataset_distance_function("{dataset}:{profile}")
+    ops:
+      summary:
+        stmt: "{dataset}:{profile} base={bases} queries={queries} neighbors_per_query={neighbors} dim={dim} distance={distance}"
+
+#@ requires dataset (a vectordata catalog; covered by crates/nmbrs/tests/vectordata_audit_workload.rs)

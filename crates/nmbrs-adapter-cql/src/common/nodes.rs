@@ -6,7 +6,7 @@
 //! - [`CqlTimeuuid`] — a deterministic RFC 4122 version-1 UUID generator
 //!   suited for `timeuuid` columns.
 //! - The **session-handle** nodes (SRD-103): [`CqlSession`] resolves the
-//!   pooled [`CqlSessionHandle`](crate::common::CqlSessionHandle) accessor
+//!   pooled [`CqlSessionHandle`] accessor
 //!   payload by fingerprint; [`CqlReadCached`] / [`CqlReadCurrent`] read a
 //!   cluster setting (bytes) off the handle's session-scoped memo; and
 //!   [`CqlServerBatchLimit`] applies the SRD-103 §4 back-off to the batch

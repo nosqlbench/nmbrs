@@ -19,7 +19,7 @@
 //
 // Use for: session IDs, API keys, random-looking tokens, test data
 // that needs to look like real alphanumeric identifiers.
-alpha_numeric(input: u64, length: u64) -> (value: String) := {
+alpha_numeric(input: u64, length: u64) -> (value: str) := {
     value := combinations(hash(input), '0-9A-Za-z', length)
 }
 
@@ -36,7 +36,7 @@ alpha_numeric(input: u64, length: u64) -> (value: String) := {
 // Use for: order numbers, account codes, any fixed-width numeric
 // identifier. The leading zeros ensure consistent string length
 // for display and database storage.
-padded_id(input: u64, bound: u64, width: u64) -> (value: String) := {
+padded_id(input: u64, bound: u64, width: u64) -> (value: str) := {
     value := zero_pad_u64(mod(hash(input), bound), width)
 }
 
@@ -51,6 +51,6 @@ padded_id(input: u64, bound: u64, width: u64) -> (value: String) := {
 //
 // Use for: hardware addresses, memory offsets, debug identifiers,
 // any context where hex representation is natural.
-hex_id(input: u64, bound: u64) -> (value: String) := {
+hex_id(input: u64, bound: u64) -> (value: str) := {
     value := format_u64(mod(hash(input), bound), 16)
 }

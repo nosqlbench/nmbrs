@@ -148,7 +148,7 @@ fn print_timing_report(timings: &[WorkloadTiming]) {
         return;
     }
     let mut ranked: Vec<&WorkloadTiming> = timings.iter().collect();
-    ranked.sort_by(|a, b| b.elapsed.cmp(&a.elapsed));
+    ranked.sort_by_key(|t| std::cmp::Reverse(t.elapsed));
     let shown = ranked.len().min(10);
     let wall: Duration = timings.iter().map(|t| t.elapsed).sum();
     println!(

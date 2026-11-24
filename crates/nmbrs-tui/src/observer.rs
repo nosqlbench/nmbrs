@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Jonathan Shook
 // SPDX-License-Identifier: Apache-2.0
 
-//! TUI-driving [`RunObserver`] implementation.
+//! TUI-driving [`RunObserver`](nmbrs_runtime::observer::RunObserver) implementation.
 //!
 //! [`TuiObserver`] is the glue layer between
 //! [`nmbrs_runtime::observer::RunObserver`] (lifecycle callbacks
@@ -24,7 +24,7 @@
 //!    each call sends one or more `RunStateCmd`s into the
 //!    actor's inbox — no write lock anywhere.
 //! 3. The first `phase_starting` triggers
-//!    [`TuiObserver::ensure_tui_started`] which spawns the
+//!    `TuiObserver::ensure_tui_started` which spawns the
 //!    [`crate::app::App`] thread (also a snapshot reader and
 //!    command sender); pre-phase work runs with plain stderr
 //!    output so a startup failure leaves the terminal clean.

@@ -31,7 +31,7 @@ arc-swap = { version = "1", optional = true }
 # SRD-86 — the `metricsql_*` polydat node family (parse + evaluate +
 # project a query result to a polydat `Value`). Optional so the engine
 # stays polydat-free for consumers that only want parse/evaluate.
-polydat = { version = "0.6.2", optional = true }
+polydat = { version = "0.10.0", optional = true }
 inventory = { version = "0.3.24", optional = true }
 
 [features]
@@ -49,7 +49,7 @@ polydat-nodes = ["dep:polydat", "dep:inventory"]
 # rusqlite builds fresh schemas for the sqlite-backend integration
 # test (tests/sqlite.rs); nmbrs-metrics with its `sqlite` feature
 # provides the backend itself (the engine sits over it).
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 nmbrs-metrics = { path = "../nmbrs-metrics", features = ["sqlite"] }
 # A live `CadenceReporter` owner is a `tokio::spawn` task, so the
 # backend-parity integration test (tests/sqlite.rs) runs under a

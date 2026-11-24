@@ -15,9 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::activity::Activity;
-use crate::adapter::{
-    find_adapter_registration, registered_adapter_params, registered_driver_names,
-};
+use crate::adapter::{find_adapter_registration, registered_adapter_params};
 use crate::bindings::build_workload_root_kernel;
 use crate::opseq::SequencerType;
 use crate::synthesis::OpBuilder;
@@ -61,9 +59,8 @@ pub(crate) fn is_cli_param(name: &str) -> bool {
 /// [`install_known_params`]. Before this, [`parse_params`] validated argv
 /// against its own hardcoded lists ([`RECOGNIZED_BARE_FLAGS`] /
 /// [`SESSION_DIR_FLAGS`]), which had drifted from the spec — declared flags
-/// like `--no-prompt` (bool) and the space form of `--kernel-opt`
-/// / declared aliases like `--session-dir` were hard-rejected while help and
-/// completion advertised them. The hardcoded lists remain only as the
+/// like `--no-prompt` (bool) and the space form of `--kernel-opt` were
+/// hard-rejected while help and completion advertised them. The hardcoded lists remain only as the
 /// library/test-driver fallback.
 static KNOWN_BARE_FLAGS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
 static KNOWN_VALUE_FLAGS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
@@ -82,7 +79,7 @@ pub(crate) fn is_recognized_bare_flag(arg: &str) -> bool {
     arg == "--refine"
         || KNOWN_BARE_FLAGS
             .get()
-            .map(|v| v.iter().any(|f| *f == arg))
+            .map(|v| v.contains(&arg))
             .unwrap_or_else(|| RECOGNIZED_BARE_FLAGS.contains(&arg))
 }
 
@@ -93,6 +90,16 @@ pub(crate) fn known_value_flags() -> &'static [&'static str] {
         .get()
         .map(|v| v.as_slice())
         .unwrap_or(SESSION_DIR_FLAGS)
+}
+
+/// Every recognized flag, bare and value-taking: the candidates an
+/// unrecognized `--flag` is matched against for a suggestion.
+fn known_flags() -> Vec<&'static str> {
+    let bare: &[&str] = KNOWN_BARE_FLAGS
+        .get()
+        .map(|v| v.as_slice())
+        .unwrap_or(RECOGNIZED_BARE_FLAGS);
+    bare.iter().chain(known_value_flags()).copied().collect()
 }
 
 /// A CLI flag's value, accepting `--flag=value` and `--flag value`.
@@ -553,7 +560,15 @@ pub async fn run_with_observer(
     run_impl(args, observer).await
 }
 
-/// Core runner. Diagnostic mode is controlled by `dryrun=` param.
+/// The session-level metrics services [`build_session_metrics`] builds.
+struct SessionMetrics {
+    cadence_reporter: std::sync::Arc<nmbrs_metrics::cadence_reporter::CadenceReporter>,
+    cadence_tree: nmbrs_metrics::cadence::CadenceTree,
+    metrics_query: std::sync::Arc<nmbrs_metrics::metrics_query::MetricsQuery>,
+    /// Stops the metrics scheduler.
+    stop_handle: std::sync::Arc<nmbrs_metrics::scheduler::StopHandle>,
+}
+
 /// SRD-88 — build the session-level metrics services: the cadence
 /// tree + reporter, the shared `MetricsQuery`, and the metrics
 /// scheduler (whose `StopHandle` is returned). One set per session;
@@ -570,15 +585,7 @@ fn build_session_metrics(
     openmetrics_url: &Option<String>,
     args: &[String],
     params: &HashMap<String, String>,
-) -> Result<
-    (
-        std::sync::Arc<nmbrs_metrics::cadence_reporter::CadenceReporter>,
-        nmbrs_metrics::cadence::CadenceTree,
-        std::sync::Arc<nmbrs_metrics::metrics_query::MetricsQuery>,
-        std::sync::Arc<nmbrs_metrics::scheduler::StopHandle>,
-    ),
-    String,
-> {
+) -> Result<SessionMetrics, String> {
     // `metrics_cadence` (effective param) may set a sub-second finest
     // cadence + base interval; otherwise the default 1 s base + declared
     // cadences. The base interval drives both the cadence tree and the
@@ -715,7 +722,7 @@ fn build_session_metrics(
     // any of (a path enables it; `true` uses `<session>/metrics.jsonl`):
     //   * `--metrics-log[=<path>]` flag on the CLI
     //   * `metrics-log=<path|true>` in workload params
-    //   * `NMBRS_METRICS_LOG=<path|1>` env var
+    //   * `NMBRS_METRICS_LOG=<path|true>` env var
     // Tell display surfaces where the session lives, so the one that keeps a
     // durable transcript can open it and flush what it buffered before the
     // directory existed. Default-on: the settled half of the display is
@@ -800,11 +807,17 @@ fn build_session_metrics(
         })
         .or_else(|| params.get("metrics-log").cloned())
         .or_else(|| std::env::var("NMBRS_METRICS_LOG").ok());
+    // `true` / `false`, or a file path. A retired boolean spelling
+    // (`on`, `1`, …) is an error naming the canonical word, never a
+    // file named `on`.
     let metrics_log_path = match metrics_log_setting.as_deref() {
-        None => None,
-        Some("0") | Some("false") | Some("no") | Some("off") | Some("") => None,
-        Some("1") | Some("true") | Some("yes") | Some("on") => {
-            Some(session.output_dir.join("metrics.jsonl"))
+        None | Some("false") => None,
+        Some("true") => Some(session.output_dir.join("metrics.jsonl")),
+        Some(retired @ ("on" | "off" | "yes" | "no" | "1" | "0" | "")) => {
+            return Err(format!(
+                "metrics-log={retired}: write metrics-log=true, metrics-log=false, \
+                 or metrics-log=<path>"
+            ));
         }
         Some(explicit) => {
             // An explicit path from the `--metrics-log=` FLAG is the
@@ -871,16 +884,12 @@ fn build_session_metrics(
     // already carries the same data. Enable via any of:
     //   * `--per-instance-metrics` flag on the CLI
     //   * `per-instance-metrics=true` in workload params
-    //   * `NMBRS_PER_INSTANCE_METRICS=1` env var
+    //   * `NMBRS_PER_INSTANCE_METRICS=true` env var
     let per_instance_enabled = args.iter().any(|a| a == "--per-instance-metrics")
-        || params
-            .get("per-instance-metrics")
-            .map(|s| matches!(s.as_str(), "1" | "true" | "yes" | "on"))
-            .unwrap_or(false)
-        || std::env::var("NMBRS_PER_INSTANCE_METRICS")
-            .ok()
-            .map(|s| matches!(s.as_str(), "1" | "true" | "yes" | "on"))
-            .unwrap_or(false);
+        || params.get("per-instance-metrics").map_or(Ok(false), |s| {
+            nmbrs_workload::boolean::parse_bool("per-instance-metrics", s)
+        })?
+        || nmbrs_workload::boolean::env_flag("NMBRS_PER_INSTANCE_METRICS")?;
     if per_instance_enabled {
         let per_instance_dir = session.output_dir.join("metrics");
         match nmbrs_metrics::reporters::per_instance::PerInstanceReporter::new(&per_instance_dir) {
@@ -1028,7 +1037,12 @@ fn build_session_metrics(
         }
     }));
 
-    Ok((cadence_reporter, cadence_tree, metrics_query, stop_handle))
+    Ok(SessionMetrics {
+        cadence_reporter,
+        cadence_tree,
+        metrics_query,
+        stop_handle,
+    })
 }
 
 /// SRD-88 — the shared, session-tier context, created ONCE per session
@@ -1156,8 +1170,10 @@ impl SessionHost {
         // (resume-inert per SRD-44). CLI `stick_session=true|false`
         // overrides the workload's declaration.
         let stick_reattach: Option<std::path::PathBuf> = {
-            let cli_stick: Option<bool> =
-                params.get("stick_session").map(|v| v == "true" || v == "1");
+            let cli_stick: Option<bool> = params
+                .get("stick_session")
+                .map(|v| nmbrs_workload::boolean::parse_bool("stick_session", v))
+                .transpose()?;
             let stick_on =
                 cli_stick.unwrap_or_else(|| peek_stick_session(&params, &args).unwrap_or(false));
             let reattach_expressed = args
@@ -1219,11 +1235,9 @@ impl SessionHost {
                         .join("checkpoint.jsonl")
                 }
             });
-            let resume_latest = params
-                .get("resume_latest")
-                .map(|s| s != "false" && s != "0")
-                .unwrap_or(false)
-                || args.iter().any(|a| a == "--resume-latest")
+            let resume_latest = params.get("resume_latest").map_or(Ok(false), |s| {
+                nmbrs_workload::boolean::parse_bool("resume_latest", s)
+            })? || args.iter().any(|a| a == "--resume-latest")
                 || stick_reattach.is_some();
             if resume_latest {
                 // Resolve the symlink to a concrete session dir
@@ -1532,7 +1546,12 @@ impl SessionHost {
         }
 
         // SRD-88 — session-tier metrics services, configured from CLI params.
-        let (cadence_reporter, cadence_tree, metrics_query, stop_handle) = build_session_metrics(
+        let SessionMetrics {
+            cadence_reporter,
+            cadence_tree,
+            metrics_query,
+            stop_handle,
+        } = build_session_metrics(
             &session,
             &sqlite_reporter,
             &observer,
@@ -1675,15 +1694,13 @@ async fn run_execution(
     // `driver=<name>` resolves a driver manifest (local
     // `drivers/<name>/driver.yaml` under the cwd first, then the
     // bundled catalog entry `drivers/<name>/driver`; both at once
-    // is a hard error, mirroring workload resolution). The
-    // manifest supplies the implementation library (as workload=
-    // when none was given, else as impl=), the backing adapter,
-    // and default params at lowest precedence. A `driver=` value
-    // matching no manifest keeps its legacy meaning: an alias for
-    // `adapter=`.
-    if let Some(driver_name) = params.get("driver").cloned()
-        && let Some((manifest, library_ref)) = resolve_driver_manifest(&driver_name)?
-    {
+    // favors the local one, with a warning). The manifest supplies
+    // the implementation library (as workload= when none was
+    // given, else as impl=), the backing adapter, and default
+    // params at lowest precedence. A `driver=` value matching no
+    // manifest is an error: `driver=` never names an adapter.
+    if let Some(driver_name) = params.get("driver").cloned() {
+        let (manifest, library_ref) = resolve_driver_manifest(&driver_name)?;
         // A positional `<file>.yaml` argument counts as a given
         // workload — the manifest's library must not displace it.
         let workload_given = params.contains_key("workload")
@@ -1803,7 +1820,7 @@ async fn run_execution(
             })
             .flatten();
         let bundled_origin = workload_is_bundled
-            .then(|| workload_file.as_deref())
+            .then_some(workload_file.as_deref())
             .flatten();
         let (mut blueprint, blueprint_id) =
             load_secondary_workload(&target, &params, base_dir.as_deref(), bundled_origin)?;
@@ -1825,7 +1842,7 @@ async fn run_execution(
             })
             .flatten();
         let bundled_origin = workload_is_bundled
-            .then(|| workload_file.as_deref())
+            .then_some(workload_file.as_deref())
             .flatten();
         let (implementation, impl_id) =
             load_secondary_workload(&impl_ref, &params, base_dir.as_deref(), bundled_origin)?;
@@ -1893,10 +1910,18 @@ async fn run_execution(
 
     let merged_params = workload.params.clone();
 
+    // A workload's own `driver:` param is not an adapter selector
+    // (only a CLI `driver=` names a manifest, resolved above).
+    if merged_params.contains_key("driver") && !params.contains_key("driver") {
+        return Err(format!(
+            "workload param `driver: {}` does not select an adapter; write `adapter: {}`",
+            merged_params["driver"], merged_params["driver"]
+        ));
+    }
+
     // Extract core config
     let driver = merged_params
         .get("adapter")
-        .or_else(|| merged_params.get("driver"))
         .cloned()
         .unwrap_or_else(|| "stdout".into());
     let explicit_cycles: Option<u64> = merged_params.get("cycles").and_then(|s| parse_count(s));
@@ -1966,11 +1991,9 @@ async fn run_execution(
     // run get it; operators who pass it accidentally without
     // resume= get the same generous-retry policy they'd see on
     // resume.
-    let force_retry_failed = params
-        .get("force_retry_failed")
-        .map(|s| s != "false" && s != "0")
-        .unwrap_or(false)
-        || args.iter().any(|a| a == "--force-retry-failed");
+    let force_retry_failed = params.get("force_retry_failed").map_or(Ok(false), |s| {
+        nmbrs_workload::boolean::parse_bool("force_retry_failed", s)
+    })? || args.iter().any(|a| a == "--force-retry-failed");
     if force_retry_failed {
         error_spec = format!(".*:retry,warn;{error_spec}");
         crate::diag!(
@@ -2002,14 +2025,7 @@ async fn run_execution(
             .collect();
         for key in params.keys() {
             if !all_known.contains(&key.as_str()) {
-                let suggestion = closest_match(key, &all_known);
-                if let Some(closest) = suggestion {
-                    return Err(format!(
-                        "unrecognized parameter '{key}='. Did you mean '{closest}='?"
-                    ));
-                } else {
-                    return Err(format!("unrecognized parameter '{key}='"));
-                }
+                return Err(unrecognized_param_error(&args, key, &all_known));
             }
         }
     }
@@ -2167,7 +2183,7 @@ async fn run_execution(
     // on the Phase 9 path. Rewriting in place here keeps the
     // two compile paths consistent.
     for phase in phases.values_mut() {
-        crate::scope::rewrite_inline_exprs(&mut phase.ops);
+        crate::scope::rewrite_inline_exprs(&mut phase.ops)?;
     }
     let phase_order = workload.phase_order;
     let scenarios = workload.scenarios;
@@ -2313,10 +2329,9 @@ async fn run_execution(
         .map(std::path::PathBuf::from)
         .collect();
     let strict = args.iter().any(|a| a == "--strict")
-        || matches!(
-            params.get("strict").map(String::as_str),
-            Some("true") | Some("1")
-        );
+        || params.get("strict").map_or(Ok(false), |s| {
+            nmbrs_workload::boolean::parse_bool("strict", s)
+        })?;
 
     // SRD-68 follow-up — session-wide op-template synthesis opt level.
     // `--kernel-opt=release|diagnostic` or `kernel_opt=…`. Release
@@ -2566,7 +2581,7 @@ async fn run_execution(
     // `execution.component`, so every metric inherits this
     // execution's identity without any tier redeclaring a label.
     let execution = crate::session::Execution::start(
-        &session,
+        session,
         workload_file.as_deref().unwrap_or("inline"),
         scenario_for_session,
         exec_verb,
@@ -2706,7 +2721,7 @@ async fn run_execution(
     // `const __expr_N := …` entries. That pass is a bind-point
     // shape transform, not a value substitution — it operates
     // independently of workload params.
-    crate::scope::rewrite_inline_exprs(&mut all_ops_for_compile);
+    crate::scope::rewrite_inline_exprs(&mut all_ops_for_compile)?;
 
     // The workload-level `bindings:` (top-level YAML block) is
     // a first-class workload-scope input — separate from any
@@ -2852,8 +2867,9 @@ async fn run_execution(
         );
     let kernel = workload_canonical_kernel.clone();
 
-    // Strip workload-level adapter/driver from op params
-    // (adapter is resolved per-phase/per-op, not from workload params)
+    // Strip workload-level adapter and the CLI `driver=` manifest
+    // selector from op params (adapter is resolved per-phase/per-op,
+    // not from workload params)
     for op in &mut all_ops_for_compile {
         op.params.remove("adapter");
         op.params.remove("driver");
@@ -4218,7 +4234,7 @@ async fn run_execution(
     // symlink to the whole session dir) is created by Session::new;
     // these are per-file counterparts for direct tool access like
     // `sqlite3 logs/metrics.db` or `tail -f logs/session.log`.
-    refresh_latest_file_links(&session);
+    refresh_latest_file_links(session);
 
     // dryrun=controls: every phase has now been constructed (at
     // depth=Phase the executor stops before cycles but still
@@ -4282,6 +4298,7 @@ fn close_execution_row(
 }
 
 /// Core runner: set up the shared session host, run one execution, tear down.
+/// Diagnostic mode is controlled by the `dryrun=` param.
 async fn run_impl(
     args: &[String],
     observer: Arc<dyn crate::observer::RunObserver>,
@@ -4312,7 +4329,8 @@ pub struct ExecutionSpec {
 /// flushes its metrics into the shared store via
 /// [`CadenceReporter::quiesce`](nmbrs_metrics::cadence_reporter::CadenceReporter::quiesce)
 /// without tearing the reporter down, and routes its lifecycle/log
-/// through its own observer (a scoped [`ExecutionContext`]). Results
+/// through its own observer (a scoped
+/// [`ExecutionContext`](crate::execution_context::ExecutionContext)). Results
 /// come back in input order.
 ///
 /// `max_concurrent == 1` is the sequential case — the SAME harness, no
@@ -4413,13 +4431,8 @@ pub async fn create_adapter(
     driver: &str,
     params: &HashMap<String, String>,
 ) -> Result<Arc<dyn crate::adapter::DriverAdapter>, String> {
-    let reg = find_adapter_registration(driver).ok_or_else(|| {
-        let available = registered_driver_names();
-        format!(
-            "unknown adapter '{driver}' (available: {})",
-            available.join(", ")
-        )
-    })?;
+    let reg = find_adapter_registration(driver)
+        .ok_or_else(|| crate::adapter::unknown_adapter_error(driver))?;
     (reg.create)(params.clone()).await
 }
 
@@ -5966,11 +5979,10 @@ fn workload_ref_identity(
 /// logged warning naming both — shadowing is allowed but never
 /// silent. Returns the manifest plus the resolved LIBRARY
 /// reference: a file path for a local manifest, a catalog name
-/// for a bundled one. `None` when neither exists — the caller
-/// falls back to the legacy driver-as-adapter-alias meaning.
+/// for a bundled one. An error when neither exists.
 fn resolve_driver_manifest(
     name: &str,
-) -> Result<Option<(nmbrs_workload::drivers::DriverManifest, String)>, String> {
+) -> Result<(nmbrs_workload::drivers::DriverManifest, String), String> {
     let local_path = std::path::Path::new("drivers")
         .join(name)
         .join("driver.yaml");
@@ -5998,7 +6010,7 @@ fn resolve_driver_manifest(
             verify_driver_identity(&manifest, name)?;
             let dir = local_path.parent().expect("manifest path has a parent");
             let library_ref = resolve_driver_library_local(dir, &manifest.library)?;
-            Ok(Some((manifest, library_ref)))
+            Ok((manifest, library_ref))
         }
         (true, None) => {
             let source = std::fs::read_to_string(&local_path)
@@ -6010,7 +6022,7 @@ fn resolve_driver_manifest(
             verify_driver_identity(&manifest, name)?;
             let dir = local_path.parent().expect("manifest path has a parent");
             let library_ref = resolve_driver_library_local(dir, &manifest.library)?;
-            Ok(Some((manifest, library_ref)))
+            Ok((manifest, library_ref))
         }
         (false, Some(entry)) => {
             let manifest =
@@ -6022,10 +6034,28 @@ fn resolve_driver_manifest(
                 .or_else(|| manifest.library.strip_suffix(".yml"))
                 .unwrap_or(&manifest.library);
             let library_ref = format!("drivers/{name}/{stem}");
-            Ok(Some((manifest, library_ref)))
+            Ok((manifest, library_ref))
         }
-        (false, None) => Ok(None),
+        (false, None) => Err(unknown_driver_error(name)),
     }
+}
+
+/// `driver=<name>` names a driver manifest, and none is called
+/// `name`. The error lists the manifests that exist, and points an
+/// adapter name at `adapter=`, since `driver=` never selects one.
+fn unknown_driver_error(name: &str) -> String {
+    let known = nmbrs_workload::drivers::manifest_names();
+    let adapter_hint = if crate::adapter::find_adapter_registration(name).is_some() {
+        format!(" '{name}' is an adapter; select it with `adapter={name}`.")
+    } else {
+        String::new()
+    };
+    format!(
+        "driver={name}: no driver manifest named '{name}' (looked for \
+         ./drivers/{name}/driver.yaml and the bundled drivers/{name}/driver).\
+         {adapter_hint} Known drivers: [{}]",
+        known.join(", ")
+    )
 }
 
 /// A manifest must be named for the directory it lives in — a
@@ -6128,8 +6158,11 @@ fn resolve_secondary_ref(
 
     // A `./`-pinned reference that resolves beside its referring
     // FILE is explicit — no enumeration, no warning.
-    if pinned && base_dir.is_some() && origin_file.is_some() {
-        return Ok(ResolvedWorkload::Path(origin_file.unwrap()));
+    if pinned
+        && base_dir.is_some()
+        && let Some(file) = origin_file
+    {
+        return Ok(ResolvedWorkload::Path(file));
     }
 
     // 2. The cwd's logical layout (exact path, extension probing,
@@ -6409,10 +6442,40 @@ pub(crate) fn elide_outer_quotes(s: &str) -> &str {
     }
 }
 
+/// The error for a CLI argument whose key is no known parameter. `parse_params`
+/// strips leading dashes, so `--x=1` and `x=1` both arrive as the key `x`; the
+/// message names the argument as the operator wrote it. A dashed argument is
+/// reported as a flag and matched against the known flags (a retired spelling
+/// names its replacement); a bare `key=value` is matched against the known
+/// parameters.
+fn unrecognized_param_error(args: &[String], key: &str, known_params: &[&str]) -> String {
+    let dashed = args.iter().find_map(|a| {
+        let a = elide_outer_quotes(a);
+        let name = a.split('=').next().unwrap_or(a);
+        (name.starts_with('-') && name.trim_start_matches('-') == key).then_some(name)
+    });
+    match dashed {
+        Some(flag) => {
+            let suggestion = crate::session::retired_flag_replacement(flag).or_else(|| {
+                let flags = known_flags();
+                crate::suggest::closest_match(flag, flags.iter().copied())
+            });
+            match suggestion {
+                Some(s) => format!("unrecognized flag '{flag}'. Did you mean '{s}'?"),
+                None => format!("unrecognized flag '{flag}'"),
+            }
+        }
+        None => match crate::suggest::closest_match(key, known_params.iter().copied()) {
+            Some(s) => format!("unrecognized parameter '{key}='. Did you mean '{s}='?"),
+            None => format!("unrecognized parameter '{key}='"),
+        },
+    }
+}
+
 /// Flags consumed by `crate::session::resolve_session_dir` at startup.
 /// They appear in raw `args` but shouldn't reach the per-key params map.
-/// Both equals-form (`--session-dir=/path`) and space-form
-/// (`--session-dir /path`) are recognised; the space-form value is
+/// Both equals-form (`--session-path=/path`) and space-form
+/// (`--session-path /path`) are recognised; the space-form value is
 /// silently absorbed. Shared by [`parse_params`] and
 /// [`detect_conflicting_duplicate_params`] so they treat these args
 /// identically.
@@ -6641,7 +6704,7 @@ fn resolve_cadence_config(
             .unwrap_or_else(nmbrs_metrics::cadence::Cadences::defaults);
         return Ok((Duration::from_secs(1), cadences));
     };
-    let floor = nmbrs_metrics::cadence::parse_duration(raw).map_err(|_| {
+    let floor = nmbrs_metrics::cadence::parse_duration(raw).ok_or_else(|| {
         format!("metrics_cadence: invalid duration `{raw}` (use e.g. `100ms`, `200ms`, `1s`)")
     })?;
     if floor.is_zero() {
@@ -6699,36 +6762,6 @@ pub fn parse_count(s: &str) -> Option<u64> {
     } else {
         s.parse().ok()
     }
-}
-
-/// Find the closest match using Levenshtein distance.
-fn closest_match<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
-    let mut best: Option<(&str, usize)> = None;
-    for &candidate in candidates {
-        let d = levenshtein(input, candidate);
-        if best.is_none() || d < best.unwrap().1 {
-            best = Some((candidate, d));
-        }
-    }
-    best.filter(|(_, d)| *d <= (input.len() / 2).max(2))
-        .map(|(s, _)| s)
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let (m, n) = (a.len(), b.len());
-    let mut prev = (0..=n).collect::<Vec<_>>();
-    let mut curr = vec![0; n + 1];
-    for i in 1..=m {
-        curr[0] = i;
-        for j in 1..=n {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[n]
 }
 
 // =========================================================================
@@ -6831,6 +6864,23 @@ mod tests {
         assert!(dup(&["scenario=reset", "scenario='reset'"]).is_ok());
         // …but genuinely different quoted values still conflict.
         assert!(dup(&["scenario='reset'", "scenario=\"idx_sweep\""]).is_err());
+    }
+
+    /// A dashed argument is reported as the flag the operator wrote, and a
+    /// retired spelling names its replacement rather than whatever edit
+    /// distance finds nearest. A bare `key=value` stays a parameter.
+    #[test]
+    fn unrecognized_argument_error_matches_its_shape() {
+        let args = vec!["--sessions-max=5".to_string()];
+        assert_eq!(
+            unrecognized_param_error(&args, "sessions-max", &["cycles"]),
+            "unrecognized flag '--sessions-max'. Did you mean '--session-keep'?"
+        );
+        let args = vec!["cyclse=5".to_string()];
+        assert_eq!(
+            unrecognized_param_error(&args, "cyclse", &["cycles"]),
+            "unrecognized parameter 'cyclse='. Did you mean 'cycles='?"
+        );
     }
 
     #[test]

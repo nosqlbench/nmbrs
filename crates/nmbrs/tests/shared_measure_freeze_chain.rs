@@ -112,10 +112,7 @@ impl RunObserver for LogObserver {
 /// floor_decade(42) == 40.
 fn workload_yaml() -> String {
     // 42 array elements (content irrelevant — element_count == len).
-    let body_elems = std::iter::repeat("0")
-        .take(42)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let body_elems = std::iter::repeat_n("0", 42).collect::<Vec<_>>().join(", ");
     format!(
         r#"
 bindings: |

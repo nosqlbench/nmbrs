@@ -5,7 +5,7 @@
 //! aggregation operators, binary operators, group modifiers,
 //! and matcher operators that the parser/evaluator
 //! recognise. The vocabulary half of the metric catalog —
-//! [`crate::catalog::MetricCatalog`] enumerates *data*; this
+//! [`nmbrs_metrics::queryapi::catalog::MetricCatalog`] enumerates *data*; this
 //! module enumerates *grammar*.
 //!
 //! ## Canonical reference
@@ -13,7 +13,7 @@
 //! What the codebase considers "supported metricsql" lives in
 //! three sources of truth, all in this crate:
 //!
-//! 1. **Parser corpus.** [`crate::parser::is_aggr_func`]
+//! 1. **Parser corpus.** `crate::parser::is_aggr_func`
 //!    enumerates the aggregation-operator names the parser
 //!    recognises and round-trips. The fixture harness
 //!    `crates/nmbrs-metricsql/tests/fixtures/parser_round_trip.json`
@@ -22,7 +22,7 @@
 //!    `eval::AggregateOp::from_name`, and
 //!    `eval::ParameterizedAggregateOp::from_name` enumerate
 //!    the names that map to actual computation against a
-//!    [`crate::eval::DataSource`].
+//!    [`crate::eval::MetricAccess`] service.
 //! 3. **This module.** [`AGGREGATE_OPS`], [`ROLLUP_FUNCTIONS`]
 //!    surface those lists as metadata for tooling
 //!    (completion, lint, prettifier hints, IDE features).
@@ -62,7 +62,7 @@ pub enum EvalSupport {
     /// surface filters these out.
     ParserOnly,
     /// Parses *and* the evaluator dispatches to a real
-    /// implementation against [`crate::eval::DataSource`]. Safe
+    /// implementation against [`crate::eval::MetricAccess`]. Safe
     /// to suggest at every prompt.
     ParserAndEval,
 }

@@ -838,6 +838,15 @@ pub struct CaptureDecl {
 mod tests {
     use super::*;
 
+    /// A retired adapter spelling is never registered and its error
+    /// names the adapter to write.
+    #[test]
+    fn retired_adapter_spelling_names_its_replacement() {
+        assert!(find_adapter_registration("plot").is_none());
+        let err = unknown_adapter_error("plot");
+        assert!(err.contains("Did you mean 'plotter'?"), "{err}");
+    }
+
     #[test]
     fn resolved_fields_lazy_strings() {
         let fields = ResolvedFields::new(
@@ -893,8 +902,8 @@ mod tests {
 /// submits one of these. The shared runner collects all submissions to
 /// build the adapter dispatch table without any explicit adapter list.
 pub struct AdapterRegistration {
-    /// Driver names this adapter responds to (e.g., `&["stdout"]` or `&["cql", "cassandra"]`).
-    pub names: fn() -> &'static [&'static str],
+    /// The one name `adapter=` selects this adapter by (e.g. `"stdout"`, `"cql"`).
+    pub name: &'static str,
     /// Extra param names this adapter accepts (for CLI validation).
     pub known_params: fn() -> &'static [&'static str],
     /// Display preference for TUI activation. Checked at startup before
@@ -919,21 +928,44 @@ pub struct AdapterRegistration {
 
 inventory::collect!(AdapterRegistration);
 
-/// Look up an adapter by driver name from all link-time registrations.
-pub fn find_adapter_registration(driver: &str) -> Option<&'static AdapterRegistration> {
+/// Look up an adapter by name from all link-time registrations.
+pub fn find_adapter_registration(name: &str) -> Option<&'static AdapterRegistration> {
     inventory::iter::<AdapterRegistration>
         .into_iter()
-        .find(|&reg| (reg.names)().contains(&driver))
+        .find(|&reg| reg.name == name)
         .map(|v| v as _)
 }
 
-/// List all registered driver names.
+/// List all registered adapter names.
 pub fn registered_driver_names() -> Vec<&'static str> {
-    let mut names = Vec::new();
-    for reg in inventory::iter::<AdapterRegistration> {
-        names.extend_from_slice((reg.names)());
+    inventory::iter::<AdapterRegistration>
+        .into_iter()
+        .map(|reg| reg.name)
+        .collect()
+}
+
+/// The adapter name to write for a retired adapter spelling.
+pub fn retired_adapter_replacement(name: &str) -> Option<&'static str> {
+    match name {
+        "plot" => Some("plotter"),
+        _ => None,
     }
-    names
+}
+
+/// The error for an `adapter=` value no adapter is registered
+/// under: names the replacement for a retired spelling, else the
+/// closest registered name, and lists them all.
+pub fn unknown_adapter_error(name: &str) -> String {
+    let mut available = registered_driver_names();
+    available.sort_unstable();
+    let hint = retired_adapter_replacement(name)
+        .or_else(|| crate::suggest::closest_match(name, available.iter().copied()))
+        .map(|s| format!(" Did you mean '{s}'?"))
+        .unwrap_or_default();
+    format!(
+        "unknown adapter '{name}'.{hint} (available: {})",
+        available.join(", ")
+    )
 }
 
 /// Look up the display preference for a driver name without constructing the adapter.
@@ -1000,7 +1032,7 @@ pub fn registered_adapter_params() -> Vec<&'static str> {
 /// ```
 pub struct DriverImpl {
     /// The adapter this driver implements (e.g. `"cql"`).
-    /// Matches the [`AdapterRegistration::names`] of the
+    /// Matches the [`AdapterRegistration::name`] of the
     /// adapter the user selects with `adapter=…`.
     pub adapter: &'static str,
     /// The driver identifier. Surfaces in

@@ -50,7 +50,7 @@
 //!    `cql_trace` universal field. A DATA SOURCE.
 //! 2. The Rust `tracing` crate's **log severity** filter. Not
 //!    used by nmbrs (we use [`crate::observer`] /
-//!    [`crate::trace_router`] instead). Orthogonal to (1).
+//!    `crate::trace_router` instead). Orthogonal to (1).
 //! 3. nmbrs event-log **emissions** — checkpoint JSONL etc.
 //!    Pluggable via `ModifierTraceSink`. Orthogonal to (1) and (2).
 
@@ -193,9 +193,9 @@ impl<T: 'static> std::fmt::Debug for ModifierChain<T> {
 ///
 /// Built-in implementations:
 ///
-/// - [`TraceRouterSink`] — routes to [`crate::trace_router`]
+/// - [`TraceRouterSink`] — routes to `crate::trace_router`
 ///   with a `{component: "op_modifier", op: <label>, field:
-///   <name>}` label set. Gates on [`crate::trace_router::enabled`]
+///   <name>}` label set. Gates on `crate::trace_router::enabled`
 ///   so the closure is invoked only when at least one trace
 ///   target is configured.
 ///
@@ -217,7 +217,7 @@ pub trait ModifierTraceSink: Send + Sync {
 }
 
 /// Built-in sink that routes modifier events through
-/// [`crate::trace_router`].
+/// `crate::trace_router`.
 ///
 /// Each event becomes a trace-router log line with labels
 /// `{component: "op_modifier", op: <op_label>, field:
@@ -225,7 +225,7 @@ pub trait ModifierTraceSink: Send + Sync {
 /// Operators select which adapters / ops / fields to record via
 /// the `--trace=<spec>` CLI surface.
 ///
-/// The sink checks [`crate::trace_router::enabled`] before
+/// The sink checks `crate::trace_router::enabled` before
 /// invoking `value_fn`, so the JSON serialization cost is paid
 /// only when the trace router has at least one subscribed
 /// target.

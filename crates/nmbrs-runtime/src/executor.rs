@@ -683,6 +683,7 @@ fn join_outcome(
 /// - `first_failure` — the cascade-stop trigger + reason: set only when the
 ///   handler decides to `Stop` (drives the dispatch break + the `Interrupted`
 ///   disposition), exactly as before.
+///
 /// The aggregate reads the two latches separately when building its `Outcome`.
 fn fold_child(
     res: Result<crate::phase_outcome::Outcome, tokio::task::JoinError>,
@@ -707,6 +708,7 @@ fn fold_child(
 ///   `Completed+Failed` quadrant), rather than a lost failure.
 /// - `disposition` = `Interrupted` iff dispatch was CUT SHORT (a handler
 ///   cascade-stop or a workload-shell halt), else `Completed`.
+///
 /// Quadrants: stop-policy fail → `Interrupted+Failed`; non-stop fail (all ran)
 /// → `Completed+Failed`; workload halt → `Interrupted+Succeeded`; clean →
 /// `Completed+Succeeded`. (`to_status()` is `Failed` for either failed quadrant.)
@@ -1706,7 +1708,6 @@ fn execute_node<'a>(
                             steps,
                             TerminalAction::Phase(name),
                             depth + 1,
-                            false,
                             "for_each",
                             Some((name.clone(), op_names, phase_path_for_iters)),
                             gate,
@@ -2050,7 +2051,6 @@ fn execute_node<'a>(
                     steps,
                     TerminalAction::Children(children),
                     depth + 1,
-                    false,
                     kind,
                     None,
                     continue_if_gate,
@@ -2582,18 +2582,15 @@ fn resolve_continue_if(
 ///    phase-level `for_each`.
 /// 7. Pops labels, restores `current_parent_kernel`.
 ///
-/// `sequential_only` forces the per-iteration limit to
-/// `Bounded(1)` regardless of `schedule=` — used for do-loops
-/// where iteration N depends on iteration N-1's effects (would
-/// need to be revisited for `shared`-state propagation; SRD-16
-/// §"Shared Mutable"). The harness is unchanged; only the limit
-/// value differs.
+/// The per-iteration concurrency limit comes from `schedule=` at
+/// `depth`. Do-loops, whose iteration N depends on iteration N-1's
+/// effects, do not come through here: `run_do_loop` iterates them
+/// in order.
 fn dispatch_comprehension<'a>(
     ctx: &'a mut ExecCtx,
     steps: Vec<IterationStep>,
     terminal: TerminalAction<'a>,
     depth: usize,
-    sequential_only: bool,
     kind: &'static str,
     // Phase-terminal scene-tree metadata. `Some((name,
     // op_names, phase_yaml_path))` for `TerminalAction::Phase`
@@ -2620,16 +2617,10 @@ fn dispatch_comprehension<'a>(
             return crate::phase_outcome::Outcome::completed();
         }
 
-        // Effective limit: `sequential_only` (do-loop ordering
-        // dependency) clamps to Bounded(1); otherwise read the
-        // schedule spec. There is no separate serial code path —
-        // Bounded(1) flows through the same semaphore-gated
+        // The schedule spec's limit at this depth. A serial schedule
+        // is Bounded(1), which flows through the same semaphore-gated
         // dispatcher as any other limit.
-        let limit = if sequential_only {
-            ConcurrencyLimit::Bounded(1)
-        } else {
-            ctx.schedule_spec.limit_at(depth)
-        };
+        let limit = ctx.schedule_spec.limit_at(depth);
 
         let sem: Option<std::sync::Arc<tokio::sync::Semaphore>> = match limit {
             ConcurrencyLimit::Bounded(n) => {
@@ -2703,52 +2694,52 @@ fn dispatch_comprehension<'a>(
             // `Ext<Partition>`), so evaluating the gate there would mis-type;
             // the cap is a real-execution decision, and pre-map shows the full
             // structural tree.
-            if let Some(gate) = continue_if.as_ref() {
-                if ctx.diag.depth >= crate::runner::ExecDepth::Op && !ctx.pre_map_only {
-                    match crate::stop_conditions::eval_continue_if(
-                        &gate.gate_canonical,
-                        &gate.parent,
-                        &step.bindings,
-                    ) {
-                        Ok(true) => {} // gate holds → run this iteration
-                        Ok(false) => {
-                            let coord = format_iter_label(&step.bindings);
-                            let reason =
-                                format!("continue_if: {} — halted at {coord}", gate.spec.when);
-                            crate::diag!(
-                                crate::observer::LogLevel::Info,
-                                "sweep halted (continue_if): `{}` false at {coord}",
-                                gate.spec.when
+            if let Some(gate) = continue_if.as_ref()
+                && ctx.diag.depth >= crate::runner::ExecDepth::Op
+                && !ctx.pre_map_only
+            {
+                match crate::stop_conditions::eval_continue_if(
+                    &gate.gate_canonical,
+                    &gate.parent,
+                    &step.bindings,
+                ) {
+                    Ok(true) => {} // gate holds → run this iteration
+                    Ok(false) => {
+                        let coord = format_iter_label(&step.bindings);
+                        let reason = format!("continue_if: {} — halted at {coord}", gate.spec.when);
+                        crate::diag!(
+                            crate::observer::LogLevel::Info,
+                            "sweep halted (continue_if): `{}` false at {coord}",
+                            gate.spec.when
+                        );
+                        // Signal a graceful early stop so the post-run
+                        // "pre-mapped phase(s) not executed" guard treats
+                        // the halted tail as deliberate (clean exit 0),
+                        // exactly as an SRD-83 `stop` effect does. This is
+                        // a post-run flag only — it does NOT itself halt
+                        // the walk (the break / walk_stop latch does).
+                        crate::session_signals::request_graceful_stop();
+                        // `each: workload` propagates the halt to the whole
+                        // run via the shared walk_stop latch; otherwise the
+                        // local break is the halt and the walk above this
+                        // sweep continues.
+                        if gate
+                            .spec
+                            .each
+                            .iter()
+                            .any(|l| matches!(l, nmbrs_workload::model::ScopeLevel::Workload))
+                        {
+                            ctx.workload_shell.request_stop(
+                                crate::phase_outcome::Outcome::interrupted()
+                                    .with_reason(reason.clone()),
+                                reason.clone(),
                             );
-                            // Signal a graceful early stop so the post-run
-                            // "pre-mapped phase(s) not executed" guard treats
-                            // the halted tail as deliberate (clean exit 0),
-                            // exactly as an SRD-83 `stop` effect does. This is
-                            // a post-run flag only — it does NOT itself halt
-                            // the walk (the break / walk_stop latch does).
-                            crate::session_signals::request_graceful_stop();
-                            // `each: workload` propagates the halt to the whole
-                            // run via the shared walk_stop latch; otherwise the
-                            // local break is the halt and the walk above this
-                            // sweep continues.
-                            if gate
-                                .spec
-                                .each
-                                .iter()
-                                .any(|l| matches!(l, nmbrs_workload::model::ScopeLevel::Workload))
-                            {
-                                ctx.workload_shell.request_stop(
-                                    crate::phase_outcome::Outcome::interrupted()
-                                        .with_reason(reason.clone()),
-                                    reason.clone(),
-                                );
-                            }
-                            continue_if_halt = Some(reason);
-                            break;
                         }
-                        Err(e) => {
-                            return crate::phase_outcome::Outcome::failed().with_reason(e);
-                        }
+                        continue_if_halt = Some(reason);
+                        break;
+                    }
+                    Err(e) => {
+                        return crate::phase_outcome::Outcome::failed().with_reason(e);
                     }
                 }
             }
@@ -2859,10 +2850,10 @@ fn dispatch_comprehension<'a>(
         // graceful Interrupted+Succeeded outcome carrying the marker reason
         // (the sweep scope's `PhaseOutcome`, §7), UNLESS an in-flight iteration
         // failed meanwhile — a real failure wins (honest).
-        if let Some(reason) = continue_if_halt {
-            if first_err.is_none() {
-                return crate::phase_outcome::Outcome::interrupted().with_reason(reason);
-            }
+        if let Some(reason) = continue_if_halt
+            && first_err.is_none()
+        {
+            return crate::phase_outcome::Outcome::interrupted().with_reason(reason);
         }
         // SRD-92 two-latch fold. `first_err` is the validity latch (already set
         // on ANY failed/panicked iteration — comprehension drains all, no local
@@ -4547,7 +4538,10 @@ async fn run_phase_inner(
         // Rewrite inline expressions ({{expr}} → {__expr_N}) in op templates.
         // This modifies op template strings and returns the expr→name map
         // so the scope can register the corresponding bindings.
-        crate::scope::rewrite_inline_exprs(&mut ops);
+        if let Err(e) = crate::scope::rewrite_inline_exprs(&mut ops) {
+            return crate::phase_outcome::Outcome::failed()
+                .with_reason(format!("phase '{phase_name}': {e}"));
+        }
 
         // Note: per-op `adapter:` / `driver:` overrides are read
         // by the activity-layer dispenser-construction loop
@@ -6220,15 +6214,17 @@ async fn run_phase_inner(
     // `merged_params` (CLI-overlaid), not the workload-declared-only
     // `workload_params`.
     let metric_detail = crate::activity::metric_detail_from_params(&ctx.merged_params);
-    let mut activity = Activity::with_params_and_sigdigs(
+    let mut activity = Activity::with_resolution(
         config,
         &labels,
         op_sequence,
         ctx.workload_params.clone(),
-        sigdigs,
-        phase_error_policy,
-        phase_kernel,
-        &metric_detail,
+        crate::activity::ActivityResolution {
+            sigdigs,
+            error_policy: phase_error_policy,
+            phase_kernel,
+            metric_detail: &metric_detail,
+        },
     );
     // SRD-82 Part 4 — wire this execution's walk-stop flag so in-flight
     // fibers abort cooperatively when the scenario walk halts (a sibling

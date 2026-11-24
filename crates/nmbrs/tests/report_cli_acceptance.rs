@@ -197,8 +197,7 @@ fn srd64_acceptance_full_flow() {
             "throughput",
             "--label",
             "Demo plot",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--add",
         ],
     );
@@ -247,8 +246,7 @@ fn srd64_acceptance_full_flow() {
             "throughput",
             "--label",
             "Different",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--add",
         ],
     );
@@ -271,8 +269,7 @@ fn srd64_acceptance_full_flow() {
             "throughput",
             "--label",
             "Updated label",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--add",
             "--replace",
         ],
@@ -312,8 +309,7 @@ fn srd64_acceptance_full_flow() {
         .arg("rename")
         .arg("demo")
         .arg("demo_v2")
-        .arg("--workload")
-        .arg(&sb.workload)
+        .arg(format!("workload={}", sb.workload.display()))
         .arg("--session-path")
         .arg(&sb.session)
         .output()
@@ -338,8 +334,7 @@ fn srd64_acceptance_full_flow() {
             "demo_phase",
             "--over",
             "cycle",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--add",
             "--contextual",
             "auto",
@@ -386,8 +381,7 @@ fn srd64_acceptance_full_flow() {
             "From A",
             "--add",
             "--replace",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--session-path",
             sb.session.to_str().unwrap(),
         ])
@@ -413,8 +407,7 @@ fn srd64_acceptance_full_flow() {
             "From B",
             "--add",
             "--replace",
-            "--workload",
-            sb.workload.to_str().unwrap(),
+            &format!("workload={}", sb.workload.display()),
             "--session-path",
             sb.session.to_str().unwrap(),
         ])

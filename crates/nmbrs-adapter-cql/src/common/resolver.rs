@@ -6,15 +6,15 @@
 //! The `cql` adapter is the single user-facing CQL adapter.
 //! Internally it has multiple driver implementations
 //! (`scylla` — pure Rust; `cassandra-cpp` — Apache Cassandra C++ via
-//! FFI), each registered as a [`DriverImpl`]
-//! (nmbrs_runtime::adapter::DriverImpl) under
+//! FFI), each registered as a
+//! [`DriverImpl`](nmbrs_runtime::adapter::DriverImpl) under
 //! `adapter = "cql"`. Driver names are *internal* — they're
 //! never user-facing adapter names.
 //!
 //! At session start the runner walks the registered
-//! [`DriverImpl`]s for `cql`, picks one (user override via
+//! [`DriverImpl`](nmbrs_runtime::adapter::DriverImpl)s for `cql`, picks one (user override via
 //! `cqldriver=…`, or default by ascending
-//! [`DriverImpl::default_rank`]), and instantiates it. The
+//! [`DriverImpl::default_rank`](nmbrs_runtime::adapter::DriverImpl::default_rank)), and instantiates it. The
 //! returned [`DriverAdapter`](nmbrs_runtime::adapter::DriverAdapter)
 //! reports its name as `"cql"` regardless of which driver
 //! backs it.
@@ -77,7 +77,7 @@ fn cql_supported_controls() -> &'static [ControlDesc] {
 // registration only declares the driver-selector itself.
 inventory::submit! {
     AdapterRegistration {
-        names: || &["cql"],
+        name: "cql",
         known_params: || &[CQL_DRIVER_PARAM],
         display_preference: |_params| DisplayPreference::Auto,
         supported_controls: cql_supported_controls,

@@ -5,7 +5,7 @@
 //! `phases:  X completed, Y failed, Z not run (of N total)`.
 //!
 //! Reads session-scope totals from
-//! [`ReadoutContext::session_phases_*`]. Default slot is
+//! the `ReadoutContext::session_phases_*` methods. Default slot is
 //! `on_session_end`; workloads can also bind it elsewhere
 //! (e.g. mid-run snapshot via `on_update`) but the totals
 //! only make sense at session-scope contexts.

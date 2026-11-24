@@ -75,7 +75,6 @@
 params:
   adapter: stdout
   cycles: 5
-  format: "row #{cycle}: count={count}"
 
 scenarios:
   default:

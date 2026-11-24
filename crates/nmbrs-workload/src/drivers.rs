@@ -130,6 +130,27 @@ fn string_field(v: &serde_json::Value, key: &str, origin: &str) -> Result<String
         .ok_or_else(|| format!("driver manifest {origin}: `{key}:` must be a string, got {v}"))
 }
 
+/// The names `driver=` accepts, sorted and deduplicated: every
+/// bundled `drivers/<name>/driver` catalog entry plus every local
+/// `./drivers/<name>/driver.yaml` under the cwd.
+pub fn manifest_names() -> Vec<String> {
+    let mut names: Vec<String> = crate::catalog::iter()
+        .filter_map(|e| e.name.strip_prefix("drivers/"))
+        .filter_map(|rest| rest.strip_suffix("/driver"))
+        .map(str::to_string)
+        .collect();
+    if let Ok(dir) = std::fs::read_dir("drivers") {
+        names.extend(
+            dir.flatten()
+                .filter(|e| e.path().join("driver.yaml").is_file())
+                .filter_map(|e| e.file_name().to_str().map(str::to_string)),
+        );
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

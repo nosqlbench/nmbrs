@@ -9,7 +9,8 @@
 //! Three checks:
 //!
 //! 1. **Error-router specs parse.** Every `errors:` spec — phase-level
-//!    and op-level — goes through the real [`ErrorRouter`] parser, so a
+//!    and op-level — goes through the real
+//!    [`ErrorRouter`](nmbrs_errorhandler::ErrorRouter) parser, so a
 //!    bad verb or regex is a load error naming its phase/op instead of
 //!    a first-error-at-runtime surprise. Specs carrying `{param}`
 //!    interpolation are skipped here (they resolve later and are
