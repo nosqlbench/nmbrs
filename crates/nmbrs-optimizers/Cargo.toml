@@ -7,7 +7,6 @@ description = "Standalone, runtime-free black-box (derivative-free) optimization
 keywords = ["nosqlbench", "optimization", "black-box", "derivative-free", "benchmark"]
 categories = ["algorithms", "science", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

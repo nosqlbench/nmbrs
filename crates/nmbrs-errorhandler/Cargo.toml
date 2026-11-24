@@ -7,9 +7,7 @@ description = "Modular composable error handler for nmbrs"
 keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
 regex = "1"
-log = "0.4"

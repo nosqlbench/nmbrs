@@ -7,7 +7,6 @@ description = "Testkit adapter for nmbrs: simulates operation execution with con
 keywords = ["nosqlbench", "workload", "benchmark", "simulation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

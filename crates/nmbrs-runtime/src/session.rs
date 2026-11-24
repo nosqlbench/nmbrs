@@ -159,6 +159,58 @@ pub struct Session {
     /// Shared `MetricsQuery` handle — installed by the runner once the
     /// cadence reporter is built. `None` before the runner wires it.
     pub metrics_query: Mutex<Option<Arc<MetricsQuery>>>,
+    /// The session's liveness lock ([`hold_session_liveness`]), held for as
+    /// long as this value lives so that no other process's session cleanup
+    /// deletes the directory under it. `None` when the lock could not be
+    /// taken, which is logged where it happens.
+    _liveness: Option<std::fs::File>,
+}
+
+/// The file in a session directory whose advisory lock says "a process is
+/// using this session". Every [`Session`] holds it shared;
+/// [`purge_stale_sessions`] deletes a directory only when it can take it
+/// exclusively.
+const SESSION_LIVENESS_FILE: &str = "session.lock";
+
+/// Take the shared liveness lock on the session at `dir`, to be held for the
+/// life of the returned handle. Shared, so a second process attached to the
+/// same session (a resume racing the original, a reader) is not refused
+/// here — that conflict belongs to the checkpoint writer's exclusive lock.
+fn hold_session_liveness(dir: &Path) -> Option<std::fs::File> {
+    let path = dir.join(SESSION_LIVENESS_FILE);
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .and_then(|file| file.lock_shared().map(|()| file));
+    match held {
+        Ok(file) => Some(file),
+        Err(e) => {
+            crate::observer::log(
+                crate::observer::LogLevel::Warn,
+                &format!(
+                    "warning: could not hold the session liveness lock {}: {e} \
+                     (another run's session cleanup may delete this session while it runs)",
+                    path.display(),
+                ),
+            );
+            None
+        }
+    }
+}
+
+/// Whether some process holds the liveness lock of the session at `dir`.
+/// A directory with no lock file is not live. One whose lock cannot be
+/// examined is reported live: the caller is deciding whether to delete it.
+fn session_is_live(dir: &Path) -> bool {
+    let file = match std::fs::File::open(dir.join(SESSION_LIVENESS_FILE)) {
+        Ok(file) => file,
+        Err(e) => return e.kind() != std::io::ErrorKind::NotFound,
+    };
+    // Taken and released at once: the lock goes with the handle.
+    file.try_lock().is_err()
 }
 
 /// Translate a CLI flag name (`--session-path`) into its
@@ -1072,9 +1124,13 @@ fn looks_like_session_dir(path: &Path) -> bool {
 /// `max_sessions` (keep the latest N) and `shelflife` (drop
 /// anything older than this).
 ///
-/// Skipped: the `latest` symlink and whatever it points at
-/// (the active session). Non-directory entries (loose files
-/// like a stray `summary.md`) are left alone.
+/// Skipped: the `latest` symlink and whatever it points at, and
+/// every session some process is still using
+/// (it holds the directory's `session.lock`) — concurrent runs given sibling
+/// `--session-path` directories each run this pass, and none may
+/// delete another's session from under it. A live session does
+/// not count toward `max_sessions`. Non-directory entries (loose
+/// files like a stray `summary.md`) are left alone.
 ///
 /// Errors during enumeration / removal are logged at Warn
 /// (this is a best-effort housekeeping pass; failure shouldn't
@@ -1126,6 +1182,10 @@ pub fn purge_stale_sessions(parent: &Path, max_sessions: usize, shelflife: std::
         // unrelated dirs (snap.rootfs_*, systemd-private-*,
         // …) into the purge set.
         if !looks_like_session_dir(&path) {
+            return None;
+        }
+        // Never delete a session a process is still running in.
+        if session_is_live(&path) {
             return None;
         }
         let mtime = md.modified().ok()?;
@@ -1371,6 +1431,7 @@ impl Session {
                         "session.log",
                         "checkpoint.jsonl",
                         "checkpoint.lock",
+                        SESSION_LIVENESS_FILE,
                         "summary.md",
                         "summary.txt",
                         "summary.json",
@@ -1411,6 +1472,8 @@ impl Session {
                 ),
             );
         }
+
+        let liveness = hold_session_liveness(&output_dir);
 
         // Refresh `logs/latest` → this session, then *clear* every
         // per-artifact convenience symlink from the previous
@@ -1485,6 +1548,7 @@ impl Session {
             output_dir,
             component,
             metrics_query: Mutex::new(None),
+            _liveness: liveness,
         }
     }
 
@@ -1532,6 +1596,8 @@ impl Session {
         // here from a prior run. Skipped when the session lives
         // outside `logs/` (see Session::new for rationale: one-off
         // external session dirs shouldn't hijack `logs/latest`).
+        let liveness = hold_session_liveness(&prior_session_dir);
+
         let logs = default_sessions_root();
         if target_is_under(&logs, &prior_session_dir) {
             let latest = logs.join("latest");
@@ -1558,6 +1624,7 @@ impl Session {
             output_dir: prior_session_dir,
             component,
             metrics_query: Mutex::new(None),
+            _liveness: liveness,
         }
     }
 
@@ -2322,6 +2389,38 @@ mod tests {
         assert!(parse_duration("").is_err());
         assert!(parse_duration("not-a-number").is_err());
         assert!(parse_duration("abc4w").is_err());
+    }
+
+    /// A session another run still holds is not deleted, however far past
+    /// the keep cap it sits; once released, the same pass deletes it.
+    #[test]
+    fn purge_spares_a_live_session_until_it_is_released() {
+        let parent =
+            std::env::temp_dir().join(format!("nmbrs-purge-live-{}", crate::scratch_suffix()));
+        let live = parent.join("live");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(live.join("metrics.db"), "x").unwrap();
+        let held = hold_session_liveness(&live).expect("hold the liveness lock");
+        // Newer sessions, enough to push `live` past a cap of 1.
+        for i in 0..3 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let d = parent.join(format!("later_{i}"));
+            std::fs::create_dir(&d).unwrap();
+            std::fs::write(d.join("metrics.db"), "x").unwrap();
+        }
+
+        purge_stale_sessions(&parent, 1, std::time::Duration::ZERO);
+        assert!(live.is_dir(), "a live session was purged");
+        assert!(
+            !parent.join("later_0").exists(),
+            "an idle session past the cap survived"
+        );
+
+        drop(held);
+        purge_stale_sessions(&parent, 1, std::time::Duration::ZERO);
+        assert!(!live.exists(), "a released session past the cap survived");
+
+        let _ = std::fs::remove_dir_all(&parent);
     }
 
     #[test]

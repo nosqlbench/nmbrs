@@ -188,12 +188,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arraydeque"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -210,19 +204,6 @@ dependencies = [
 
 [[package]]
 name = "askama"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f75363874b771be265f4ffe307ca705ef6f3baa19011c149da8674a87f1b75c4"
-dependencies = [
- "askama_derive 0.14.0",
- "itoa",
- "percent-encoding",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "askama"
 version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b8246bcbf8eb97abef10c2d92166449680d41d55c0fc6978a91dec2e3619608"
@@ -235,45 +216,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "askama-derive-axum"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aae12689b39bb2e33bc45d83688741e1b430c602c23ccaa18efc8ebe8c337858"
-dependencies = [
- "askama 0.14.0",
- "askama_derive 0.14.0",
- "axum-core",
- "http",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "tracing",
-]
-
-[[package]]
-name = "askama_derive"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "129397200fe83088e8a68407a8e2b1f826cf0086b21ccdb866a722c8bcd3a94f"
-dependencies = [
- "askama_parser 0.14.0",
- "basic-toml",
- "memchr",
- "proc-macro2",
- "quote",
- "rustc-hash",
- "serde",
- "serde_derive",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "askama_derive"
 version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f9670bc84a28bb3da91821ef74226949ab63f1265aff7c751634f1dd0e6f97c"
 dependencies = [
- "askama_parser 0.15.6",
+ "askama_parser",
  "basic-toml",
  "memchr",
  "proc-macro2",
@@ -290,19 +238,7 @@ version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0756b45480437dded0565dfc568af62ccce146fb6cfe902e808ba86e445f44f"
 dependencies = [
- "askama_derive 0.15.6",
-]
-
-[[package]]
-name = "askama_parser"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ab5630b3d5eaf232620167977f95eb51f3432fc76852328774afbd242d4358"
-dependencies = [
- "memchr",
- "serde",
- "serde_derive",
- "winnow 0.7.15",
+ "askama_derive",
 ]
 
 [[package]]
@@ -1408,12 +1344,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doc-comment"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "780955b8b195a21ab8e4ac6b60dd1dbdcec1dc6c51c0617964b08c81785e12c9"
-
-[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1975,15 +1905,6 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.2.0",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
-dependencies = [
- "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -2767,17 +2688,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "marked-yaml"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a76cf4e66a8ffccfce983161b0faafe61a5ef03fe875ef2e3deb897e4e915fa"
-dependencies = [
- "doc-comment",
- "hashlink 0.10.0",
- "yaml-rust2",
-]
-
-[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3188,7 +3098,6 @@ dependencies = [
 name = "nmbrs-errorhandler"
 version = "0.4.0"
 dependencies = [
- "log",
  "regex",
 ]
 
@@ -3296,8 +3205,7 @@ dependencies = [
 name = "nmbrs-web"
 version = "0.4.0"
 dependencies = [
- "askama 0.15.6",
- "askama-derive-axum",
+ "askama",
  "axum",
  "http-body-util",
  "nmbrs-metrics",
@@ -3316,7 +3224,6 @@ name = "nmbrs-workload"
 version = "0.4.0"
 dependencies = [
  "fs4",
- "marked-yaml",
  "polydat",
  "regex",
  "serde",
@@ -4639,7 +4546,7 @@ dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",
  "fallible-streaming-iterator",
- "hashlink 0.12.2",
+ "hashlink",
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",
@@ -7085,17 +6992,6 @@ name = "y4m"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a5a4b21e1a62b67a2970e6831bc091d7b87e119e7f9791aef9702e3bef04448"
-
-[[package]]
-name = "yaml-rust2"
-version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2462ea039c445496d8793d052e13787f2b90e750b833afee748e601c17621ed9"
-dependencies = [
- "arraydeque",
- "encoding_rs",
- "hashlink 0.10.0",
-]
 
 [[package]]
 name = "yoke"

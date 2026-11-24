@@ -7,7 +7,6 @@ description = "Metrics collection and reporting for nmbrs"
 keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

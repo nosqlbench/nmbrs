@@ -7,7 +7,6 @@ description = "HTTP adapter for nmbrs: executes workload operations as HTTP requ
 keywords = ["nosqlbench", "workload", "benchmark", "http"]
 categories = ["command-line-utilities", "web-programming::http-client"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

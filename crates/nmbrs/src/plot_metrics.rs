@@ -2473,8 +2473,8 @@ impl PlotMetricsOpts {
             let n = i + 2;
             if axis.query.is_some() {
                 // Every smaller index (down to 2) must have a query.
-                for prev in 0..i {
-                    if self.secondary_axes[prev].query.is_none() {
+                for (prev, prev_axis) in self.secondary_axes.iter().enumerate().take(i) {
+                    if prev_axis.query.is_none() {
                         let prev_name = format!("y{}", prev + 2);
                         return Err(format!(
                             "plot declares `y{n}:` but no `{prev_name}:` — \

@@ -12,7 +12,7 @@
 #     native (no QEMU emulation):
 #       linux/amd64   → ubuntu-24.04        + apt deps
 #       linux/arm64   → ubuntu-24.04-arm    + apt deps
-#       macos/arm64   → macos-14            + brew deps
+#       macos/arm64   → macos-15            + brew deps
 #     Each entry calls `bash crates/nmbrs-adapter-cql/build.sh driver`
 #     (DRIVER_BUILD_MODE=native) so the driver recipe stays
 #     single-source with the local docker path.
@@ -139,7 +139,7 @@ jobs:
             runner: ubuntu-24.04-arm
             os:     linux
           - target: aarch64-apple-darwin
-            runner: macos-14            # Apple Silicon (M-series)
+            runner: macos-15            # Apple Silicon (M-series)
             os:     macos
           # Intel macOS (x86_64-apple-darwin / macos-13) is
           # intentionally omitted: GHA's last Intel mac runner

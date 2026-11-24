@@ -39,18 +39,24 @@ use shadow_terminal::steppable_terminal::SteppableTerminal;
 mod pty_support;
 use pty_support::wait_for;
 
-/// Path to the `tui_display_harness` example binary. Derived from
-/// the running test binary: `target/<profile>/deps/<test>` →
-/// `target/<profile>/examples/tui_display_harness`.
+/// Path to the `tui_display_harness` example binary, found from the
+/// running test binary's location.
 fn harness_binary() -> PathBuf {
-    let mut p = std::env::current_exe().expect("current_exe");
-    p.pop(); // drop the test binary file name
-    if p.ends_with("deps") {
-        p.pop(); // deps → profile dir
-    }
-    p.push("examples");
-    p.push("tui_display_harness");
-    p
+    // Cargo puts examples in `<profile dir>/examples`, and this test binary
+    // somewhere beneath the profile dir: `deps/` under the older layout,
+    // `build/<package>/<hash>/out/` under the newer one. Walk up to the
+    // first directory that holds the harness rather than assume either.
+    let exe = std::env::current_exe().expect("current_exe");
+    exe.ancestors()
+        .skip(1)
+        .map(|dir| dir.join("examples").join("tui_display_harness"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| {
+            panic!(
+                "no examples/tui_display_harness above {}; cargo builds it with the tests",
+                exe.display()
+            )
+        })
 }
 
 fn harness_config() -> Config {

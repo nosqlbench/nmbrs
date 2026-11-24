@@ -7,7 +7,6 @@ description = "Plotter adapter for nmbrs: renders workload outputs as terminal p
 keywords = ["nosqlbench", "workload", "benchmark", "plot"]
 categories = ["command-line-utilities", "visualization"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

@@ -7,7 +7,6 @@ description = "Terminal UI for nmbrs: live metrics dashboard, progress, op throu
 keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

@@ -7,7 +7,6 @@ description = "Stdout adapter for nmbrs: writes assembled ops to stdout or a fil
 keywords = ["nosqlbench", "workload", "benchmark", "stdout"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

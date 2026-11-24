@@ -7,7 +7,6 @@ description = "Uniform workload specification parsing and processing for nmbrs"
 keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
@@ -29,13 +28,9 @@ polydat = "0.10.0"
 #   a CST whose nodes carry byte ranges, so we can locate the
 #   target subtree without throwing away comments / whitespace
 #   / quote styles in the rest of the file.
-# - marked-yaml: emit new structural blocks (e.g. inserting a
-#   `report:` mapping where none existed) when we need to
-#   produce well-formed YAML that the splicer drops in.
 # - fs4: cross-platform cooperative file locks that serialise
 #   concurrent `nmbrs report --add` writers against the same
 #   workload file.
 tree-sitter = "0.25"
 tree-sitter-yaml = "0.7"
-marked-yaml = "0.8"
 fs4 = "0.13"

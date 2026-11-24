@@ -354,11 +354,16 @@ pub fn run_case(
         };
         let stdout = out_h.join().unwrap_or_default();
         let stderr = err_h.join().unwrap_or_default();
-        let combined = format!(
+        let mut combined = format!(
             "{}{}",
             String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&stderr)
         );
+        if !status.success() {
+            // How the run ended is part of its result: a run killed by a
+            // signal prints nothing of its own to say so.
+            combined.push_str(&format!("\nnmbrs run ended with {status}\n"));
+        }
         Ok((combined, status.success(), timed_out))
     };
 
@@ -380,6 +385,10 @@ pub fn run_case(
     check_case_output(case, &combined, succeeded, timed_out)
 }
 
+/// How many trailing output lines a failure with no error line is reported
+/// with.
+const FAILURE_TAIL_LINES: usize = 15;
+
 /// Check one case's RUN RESULT against its expectations — the run-mechanism-
 /// agnostic half of [`run_case`]. `combined` is the merged stdout+stderr the
 /// run produced; `succeeded` is its exit success; `timed_out` is the timeout
@@ -398,10 +407,19 @@ pub fn check_case_output(
     }
     if case.expect_fails.is_empty() {
         if !succeeded {
-            let err = combined
+            // Name the failure by its error line; a run that failed without
+            // one is reported by the end of what it did print.
+            let err = match combined
                 .lines()
                 .find(|l| l.contains("error:") || l.contains("panic"))
-                .unwrap_or("(no error line)");
+            {
+                Some(line) => line.to_string(),
+                None => {
+                    let lines: Vec<&str> = combined.lines().collect();
+                    let tail = &lines[lines.len().saturating_sub(FAILURE_TAIL_LINES)..];
+                    format!("no error line; the output ended:\n{}", tail.join("\n"))
+                }
+            };
             return Err(format!("run failed (expected success): {err}"));
         }
     } else {

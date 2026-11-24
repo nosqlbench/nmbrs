@@ -7,7 +7,6 @@ description = "Rust rewrite of nosqlbench: a pluggable workload generation and b
 keywords = ["nosqlbench", "workload", "benchmark", "data-generation"]
 categories = ["command-line-utilities", "simulation"]
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [[bin]]
