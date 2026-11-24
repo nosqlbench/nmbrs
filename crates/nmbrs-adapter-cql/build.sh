@@ -165,9 +165,27 @@ _build_driver_native() {
                     driver_cflags="-I$brew_openssl/include"
                     export PKG_CONFIG_PATH="$brew_openssl/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
                 fi
-                # libuv is brewable as a normal formula — cmake's
-                # find_library handles it via standard /opt/homebrew
-                # or /usr/local search paths, so no explicit hint.
+                # Point the driver's FindLibuv at libuv's own keg.
+                # Left to its defaults it finds libuv under the
+                # shared /opt/homebrew prefix and puts
+                # /opt/homebrew/include on the compile line ahead of
+                # OpenSSL's directory — the shared directory whose
+                # `openssl/` may belong to a newer OpenSSL than the
+                # one linked (see above). The keg's include directory
+                # holds libuv's headers and nothing else.
+                local brew_libuv
+                brew_libuv="$(brew --prefix libuv 2>/dev/null || true)"
+                if [ -n "$brew_libuv" ]; then
+                    cmake_extra+=(-DLIBUV_ROOT_DIR="$brew_libuv")
+                fi
+                # Say whose headers the shared directory would have
+                # offered, so a header/library mismatch is readable
+                # from the log.
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || true)"
+                if [ -n "$brew_prefix" ] && [ -e "$brew_prefix/include/openssl" ]; then
+                    echo "==> [native] $brew_prefix/include/openssl -> $(readlink "$brew_prefix/include/openssl" || echo '(a real directory)')"
+                fi
             fi
             ;;
         *)
