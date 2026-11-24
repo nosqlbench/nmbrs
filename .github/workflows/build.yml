@@ -75,6 +75,11 @@ jobs:
   # check and packaging, for default features and all features. Runs
   # on every push and PR; the GitHub Release waits on it.
   #
+  # A release tag gets the full gate. Everything else gets
+  # `--quick`, which packs the crates without building each from its
+  # package: that build shares nothing with the other checks and was
+  # 24 of the gate's 46 minutes on this runner.
+  #
   # The all-features checks link the C++ driver, so this job prepares
   # the same sysroot as the x86_64 Linux build and shares its cache.
   gate:
@@ -120,7 +125,12 @@ jobs:
         with:
           shared-key: gate
 
-      - name: Run the release gate
+      - name: Run the release gate (quick)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: cargo ws-check --quick
+
+      - name: Run the release gate (full)
+        if: startsWith(github.ref, 'refs/tags/v')
         run: cargo ws-check
 
   build-artifact:

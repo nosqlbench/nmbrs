@@ -6,7 +6,9 @@
 //!
 //! `cargo ws-check` runs `xtask gate`: every check a release must pass,
 //! against the tree as it stands, committed or not. Nothing is versioned
-//! or published.
+//! or published. `cargo ws-check --quick` runs the same checks but packs
+//! the crates without building them from their packages, which is half
+//! the gate's time; it is what CI runs on everything but a release tag.
 //!
 //! `cargo ws-release [bump] [cargo-workspaces options]` runs
 //! `xtask release`: it requires a clean `main`, runs the same gate, and
@@ -32,9 +34,12 @@ struct Check {
     /// `cargo ws-check` adds `--allow-dirty` to it, `cargo ws-release`
     /// does not.
     refuses_dirty_tree: bool,
-    /// The check compiles workspace crates out of cargo's registry
-    /// directory, so it runs with [`physical_cargo_home`].
-    builds_from_registry: bool,
+    /// The check packs each crate and then builds it from its package. The
+    /// build compiles workspace crates out of cargo's registry directory,
+    /// so it runs with [`physical_cargo_home`] and, because of that, in
+    /// [`PACKAGING_TARGET_DIR`]; [`Depth::Quick`] packs without building
+    /// (`--no-verify`).
+    builds_packed_crates: bool,
 }
 
 const fn check(name: &'static str, args: &'static [&'static str]) -> Check {
@@ -43,7 +48,7 @@ const fn check(name: &'static str, args: &'static [&'static str]) -> Check {
         args,
         rustdoc_warnings_are_errors: false,
         refuses_dirty_tree: false,
-        builds_from_registry: false,
+        builds_packed_crates: false,
     }
 }
 
@@ -53,7 +58,7 @@ const fn rustdoc(name: &'static str, args: &'static [&'static str]) -> Check {
         args,
         rustdoc_warnings_are_errors: true,
         refuses_dirty_tree: false,
-        builds_from_registry: false,
+        builds_packed_crates: false,
     }
 }
 
@@ -63,7 +68,7 @@ const fn packaging(name: &'static str, args: &'static [&'static str]) -> Check {
         args,
         rustdoc_warnings_are_errors: false,
         refuses_dirty_tree: true,
-        builds_from_registry: true,
+        builds_packed_crates: true,
     }
 }
 
@@ -140,7 +145,10 @@ const GATE: &[Check] = &[
     // one check that catches a file missing from a package, a feature
     // that only compiles because another member turned it on, and a
     // requirement on a crate version that is not published (the vendored
-    // `nmbrs-cassandra-cpp` fork).
+    // `nmbrs-cassandra-cpp` fork). The build shares nothing with the checks
+    // above, so it is the slowest check by far; `Depth::Quick` keeps the
+    // packing (manifests, file lists, requirement resolution) and leaves
+    // the build to the full gate.
     packaging(
         "packaging",
         &["package", "--workspace", "--exclude", "xtask"],
@@ -166,15 +174,21 @@ const PUBLISH: &[&str] = &[
 const RELEASE_BRANCH: &str = "main";
 
 const USAGE: &str = "usage:
-  cargo ws-check
-      run the release gate against the tree as it stands
+  cargo ws-check [--quick]
+      run the release gate against the tree as it stands; --quick packs
+      the crates without building them from their packages
   cargo ws-release [patch|minor|major|custom X.Y.Z] [cargo-workspaces options]
       require a clean main, run the release gate, then publish";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let passed = match args.split_first() {
-        Some((task, [])) if task == "gate" => gate(&workspace_root(), Tree::AsItStands),
+        Some((task, [])) if task == "gate" => {
+            gate(&workspace_root(), Tree::AsItStands, Depth::Full)
+        }
+        Some((task, [flag])) if task == "gate" && flag == "--quick" => {
+            gate(&workspace_root(), Tree::AsItStands, Depth::Quick)
+        }
         Some((task, rest)) if task == "release" => release(&workspace_root(), rest),
         _ => {
             eprintln!("{USAGE}");
@@ -197,9 +211,19 @@ enum Tree {
     Clean,
 }
 
+/// How much of the gate runs.
+#[derive(Clone, Copy, PartialEq)]
+enum Depth {
+    /// Everything; the only depth a release is cut at.
+    Full,
+    /// `cargo ws-check --quick`: every check, but the crates are packed
+    /// without being built from their packages.
+    Quick,
+}
+
 /// Run every check of [`GATE`] in order and stop at the first that
 /// fails. Returns whether all of them passed.
-fn gate(root: &Path, tree: Tree) -> bool {
+fn gate(root: &Path, tree: Tree, depth: Depth) -> bool {
     for (index, check) in GATE.iter().enumerate() {
         eprintln!(
             "\n==> release gate {}/{}: {}",
@@ -212,10 +236,20 @@ fn gate(root: &Path, tree: Tree) -> bool {
         if check.refuses_dirty_tree && tree == Tree::AsItStands {
             command.arg("--allow-dirty");
         }
-        if check.builds_from_registry
-            && let Some(home) = physical_cargo_home()
-        {
-            command.env("CARGO_HOME", home);
+        if check.builds_packed_crates {
+            match depth {
+                Depth::Quick => {
+                    command.arg("--no-verify");
+                }
+                Depth::Full => {
+                    command
+                        .arg("--target-dir")
+                        .arg(root.join(PACKAGING_TARGET_DIR));
+                    if let Some(home) = physical_cargo_home() {
+                        command.env("CARGO_HOME", home);
+                    }
+                }
+            }
         }
         if check.rustdoc_warnings_are_errors {
             command.env("RUSTDOCFLAGS", "-D warnings");
@@ -225,7 +259,13 @@ fn gate(root: &Path, tree: Tree) -> bool {
             return false;
         }
     }
-    eprintln!("\n==> release gate passed ({} checks)", GATE.len());
+    match depth {
+        Depth::Full => eprintln!("\n==> release gate passed ({} checks)", GATE.len()),
+        Depth::Quick => eprintln!(
+            "\n==> release gate passed ({} checks; quick: the packed crates were not built)",
+            GATE.len()
+        ),
+    }
     true
 }
 
@@ -241,7 +281,7 @@ fn release(root: &Path, publish_args: &[String]) -> bool {
         eprintln!("cargo ws-release: {reason}; nothing was checked, versioned or published");
         return false;
     }
-    if !gate(root, Tree::Clean) {
+    if !gate(root, Tree::Clean, Depth::Full) {
         eprintln!("cargo ws-release: nothing was versioned or published");
         return false;
     }
@@ -292,6 +332,19 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+/// Where the packaging check builds, relative to the workspace root: a
+/// build directory of its own.
+///
+/// Cargo keys a dependency's build artifacts by a hash that does not
+/// include the path its source was read from, while the artifact's
+/// contents do depend on it. The packaging check may read the registry
+/// through a different path than every other cargo command
+/// ([`physical_cargo_home`]), so in the shared `target/` it would overwrite
+/// dependency artifacts in place with differently-hashed builds and leave
+/// the rest of the cache referring to crates that are no longer there
+/// (`can't find crate for …` on the next ordinary build).
+const PACKAGING_TARGET_DIR: &str = "target/packaging-gate";
 
 /// Cargo's home directory with every symlink resolved, or `None` when it
 /// cannot be found, in which case cargo is left to find its own.

@@ -7,7 +7,9 @@ b = "build --release"
 in = "install --path crates/nmbrs"
 # The release gate (docs/guide/releasing.md), both through `xtask`.
 # `cargo ws-check` runs every check a release must pass against the tree as
-# it stands. `cargo ws-release [patch|minor|major|custom X.Y.Z] [--dry-run]`
+# it stands; `cargo ws-check --quick` packs the crates without building them
+# from their packages, which is half the time, and is what CI runs on
+# everything but a release tag. `cargo ws-release [patch|minor|major|custom X.Y.Z] [--dry-run]`
 # requires a clean main, runs the same checks, and only when they all pass
 # runs `cargo ws publish --force '*' --all --exact --allow-branch main` with
 # the options given.

@@ -8,6 +8,7 @@ nothing until the tree has passed every check on this page:
 
 ```sh
 cargo ws-check              # the checks alone, against the tree as it stands
+cargo ws-check --quick      # the same, without building the packed crates
 cargo ws-release            # clean main -> checks -> version, tag, publish
 ```
 
@@ -67,10 +68,20 @@ without an engine.
    requirement on a crate version that is not on crates.io.
    The check gives cargo its home directory with symlinks resolved:
    `nmbrs-web`'s template macro cannot find its templates when the
-   unpacked crate is reached through a symlinked path.
+   unpacked crate is reached through a symlinked path. Because that can
+   change the path dependencies are read from, the check builds in its
+   own directory, `target/packaging-gate`, and leaves the ordinary build
+   cache alone.
 
-CI runs `cargo ws-check` on every push and pull request (the `gate` job of
-`.github/workflows/build.yml`), and the GitHub Release of a tag waits on it.
+`cargo ws-check --quick` runs every check but shortens the last: it packs
+the crates, which still checks each manifest, each package's file list and
+that every requirement resolves, and does not build them from their
+packages. That build shares nothing with the other checks and is about half
+the gate's time. `cargo ws-release` always runs the full gate.
+
+CI runs the gate on every push and pull request (the `gate` job of
+`.github/workflows/build.yml`): `--quick` everywhere but a `v*` tag, which
+gets the full gate, and the GitHub Release of a tag waits on it.
 
 `cargo ws-check` runs the gate on whatever is on disk, so it is the way to
 find out whether work in progress is releasable. `cargo ws-release` first
