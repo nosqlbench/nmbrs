@@ -3,6 +3,9 @@
 #
 # Build (and on tag pushes, publish) nmbrs release artifacts.
 #
+#   gate — `cargo ws-check`, the release gate
+#     (docs/guide/releasing.md), on every push and PR.
+#
 #   build-artifact — 3-way matrix producing bare per-platform
 #     binaries, every one built with `--features all-engines`
 #     (pure-Rust scylla + cassandra-cpp via FFI). All runners are
@@ -63,12 +66,19 @@ env:
   # the upgrade as its own change.
 
 jobs:
-  # ─── Architecture gate: the crate/module dependency rules
-  # (docs/SRD/05_dependency_rules.md, Pillar 5 of the Subsystem
-  # Treatment Standard). Fast, default-features only (no cassandra
-  # sysroot), runs on every push/PR so layering drift fails CI.
-  arch-gate:
-    name: architecture rules gate
+  # ─── Release gate: `cargo ws-check`, the checks a release must pass
+  # (docs/guide/releasing.md; the list itself is xtask/src/main.rs, so
+  # CI and `cargo ws-release` cannot drift apart). Formatting, clippy,
+  # rustdoc, the dependency policy, the whole test suite — which
+  # includes the crate/module dependency rules of
+  # docs/SRD/05_dependency_rules.md — the doc examples, a release
+  # check and packaging, for default features and all features. Runs
+  # on every push and PR; the GitHub Release waits on it.
+  #
+  # The all-features checks link the C++ driver, so this job prepares
+  # the same sysroot as the x86_64 Linux build and shares its cache.
+  gate:
+    name: release gate
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -77,18 +87,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config mold clang libssl-dev ca-certificates
+            build-essential cmake git \
+            libuv1-dev libssl-dev zlib1g-dev \
+            pkg-config mold clang ca-certificates
+
+      - name: Cache cassandra-cpp-driver sysroot
+        id: cache-sysroot
+        uses: actions/cache@v5
+        with:
+          path: crates/nmbrs-adapter-cql/target/sysroot
+          key: cass-cpp-${{ env.CASSANDRA_CPP_DRIVER_REF }}-x86_64-unknown-linux-gnu-${{ hashFiles('crates/nmbrs-adapter-cql/build.sh', 'crates/nmbrs-adapter-cql/cassandra-cpp-driver.Dockerfile') }}
+
+      - name: Build cassandra-cpp-driver (native mode)
+        if: steps.cache-sysroot.outputs.cache-hit != 'true'
+        env:
+          DRIVER_BUILD_MODE: native
+          CASSANDRA_CPP_DRIVER_VERSION: ${{ env.CASSANDRA_CPP_DRIVER_REF }}
+        run: bash crates/nmbrs-adapter-cql/build.sh driver
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-nextest and cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-deny
 
       - name: Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: arch-gate
+          shared-key: gate
 
-      - name: Run dependency-rule gate (SRD-05)
-        run: cargo test -p nmbrs --test architecture_rules
+      - name: Run the release gate
+        run: cargo ws-check
 
   build-artifact:
     name: ${{ matrix.target }}
@@ -436,7 +469,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-24.04
-    needs: [build-artifact, build-image-merge]
+    needs: [gate, build-artifact, build-image-merge]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write

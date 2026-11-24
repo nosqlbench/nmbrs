@@ -54,8 +54,7 @@ without an engine.
 5. **tests**, default features and all features —
    `cargo nextest run --workspace`, which includes the bundled example
    workloads, the dependency-rule gate (`architecture_rules`) and the PTY
-   display suites. The CQL suites that need a server skip themselves when
-   none answers on localhost.
+   display suites. No test needs a database server.
 6. **doc examples** — `cargo test --doc --workspace --all-features`, which
    nextest does not run.
 7. **release build** —
@@ -69,6 +68,9 @@ without an engine.
    The check gives cargo its home directory with symlinks resolved:
    `nmbrs-web`'s template macro cannot find its templates when the
    unpacked crate is reached through a symlinked path.
+
+CI runs `cargo ws-check` on every push and pull request (the `gate` job of
+`.github/workflows/build.yml`), and the GitHub Release of a tag waits on it.
 
 `cargo ws-check` runs the gate on whatever is on disk, so it is the way to
 find out whether work in progress is releasable. `cargo ws-release` first
