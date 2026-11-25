@@ -2958,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "glob",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-cql"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cassandra-cpp-sys",
  "half",
@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-http"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "inventory",
  "nmbrs-runtime",
@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-openapi"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "nmbrs-workload",
  "openapiv3",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-plotter"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "crossterm 0.29.0",
  "inventory",
@@ -3056,7 +3056,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-stdout"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "inventory",
  "nmbrs-runtime",
@@ -3068,7 +3068,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-adapter-testkit"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "inventory",
  "nmbrs-adapter-stdout",
@@ -3096,14 +3096,14 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-errorhandler"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "regex",
 ]
 
 [[package]]
 name = "nmbrs-metrics"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "criterion",
@@ -3121,7 +3121,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-metricsql"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
@@ -3137,7 +3137,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-optimizers"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "inventory",
  "nmbrs-runtime",
@@ -3145,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-rate"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "futures",
  "nmbrs-metrics",
@@ -3154,7 +3154,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-runtime"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "futures",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-tui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "crossterm 0.29.0",
@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-web"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "askama",
  "axum",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "nmbrs-workload"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "fs4",
  "polydat",
@@ -6979,7 +6979,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "xxhash-rust"
