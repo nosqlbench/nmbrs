@@ -159,18 +159,27 @@ pub struct Session {
     /// Shared `MetricsQuery` handle — installed by the runner once the
     /// cadence reporter is built. `None` before the runner wires it.
     pub metrics_query: Mutex<Option<Arc<MetricsQuery>>>,
-    /// The session's liveness lock ([`hold_session_liveness`]), held for as
-    /// long as this value lives so that no other process's session cleanup
-    /// deletes the directory under it. `None` when the lock could not be
-    /// taken, which is logged where it happens.
-    _liveness: Option<std::fs::File>,
 }
 
 /// The file in a session directory whose advisory lock says "a process is
-/// using this session". Every [`Session`] holds it shared;
+/// using this session". A process that creates or re-attaches a
+/// [`Session`] holds it shared until it exits ([`keep_session_live`]);
 /// [`purge_stale_sessions`] deletes a directory only when it can take it
 /// exclusively.
 const SESSION_LIVENESS_FILE: &str = "session.lock";
+
+/// Hold the liveness lock of the session at `dir` until this process exits.
+///
+/// Process lifetime, not [`Session`] lifetime: a run keeps using its session
+/// directory after the `Session` value is gone — the end-of-run report and
+/// summary open `metrics.db` once the executions have shut down — and a
+/// concurrent run's cleanup must not delete it in that window either.
+fn keep_session_live(dir: &Path) {
+    static HELD: Mutex<Vec<std::fs::File>> = Mutex::new(Vec::new());
+    if let Some(file) = hold_session_liveness(dir) {
+        HELD.lock().unwrap_or_else(|e| e.into_inner()).push(file);
+    }
+}
 
 /// Take the shared liveness lock on the session at `dir`, to be held for the
 /// life of the returned handle. Shared, so a second process attached to the
@@ -1473,7 +1482,7 @@ impl Session {
             );
         }
 
-        let liveness = hold_session_liveness(&output_dir);
+        keep_session_live(&output_dir);
 
         // Refresh `logs/latest` → this session, then *clear* every
         // per-artifact convenience symlink from the previous
@@ -1548,7 +1557,6 @@ impl Session {
             output_dir,
             component,
             metrics_query: Mutex::new(None),
-            _liveness: liveness,
         }
     }
 
@@ -1596,7 +1604,7 @@ impl Session {
         // here from a prior run. Skipped when the session lives
         // outside `logs/` (see Session::new for rationale: one-off
         // external session dirs shouldn't hijack `logs/latest`).
-        let liveness = hold_session_liveness(&prior_session_dir);
+        keep_session_live(&prior_session_dir);
 
         let logs = default_sessions_root();
         if target_is_under(&logs, &prior_session_dir) {
@@ -1624,7 +1632,6 @@ impl Session {
             output_dir: prior_session_dir,
             component,
             metrics_query: Mutex::new(None),
-            _liveness: liveness,
         }
     }
 
