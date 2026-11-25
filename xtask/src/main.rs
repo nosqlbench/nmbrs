@@ -288,6 +288,15 @@ fn release(root: &Path, publish_args: &[String]) -> bool {
     eprintln!("\n==> running cargo ws publish {}", publish_args.join(" "));
     let mut command = cargo(root);
     command.args(PUBLISH).args(publish_args);
+    // Publishing verifies each crate the way the packaging check does —
+    // built from its package, with the crates published before it read out
+    // of cargo's registry directory — so it needs the same two settings,
+    // for the same reasons. Without them the gate passes and the publish
+    // then fails part-way, on the first crate that depends on `nmbrs-web`.
+    command.env("CARGO_TARGET_DIR", root.join(PACKAGING_TARGET_DIR));
+    if let Some(home) = physical_cargo_home() {
+        command.env("CARGO_HOME", home);
+    }
     succeeds(&mut command)
 }
 
@@ -333,8 +342,8 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Where the packaging check builds, relative to the workspace root: a
-/// build directory of its own.
+/// Where the packaging check and the publish build, relative to the
+/// workspace root: a build directory of their own.
 ///
 /// Cargo keys a dependency's build artifacts by a hash that does not
 /// include the path its source was read from, while the artifact's
@@ -349,8 +358,9 @@ const PACKAGING_TARGET_DIR: &str = "target/packaging-gate";
 /// Cargo's home directory with every symlink resolved, or `None` when it
 /// cannot be found, in which case cargo is left to find its own.
 ///
-/// The packaging check unpacks each workspace crate under
-/// `$CARGO_HOME/registry/src` and compiles it there. `nmbrs-web`'s
+/// The packaging check, and the publish that follows the gate, unpack
+/// workspace crates under `$CARGO_HOME/registry/src` and compile them
+/// there. `nmbrs-web`'s
 /// template derive (askama) locates its templates by a path relative to
 /// the source file, computed from the resolved location of one and the
 /// unresolved location of the other, so when the home directory is
